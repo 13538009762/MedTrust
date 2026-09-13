@@ -22,7 +22,7 @@ func (s *AuditService) Log(userID uint64, opType, targetType, targetID string, h
 		logID := fmt.Sprintf("LOG-%s-%d", hex.EncodeToString(uuidBytes), time.Now().Unix())
 
 		// 上链存证
-		txID, _, _ := blockchain.DefaultLedger.CommitAsset("AUDIT", logID, map[string]interface{}{
+		txID, _, _ := blockchain.DefaultService.CommitAsset("AUDIT", logID, map[string]interface{}{
 			"user_id":     userID,
 			"op_type":     opType,
 			"target_type": targetType,

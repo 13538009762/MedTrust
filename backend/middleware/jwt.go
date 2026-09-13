@@ -43,7 +43,25 @@ func GenerateToken(u *model.User) (string, error) {
 func JWTAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
+		tokenStr := ""
+
+		if authHeader != "" {
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) == 2 && parts[0] == "Bearer" {
+				tokenStr = parts[1]
+			} else {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, model.Response{
+					Code:    401,
+					Message: "Token 格式错误 (Bearer {token})",
+				})
+				return
+			}
+		} else {
+			// 支持 URL Query token (供 <img> / 浏览器附件直接下载安全鉴权)
+			tokenStr = c.Query("token")
+		}
+
+		if tokenStr == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, model.Response{
 				Code:    401,
 				Message: "未提供认证 Token，请先登录",
@@ -51,16 +69,6 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		parts := strings.SplitN(authHeader, " ", 2)
-		if !(len(parts) == 2 && parts[0] == "Bearer") {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, model.Response{
-				Code:    401,
-				Message: "Token 格式错误 (Bearer {token})",
-			})
-			return
-		}
-
-		tokenStr := parts[1]
 		claims := &CustomClaims{}
 		token, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
 			return []byte(config.AppConfig.Server.JWTSecret), nil

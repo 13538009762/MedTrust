@@ -5785,5 +5785,1256 @@
       "timestamp": "2026-09-13T11:48:51+08:00",
       "user_id": 0
     }
+  },
+  {
+    "tx_id": "0x2c3ddbd3fc655deca4d3ed5b324ede596c90573a6caa610b51ea691ab3f2fefe",
+    "block_height": 879,
+    "timestamp": "2026-09-13T12:11:57+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-5ce2c8b88bca1eda-1789272717",
+    "payload": {
+      "hospital_id": 1,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "DOC_A001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:11:57+08:00",
+      "user_id": 1
+    }
+  },
+  {
+    "tx_id": "0x6ccc84cea223734334a8ee3be7c802db1ff1b0132b41d6a86f633e09f100ecac",
+    "block_height": 880,
+    "timestamp": "2026-09-13T12:11:57+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-ba09c4bf7824ec34-1789272717",
+    "payload": {
+      "hospital_id": 2,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "DOC_B001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:11:57+08:00",
+      "user_id": 2
+    }
+  },
+  {
+    "tx_id": "0xb6753dfc2f213d796d0f9a8505caebbc492b140e857c837b8b08f6438f5ab542",
+    "block_height": 881,
+    "timestamp": "2026-09-13T12:11:57+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-f29e7bc6e9236366-1789272717",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "PAT_0001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:11:57+08:00",
+      "user_id": 4
+    }
+  },
+  {
+    "tx_id": "0xfa886473b799e16a81e99fbcda4a86fce9f3e7f25cf3f526646a0a3203d36f0c",
+    "block_height": 882,
+    "timestamp": "2026-09-13T12:11:57+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-e3d696b9936cf3ac-1789272717",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "PAT_0002",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:11:57+08:00",
+      "user_id": 5
+    }
+  },
+  {
+    "tx_id": "0x06e3cbcd3eddb75a3e817bb1ff9e2f2611228d7bf972b924b8a396cd5dff454c",
+    "block_height": 883,
+    "timestamp": "2026-09-13T12:11:57+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-e2d5f93132c51b49-1789272717",
+    "payload": {
+      "hospital_id": 1,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "ADM_0001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:11:57+08:00",
+      "user_id": 6
+    }
+  },
+  {
+    "tx_id": "0xcb67124413d0fb86045d99bb0cc5db59521b0231f7eb048e3c9f2dafc747d332",
+    "block_height": 884,
+    "timestamp": "2026-09-13T12:11:58+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-f4c8e362e18e2308-1789272718",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "SUP_0001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:11:58+08:00",
+      "user_id": 7
+    }
+  },
+  {
+    "tx_id": "0x0d53c35b74f549c843ebe023c16273a207c3c8824397dedea25139bf3b2356d7",
+    "block_height": 885,
+    "timestamp": "2026-09-13T12:12:31+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-f82931bea7f76bc2-1789272751",
+    "payload": {
+      "hospital_id": 1,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "DOC_A001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:12:31+08:00",
+      "user_id": 1
+    }
+  },
+  {
+    "tx_id": "0x265412d5d749d9b5a7d0f6482243464182307d857cf35bac064ab4da1e8385d7",
+    "block_height": 886,
+    "timestamp": "2026-09-13T12:12:31+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-a5f8a9d8c51b0c9d-1789272751",
+    "payload": {
+      "hospital_id": 2,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "DOC_B001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:12:31+08:00",
+      "user_id": 2
+    }
+  },
+  {
+    "tx_id": "0xb0eb19e43ed69dc55eacfc095db8439099b68324598de623775839d862f50e5f",
+    "block_height": 887,
+    "timestamp": "2026-09-13T12:12:31+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-aae940a42d1d5bbc-1789272751",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "PAT_0001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:12:31+08:00",
+      "user_id": 4
+    }
+  },
+  {
+    "tx_id": "0x6bd515d7b7d817cef79ead4704f97026be6cf6d9dbfa166ddbd304de64570565",
+    "block_height": 888,
+    "timestamp": "2026-09-13T12:12:31+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-f4b120a800960168-1789272751",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "PAT_0002",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:12:31+08:00",
+      "user_id": 5
+    }
+  },
+  {
+    "tx_id": "0x21a6af42c9ebab48248dfe6352ed823956eb4d1de5885f7ab15f019dade74f74",
+    "block_height": 889,
+    "timestamp": "2026-09-13T12:12:32+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-dc9869b3f9dedc84-1789272752",
+    "payload": {
+      "hospital_id": 1,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "ADM_0001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:12:32+08:00",
+      "user_id": 6
+    }
+  },
+  {
+    "tx_id": "0x24462c28f8f266bce1d7f99b4e310a5e7666e2a70fd6e6a4051a64f64fcfc216",
+    "block_height": 890,
+    "timestamp": "2026-09-13T12:12:32+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-846e461f69e3de65-1789272752",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "SUP_0001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:12:32+08:00",
+      "user_id": 7
+    }
+  },
+  {
+    "tx_id": "0x11aefde80951fef787bff8ca21851320d806fc5115ddf93f074cfe19cf3da6a3",
+    "block_height": 891,
+    "timestamp": "2026-09-13T12:12:45+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-2f66c4b872a04610-1789272765",
+    "payload": {
+      "hospital_id": 1,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "DOC_A001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:12:45+08:00",
+      "user_id": 1
+    }
+  },
+  {
+    "tx_id": "0xd0dbbf47e3866ba28e65780109e8ee1cdc66876f129e7b972b1070b0ed5df19c",
+    "block_height": 892,
+    "timestamp": "2026-09-13T12:12:52+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-36ca3eb61ce32fbf-1789272772",
+    "payload": {
+      "hospital_id": 1,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "DOC_A001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:12:52+08:00",
+      "user_id": 1
+    }
+  },
+  {
+    "tx_id": "0xda7ffee9c562f362a1a69975e8c5814d4345c13f219034ec1112df69ab659a6c",
+    "block_height": 893,
+    "timestamp": "2026-09-13T12:12:52+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-8824d5c1e4de6bd2-1789272772",
+    "payload": {
+      "hospital_id": 2,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "DOC_B001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:12:52+08:00",
+      "user_id": 2
+    }
+  },
+  {
+    "tx_id": "0xab376c1c4b7d31a87ac8d2f625a479abe56e56846ed73245288a0d9188b77ce2",
+    "block_height": 894,
+    "timestamp": "2026-09-13T12:12:53+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-d2a72392b34a2154-1789272773",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "PAT_0001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:12:53+08:00",
+      "user_id": 4
+    }
+  },
+  {
+    "tx_id": "0xc193084f66d4283b2071c08487766b3fba10e49a98dd8e7071836c3ca16e37e1",
+    "block_height": 895,
+    "timestamp": "2026-09-13T12:12:53+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-c2e6e733910c6c5e-1789272773",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "PAT_0002",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:12:53+08:00",
+      "user_id": 5
+    }
+  },
+  {
+    "tx_id": "0xfceeee2eb24a102446f00052184dcac235681dfab10b8eae1a0036be6060fd88",
+    "block_height": 896,
+    "timestamp": "2026-09-13T12:12:53+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-cfe680b441d5d784-1789272773",
+    "payload": {
+      "hospital_id": 1,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "ADM_0001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:12:53+08:00",
+      "user_id": 6
+    }
+  },
+  {
+    "tx_id": "0xa7db34bedc02e7acc9b7874079c53689855238c971472ea93a8228db091efa8c",
+    "block_height": 897,
+    "timestamp": "2026-09-13T12:12:53+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-63a5bbceea48f3ab-1789272773",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "SUP_0001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:12:53+08:00",
+      "user_id": 7
+    }
+  },
+  {
+    "tx_id": "0xfaaa43fcb99117659fdd2e7683f8906f3db0f841baf759a4628a19b98dd21900",
+    "block_height": 898,
+    "timestamp": "2026-09-13T12:12:53+08:00",
+    "asset_type": "MEDICAL_RECORD",
+    "asset_id": "ENC202609130f952970",
+    "payload": {
+      "cid": "Qm5644b61931a842694890da7382689f67eb68b790104e743d623e11a66acf2708",
+      "clinical_hash": "74448068f5a911ef39dce021eeb7669a139a30def94e19288bac00425c70911c",
+      "create_time": "2026-09-13T12:12:53+08:00",
+      "data_type": "EMR",
+      "doctor_id": 1,
+      "encounter_type": "OUTPATIENT",
+      "file_hash": "d9108defc96258b68228d562f9dca8b6e629e933ecd005ff1fe2e5e636dd631e",
+      "hospital_id": 1,
+      "patient_id": 4,
+      "record_no": "ENC202609130f952970"
+    }
+  },
+  {
+    "tx_id": "0x87b76861485a3d5a9ef1b9358d6d20c72964943211ce8d124d2eb02ae0245677",
+    "block_height": 899,
+    "timestamp": "2026-09-13T12:13:07+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-9a5b980fed1c3913-1789272787",
+    "payload": {
+      "hospital_id": 1,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "DOC_A001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:13:07+08:00",
+      "user_id": 1
+    }
+  },
+  {
+    "tx_id": "0xe6db96f3158d4d36a1716ae4c16fdb8335c6208aa40a43a0a8607559e226cfec",
+    "block_height": 900,
+    "timestamp": "2026-09-13T12:13:07+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-8898b73abfc51881-1789272787",
+    "payload": {
+      "hospital_id": 2,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "DOC_B001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:13:07+08:00",
+      "user_id": 2
+    }
+  },
+  {
+    "tx_id": "0xa0b53662fd72265b14a76695dce24e3a6991fe398858e9f25d3b32305aa685e8",
+    "block_height": 901,
+    "timestamp": "2026-09-13T12:13:07+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-eee82bd6e4cd5a08-1789272787",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "PAT_0001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:13:07+08:00",
+      "user_id": 4
+    }
+  },
+  {
+    "tx_id": "0xaaee5b8861a302f0f003f379a54896005853b1b4d32cfdf9d584879b7dca61c1",
+    "block_height": 902,
+    "timestamp": "2026-09-13T12:13:08+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-fa502ed9a6ff2377-1789272788",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "PAT_0002",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:13:08+08:00",
+      "user_id": 5
+    }
+  },
+  {
+    "tx_id": "0x8db0615da5541a5c85eb0070d129c8d9be3f3f31c48e088d0a29834e8e6c2819",
+    "block_height": 903,
+    "timestamp": "2026-09-13T12:13:08+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-b1aa161b27be0a5e-1789272788",
+    "payload": {
+      "hospital_id": 1,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "ADM_0001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:13:08+08:00",
+      "user_id": 6
+    }
+  },
+  {
+    "tx_id": "0x5296255fe9caba7bd09fb78efc12cade65a1e65f326cefcf5416dd15d270f8ee",
+    "block_height": 904,
+    "timestamp": "2026-09-13T12:13:08+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-f4be18b54bfe59f8-1789272788",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "SUP_0001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:13:08+08:00",
+      "user_id": 7
+    }
+  },
+  {
+    "tx_id": "0x49d85ad36dd0fdf179688b548ae23fd0f2126d4f7b44137440f68bcea616bdc7",
+    "block_height": 905,
+    "timestamp": "2026-09-13T12:13:08+08:00",
+    "asset_type": "MEDICAL_RECORD",
+    "asset_id": "ENC20260913f03e451d",
+    "payload": {
+      "cid": "Qm761d66947e09846bc3ce263b580591b704ab3eeba48b8cdd30ed563e57c72419",
+      "clinical_hash": "692e57404483c2afe188510327e76dd839de233fe2b64eaec5e0cb146108d0e9",
+      "create_time": "2026-09-13T12:13:08+08:00",
+      "data_type": "EMR",
+      "doctor_id": 1,
+      "encounter_type": "OUTPATIENT",
+      "file_hash": "a71692ec4f3b152f74a07a8b7228aaa57fe75fcac74013a79dd93a62440775ff",
+      "hospital_id": 1,
+      "patient_id": 4,
+      "record_no": "ENC20260913f03e451d"
+    }
+  },
+  {
+    "tx_id": "0xc2c8faf7df437ca754fe0671d8a7f4dc323361b93b400c0ce1ca785343b68d77",
+    "block_height": 906,
+    "timestamp": "2026-09-13T12:13:08+08:00",
+    "asset_type": "EMERGENCY_ACCESS",
+    "asset_id": "EA20260913cb4811",
+    "payload": {
+      "description": "急诊室会诊紧急调阅既往病程与心电图",
+      "doctor_id": 2,
+      "event_no": "EA20260913cb4811",
+      "hospital_id": 2,
+      "patient_id": 4,
+      "reason": "RESCUE",
+      "record_id": 34,
+      "status": "PENDING_AUDIT",
+      "timestamp": "2026-09-13T12:13:08+08:00"
+    }
+  },
+  {
+    "tx_id": "0x68487878f1d62cae59d3b8b096657d25d8267b88f331e7c0d6a949dfba4c8d1e",
+    "block_height": 907,
+    "timestamp": "2026-09-13T12:13:08+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-5c285cfc1d3170f1-1789272788",
+    "payload": {
+      "hospital_id": 2,
+      "op_type": "BREAK_GLASS",
+      "result": "SUCCESS",
+      "risk_level": "HIGH",
+      "target_id": "EA20260913cb4811",
+      "target_type": "EVENT",
+      "timestamp": "2026-09-13T12:13:08+08:00",
+      "user_id": 2
+    }
+  },
+  {
+    "tx_id": "0xaa2ef3b77817d4227a7612ca5cb73764309b268c50520161ee6c867e4e3e5151",
+    "block_height": 908,
+    "timestamp": "2026-09-13T12:13:25+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-15ace03e55c84d09-1789272805",
+    "payload": {
+      "hospital_id": 1,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "DOC_A001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:13:25+08:00",
+      "user_id": 1
+    }
+  },
+  {
+    "tx_id": "0xba55c0ab3231f71c149460dcde6cbb9264417d8591764d221a2439b779cfe897",
+    "block_height": 909,
+    "timestamp": "2026-09-13T12:13:25+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-a63fe1c7e494c827-1789272805",
+    "payload": {
+      "hospital_id": 2,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "DOC_B001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:13:25+08:00",
+      "user_id": 2
+    }
+  },
+  {
+    "tx_id": "0xe59f2827d33c54e62b870a8270a4444e98d941c1d0203d64e2677d9f7599985e",
+    "block_height": 910,
+    "timestamp": "2026-09-13T12:13:25+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-acf5c97754d368c9-1789272805",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "PAT_0001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:13:25+08:00",
+      "user_id": 4
+    }
+  },
+  {
+    "tx_id": "0xdf339aa39c1ed06fa3f1964987ce4156539a49521e66f86baa608cae4fb418b2",
+    "block_height": 911,
+    "timestamp": "2026-09-13T12:13:25+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-7cf9b4549cc2b030-1789272805",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "PAT_0002",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:13:25+08:00",
+      "user_id": 5
+    }
+  },
+  {
+    "tx_id": "0x1d2dd4c5dc361c07c2f376f4b9082877acdfaeaa4060b76a4c554f37a6af2f4c",
+    "block_height": 912,
+    "timestamp": "2026-09-13T12:13:25+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-4c8860ff5a3681ae-1789272805",
+    "payload": {
+      "hospital_id": 1,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "ADM_0001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:13:25+08:00",
+      "user_id": 6
+    }
+  },
+  {
+    "tx_id": "0x5687be85075e5c5e3ca6eaf9aeb433298011de4d49f533795fa1df52bb5b6198",
+    "block_height": 913,
+    "timestamp": "2026-09-13T12:13:26+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-9d2409dbfe338954-1789272806",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "SUP_0001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:13:26+08:00",
+      "user_id": 7
+    }
+  },
+  {
+    "tx_id": "0x736fee52b726354648b851c320300f4c8cc467d9775b85ff33044fc0060e9032",
+    "block_height": 914,
+    "timestamp": "2026-09-13T12:13:26+08:00",
+    "asset_type": "MEDICAL_RECORD",
+    "asset_id": "ENC202609138ddf1108",
+    "payload": {
+      "cid": "Qm8d2876490008622314ee388929aa0078d1a99fade2bb0d74d1d012680b759372",
+      "clinical_hash": "3a48b2a829c7a4b21abb856d3667af385c00c4a7855995592d281e2b2559315b",
+      "create_time": "2026-09-13T12:13:26+08:00",
+      "data_type": "EMR",
+      "doctor_id": 1,
+      "encounter_type": "OUTPATIENT",
+      "file_hash": "9e1da79230603b0177daf924a2ba1257298f3911f94995b84f4ad01d3721b593",
+      "hospital_id": 1,
+      "patient_id": 4,
+      "record_no": "ENC202609138ddf1108"
+    }
+  },
+  {
+    "tx_id": "0xe88a94ed66c627c0518d59730110db0f61e5d0191ff70070916126329fb7514d",
+    "block_height": 915,
+    "timestamp": "2026-09-13T12:13:26+08:00",
+    "asset_type": "EMERGENCY_ACCESS",
+    "asset_id": "EA20260913d775ba",
+    "payload": {
+      "description": "急诊室会诊紧急调阅既往病程与心电图",
+      "doctor_id": 2,
+      "event_no": "EA20260913d775ba",
+      "hospital_id": 2,
+      "patient_id": 4,
+      "reason": "RESCUE",
+      "record_id": 35,
+      "status": "PENDING_AUDIT",
+      "timestamp": "2026-09-13T12:13:26+08:00"
+    }
+  },
+  {
+    "tx_id": "0x57c9387bb1d2b79ec497bfcbca3cc2a7c4586e73c2bc4dad4ee3ff323c4e7282",
+    "block_height": 916,
+    "timestamp": "2026-09-13T12:13:26+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-08767eaf7e93e431-1789272806",
+    "payload": {
+      "hospital_id": 2,
+      "op_type": "BREAK_GLASS",
+      "result": "SUCCESS",
+      "risk_level": "HIGH",
+      "target_id": "EA20260913d775ba",
+      "target_type": "EVENT",
+      "timestamp": "2026-09-13T12:13:26+08:00",
+      "user_id": 2
+    }
+  },
+  {
+    "tx_id": "0x84dcb36626eaefdd3397212226fb08926daae8a73abda8658c2caeb594a32181",
+    "block_height": 917,
+    "timestamp": "2026-09-13T12:13:26+08:00",
+    "asset_type": "EMERGENCY_AUDIT",
+    "asset_id": "EA20260913d775ba",
+    "payload": {
+      "audit_status": "CLOSED_VIOLATION",
+      "comment": "",
+      "event_no": "EA20260913d775ba",
+      "punishment": "RESTRICTED",
+      "supervisor_id": 7,
+      "timestamp": "2026-09-13T12:13:26+08:00"
+    }
+  },
+  {
+    "tx_id": "0x73a63cefa044841529099b239a1d770906a6a1abc6e2142f65e18f988186b9b2",
+    "block_height": 918,
+    "timestamp": "2026-09-13T12:13:26+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-04b9d30ca7d3c50a-1789272806",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "AUDIT_CLOSE",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "EA20260913d775ba",
+      "target_type": "EVENT",
+      "timestamp": "2026-09-13T12:13:26+08:00",
+      "user_id": 7
+    }
+  },
+  {
+    "tx_id": "0x36e8a6484c427e572db0260a3a8d764631e81a89da1a4ff9d3ab7397a543ba06",
+    "block_height": 919,
+    "timestamp": "2026-09-13T12:13:39+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-1d98b56c4d62f8ee-1789272819",
+    "payload": {
+      "hospital_id": 1,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "DOC_A001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:13:39+08:00",
+      "user_id": 1
+    }
+  },
+  {
+    "tx_id": "0xa371e31bedc6897b760e61988e4e68514280c989be0047f0769e3da8bd3df4f7",
+    "block_height": 920,
+    "timestamp": "2026-09-13T12:13:39+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-c7fcc2984c2cfb37-1789272819",
+    "payload": {
+      "hospital_id": 2,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "DOC_B001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:13:39+08:00",
+      "user_id": 2
+    }
+  },
+  {
+    "tx_id": "0x63cd53d2eecdb1f24c0563de1b2cdb5245d51303905decdcaed535590d7e1f9f",
+    "block_height": 921,
+    "timestamp": "2026-09-13T12:13:39+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-2289a2e4a4efd8fc-1789272819",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "PAT_0001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:13:39+08:00",
+      "user_id": 4
+    }
+  },
+  {
+    "tx_id": "0xfd290549d33c2e2bf2d7761888361c62fd55f27d48e627fae1602b8bdfc2314f",
+    "block_height": 922,
+    "timestamp": "2026-09-13T12:13:39+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-ad78e18befd3205e-1789272819",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "PAT_0002",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:13:39+08:00",
+      "user_id": 5
+    }
+  },
+  {
+    "tx_id": "0x1df229943f2db6b08f388571233800f71b63240b63eef0a0fa3fb60538d6a230",
+    "block_height": 923,
+    "timestamp": "2026-09-13T12:13:40+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-c228a0c736958c58-1789272820",
+    "payload": {
+      "hospital_id": 1,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "ADM_0001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:13:40+08:00",
+      "user_id": 6
+    }
+  },
+  {
+    "tx_id": "0x378e60377f2eeba0286c38351c524046541a51cc6dd93fc658ca827261ea4507",
+    "block_height": 924,
+    "timestamp": "2026-09-13T12:13:40+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-f2f216fc4571bb49-1789272820",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "SUP_0001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:13:40+08:00",
+      "user_id": 7
+    }
+  },
+  {
+    "tx_id": "0x215b1186390bd4ab531cb53944bd9c4ce981dc4ccd47dcb442c3607c52c40357",
+    "block_height": 925,
+    "timestamp": "2026-09-13T12:13:40+08:00",
+    "asset_type": "MEDICAL_RECORD",
+    "asset_id": "ENC20260913434a5a38",
+    "payload": {
+      "cid": "Qm63105f9b05994c7af445eb3c6f8f6108f418d1a8fc69b9786925a6d063d2e443",
+      "clinical_hash": "96512bbadcdf16f9478d76b2847f9a4999b020fe7e217b8422d7addfb552834e",
+      "create_time": "2026-09-13T12:13:40+08:00",
+      "data_type": "EMR",
+      "doctor_id": 1,
+      "encounter_type": "OUTPATIENT",
+      "file_hash": "2384952fe69b07b5cc0cd82d6518566e58e881a1d2f5c798500aa44f4abda0d0",
+      "hospital_id": 1,
+      "patient_id": 4,
+      "record_no": "ENC20260913434a5a38"
+    }
+  },
+  {
+    "tx_id": "0xa86cddbee308f9079e76bfcd268fdcc48384e9db623f51ece601cd5eda034706",
+    "block_height": 926,
+    "timestamp": "2026-09-13T12:13:47+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-18a42661bb42a7ee-1789272827",
+    "payload": {
+      "hospital_id": 1,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "DOC_A001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:13:47+08:00",
+      "user_id": 1
+    }
+  },
+  {
+    "tx_id": "0x05052ba14717750c7f43be861d1534864c70376378fcc43d6cf99ebf766091ff",
+    "block_height": 927,
+    "timestamp": "2026-09-13T12:13:47+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-91e811dcb190e7d3-1789272827",
+    "payload": {
+      "hospital_id": 2,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "DOC_B001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:13:47+08:00",
+      "user_id": 2
+    }
+  },
+  {
+    "tx_id": "0xd7deb6f51ce5ce3f246f20f7898c71e1305fa3ccdfb788d3b07311179e76814a",
+    "block_height": 928,
+    "timestamp": "2026-09-13T12:13:48+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-43bba31995ca8c51-1789272828",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "PAT_0001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:13:48+08:00",
+      "user_id": 4
+    }
+  },
+  {
+    "tx_id": "0x5f1b6df4d8839f8061ffcd49f62d9034707b0e35168bee92770b74f94de21c94",
+    "block_height": 929,
+    "timestamp": "2026-09-13T12:13:48+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-b840c8d3543836f0-1789272828",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "PAT_0002",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:13:48+08:00",
+      "user_id": 5
+    }
+  },
+  {
+    "tx_id": "0x00b88aa9752fc0021d3c41d97b347e34f6b7064c192de24037b9d5e6d0cdb5e2",
+    "block_height": 930,
+    "timestamp": "2026-09-13T12:13:48+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-eed863cefcff915b-1789272828",
+    "payload": {
+      "hospital_id": 1,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "ADM_0001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:13:48+08:00",
+      "user_id": 6
+    }
+  },
+  {
+    "tx_id": "0x86ea4463500daa92f9cafe206ac8095424919c39863a25e3c378a699681437c3",
+    "block_height": 931,
+    "timestamp": "2026-09-13T12:13:48+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-de9e9d49d9000c78-1789272828",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "SUP_0001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:13:48+08:00",
+      "user_id": 7
+    }
+  },
+  {
+    "tx_id": "0xdeb993a70a142ad40655fbe88c1c6ca295130cd00a3464803b934d715ccbae3f",
+    "block_height": 932,
+    "timestamp": "2026-09-13T12:13:49+08:00",
+    "asset_type": "MEDICAL_RECORD",
+    "asset_id": "ENC20260913652552b1",
+    "payload": {
+      "cid": "Qm81831cb79a9e2cacc2f44880e00d6aa3f680fa804aeac71c20395b6c86053971",
+      "clinical_hash": "8c28b4b9626147be75ddaec400f8f715b97a0fecf121f6ab661b3cc8dcab0b4f",
+      "create_time": "2026-09-13T12:13:49+08:00",
+      "data_type": "EMR",
+      "doctor_id": 1,
+      "encounter_type": "OUTPATIENT",
+      "file_hash": "f66882e485c5e0fe360daf5802ba85a46345b02b8d2f3ab6d055f3419e2e98fb",
+      "hospital_id": 1,
+      "patient_id": 4,
+      "record_no": "ENC20260913652552b1"
+    }
+  },
+  {
+    "tx_id": "0x2d556dae69102a5e0a90c6f6a32dcb1b085d635423d6bf345e897255e9277e99",
+    "block_height": 933,
+    "timestamp": "2026-09-13T12:13:49+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-eb5b8396e6197914-1789272829",
+    "payload": {
+      "hospital_id": 2,
+      "op_type": "UPDATE_USER",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "DOC_B001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:13:49+08:00",
+      "user_id": 6
+    }
+  },
+  {
+    "tx_id": "0x4a6fda811dcf50b79ef6eaa11fa22a5db7a1960211fd12ae6ed31839f2c9f644",
+    "block_height": 934,
+    "timestamp": "2026-09-13T12:13:49+08:00",
+    "asset_type": "EMERGENCY_ACCESS",
+    "asset_id": "EA202609136ea1df",
+    "payload": {
+      "description": "急诊室会诊紧急调阅既往病程与心电图",
+      "doctor_id": 2,
+      "event_no": "EA202609136ea1df",
+      "hospital_id": 2,
+      "patient_id": 4,
+      "reason": "RESCUE",
+      "record_id": 37,
+      "status": "PENDING_AUDIT",
+      "timestamp": "2026-09-13T12:13:49+08:00"
+    }
+  },
+  {
+    "tx_id": "0x1e922a58722ec4e5785faf2d80be1751208eeeea7e29187f18ed3b2b660b3f0d",
+    "block_height": 935,
+    "timestamp": "2026-09-13T12:13:49+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-81e93cf0fdc87c60-1789272829",
+    "payload": {
+      "hospital_id": 2,
+      "op_type": "BREAK_GLASS",
+      "result": "SUCCESS",
+      "risk_level": "HIGH",
+      "target_id": "EA202609136ea1df",
+      "target_type": "EVENT",
+      "timestamp": "2026-09-13T12:13:49+08:00",
+      "user_id": 2
+    }
+  },
+  {
+    "tx_id": "0x9b124a1c021dd51a53639af21f6fa255dd5faec222c29122d9248082d706cb28",
+    "block_height": 936,
+    "timestamp": "2026-09-13T12:13:49+08:00",
+    "asset_type": "EMERGENCY_AUDIT",
+    "asset_id": "EA202609136ea1df",
+    "payload": {
+      "audit_status": "CLOSED_VIOLATION",
+      "comment": "",
+      "event_no": "EA202609136ea1df",
+      "punishment": "RESTRICTED",
+      "supervisor_id": 7,
+      "timestamp": "2026-09-13T12:13:49+08:00"
+    }
+  },
+  {
+    "tx_id": "0x866eb21a266b6910bd032f55090652f9f972c76c128b2c4ca3852983d6e5afee",
+    "block_height": 937,
+    "timestamp": "2026-09-13T12:13:49+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-352a9985f56af728-1789272829",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "AUDIT_CLOSE",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "EA202609136ea1df",
+      "target_type": "EVENT",
+      "timestamp": "2026-09-13T12:13:49+08:00",
+      "user_id": 7
+    }
+  },
+  {
+    "tx_id": "0xe7596e716cec7b4788fd062542a92d04ff34178d24a457eb0c735d59ae8b7091",
+    "block_height": 938,
+    "timestamp": "2026-09-13T12:14:16+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-5a045a7ad58a212f-1789272856",
+    "payload": {
+      "hospital_id": 1,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "DOC_A001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:14:16+08:00",
+      "user_id": 1
+    }
+  },
+  {
+    "tx_id": "0xd9c98379f49c5e35f18823e6fa995a529df212457fac517ee613fe62c7f205c8",
+    "block_height": 939,
+    "timestamp": "2026-09-13T12:14:16+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-fa3d1776b54fb096-1789272856",
+    "payload": {
+      "hospital_id": 2,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "DOC_B001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:14:16+08:00",
+      "user_id": 2
+    }
+  },
+  {
+    "tx_id": "0xd7a911331e41e3e10c3b443ff43f23c1e0109bab498dfc75c0e4f885a9099e9b",
+    "block_height": 940,
+    "timestamp": "2026-09-13T12:14:16+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-dad7f2966eaf7eb2-1789272856",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "PAT_0001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:14:16+08:00",
+      "user_id": 4
+    }
+  },
+  {
+    "tx_id": "0x676934096c173bd25dabb606774cba447cd4fa0842369d959643adec0d436180",
+    "block_height": 941,
+    "timestamp": "2026-09-13T12:14:17+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-47ada3634c127019-1789272857",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "PAT_0002",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:14:17+08:00",
+      "user_id": 5
+    }
+  },
+  {
+    "tx_id": "0x9974cfe7e644e1711cb527faebd6366ac364c5937a6334984b500684b1876c6f",
+    "block_height": 942,
+    "timestamp": "2026-09-13T12:14:17+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-cd5abaaff9b6a693-1789272857",
+    "payload": {
+      "hospital_id": 1,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "ADM_0001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:14:17+08:00",
+      "user_id": 6
+    }
+  },
+  {
+    "tx_id": "0x99fc07a26950d232e7c53ef908686ecd62868b4b250bff7a081103c8bf4066b4",
+    "block_height": 943,
+    "timestamp": "2026-09-13T12:14:17+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-733bdcfd57cb9ee7-1789272857",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "SUP_0001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:14:17+08:00",
+      "user_id": 7
+    }
+  },
+  {
+    "tx_id": "0x8931fedaa6323d0dd1eb146c34f33415384163402e953b90152d655a96a8626d",
+    "block_height": 944,
+    "timestamp": "2026-09-13T12:14:17+08:00",
+    "asset_type": "MEDICAL_RECORD",
+    "asset_id": "ENC20260913278838e3",
+    "payload": {
+      "cid": "Qma4ac2ec8715010c3f6001145d145be6b393ba2164951043aa4b6f3e9c8d9dbe4",
+      "clinical_hash": "eee48264fa3d20e000fa6b5f4fee718a78169e7095e17b808a1105ff5abb440b",
+      "create_time": "2026-09-13T12:14:17+08:00",
+      "data_type": "EMR",
+      "doctor_id": 1,
+      "encounter_type": "OUTPATIENT",
+      "file_hash": "eb88a26ae21ece3f6c3ef372b11e57070018225ca3328d0e920b49965b2b4809",
+      "hospital_id": 1,
+      "patient_id": 4,
+      "record_no": "ENC20260913278838e3"
+    }
+  },
+  {
+    "tx_id": "0x33df5babbdae12b90d45e96565c75c859d685b411c9e392455a9013f105219e3",
+    "block_height": 945,
+    "timestamp": "2026-09-13T12:14:17+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-22f098964ab418ee-1789272857",
+    "payload": {
+      "hospital_id": 2,
+      "op_type": "UPDATE_USER",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "DOC_B001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:14:17+08:00",
+      "user_id": 6
+    }
+  },
+  {
+    "tx_id": "0x9f262bac919ad8a6abf1f4575c2b4ab4a96c54b712cb06d18c0c32ce14093038",
+    "block_height": 946,
+    "timestamp": "2026-09-13T12:14:17+08:00",
+    "asset_type": "EMERGENCY_ACCESS",
+    "asset_id": "EA20260913a79158",
+    "payload": {
+      "description": "急诊室会诊紧急调阅既往病程与心电图",
+      "doctor_id": 2,
+      "event_no": "EA20260913a79158",
+      "hospital_id": 2,
+      "patient_id": 4,
+      "reason": "RESCUE",
+      "record_id": 38,
+      "status": "PENDING_AUDIT",
+      "timestamp": "2026-09-13T12:14:17+08:00"
+    }
+  },
+  {
+    "tx_id": "0x514305169c8ea40218a1ec48c9b90976a1021bc4f4707c53addb23fcbf06e515",
+    "block_height": 947,
+    "timestamp": "2026-09-13T12:14:17+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-1143eecbb1c3449e-1789272857",
+    "payload": {
+      "hospital_id": 2,
+      "op_type": "BREAK_GLASS",
+      "result": "SUCCESS",
+      "risk_level": "HIGH",
+      "target_id": "EA20260913a79158",
+      "target_type": "EVENT",
+      "timestamp": "2026-09-13T12:14:17+08:00",
+      "user_id": 2
+    }
+  },
+  {
+    "tx_id": "0xb767def7cbe15d47d307f4837a97c303a940e8065b382076b11d4b0265a83e8b",
+    "block_height": 948,
+    "timestamp": "2026-09-13T12:14:17+08:00",
+    "asset_type": "EMERGENCY_AUDIT",
+    "asset_id": "EA20260913a79158",
+    "payload": {
+      "audit_status": "CLOSED_VIOLATION",
+      "comment": "",
+      "event_no": "EA20260913a79158",
+      "punishment": "RESTRICTED",
+      "supervisor_id": 7,
+      "timestamp": "2026-09-13T12:14:17+08:00"
+    }
+  },
+  {
+    "tx_id": "0xf7185ad36bcbedddfc10aae11897670fb4b5e1fd205bd53a820edef3d3ff6c35",
+    "block_height": 949,
+    "timestamp": "2026-09-13T12:14:17+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-8f3199af184655a1-1789272857",
+    "payload": {
+      "hospital_id": 0,
+      "op_type": "AUDIT_CLOSE",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "EA20260913a79158",
+      "target_type": "EVENT",
+      "timestamp": "2026-09-13T12:14:17+08:00",
+      "user_id": 7
+    }
+  },
+  {
+    "tx_id": "0x3a8ff33ecb20083f3615ee38ac2d00630cb901f5c16eade4117bcf423981cf09",
+    "block_height": 950,
+    "timestamp": "2026-09-13T12:14:23+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-6db0383f33578304-1789272863",
+    "payload": {
+      "hospital_id": 1,
+      "op_type": "LOGIN",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "ADM_0001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:14:23+08:00",
+      "user_id": 6
+    }
+  },
+  {
+    "tx_id": "0x596a5683ec584c07b94b255c0af9f273d09920a7a83e42c736b9cdd7029036d8",
+    "block_height": 951,
+    "timestamp": "2026-09-13T12:14:23+08:00",
+    "asset_type": "AUDIT",
+    "asset_id": "LOG-8c487ff4b5939ce5-1789272863",
+    "payload": {
+      "hospital_id": 2,
+      "op_type": "UPDATE_USER",
+      "result": "SUCCESS",
+      "risk_level": "LOW",
+      "target_id": "DOC_B001",
+      "target_type": "USER",
+      "timestamp": "2026-09-13T12:14:23+08:00",
+      "user_id": 6
+    }
   }
 ]

@@ -46,7 +46,7 @@ func (s *VerificationService) Verify(recordID uint64) (*VerificationResult, erro
 	DefaultMedicalService.VerifyRecord(&record)
 
 	cid := ""
-	if chainData, exists := blockchain.DefaultLedger.QueryAsset(record.RecordNo); exists && chainData != nil {
+	if chainData, exists := blockchain.DefaultService.QueryAsset(record.RecordNo); exists && chainData != nil {
 		if c, ok := chainData["cid"].(string); ok && c != "" {
 			cid = c
 		}

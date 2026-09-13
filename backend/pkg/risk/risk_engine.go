@@ -50,8 +50,16 @@ func (e *RiskEngine) Evaluate(doctorID, patientID uint64, isCrossHospital, hasCo
 			valid = append(valid, item)
 		}
 	}
-	valid = append(valid, AccessRecordItem{DoctorID: doctorID, PatientID: patientID, Time: now})
 	e.accessWindow = valid
+
+	// 紧急访问（Break-Glass）走专用绿色通道，豁免常规风险拦截阻断
+	if isEmergency {
+		return RiskEvaluation{
+			TotalScore: 0,
+			Level:      "EMERGENCY",
+			RulesFired: []string{"RULE-E1: 触发 Break-Glass 临床抢救专属放行通道 (豁免常规评分阻断)"},
+		}
+	}
 
 	score := 0
 	rules := make([]string, 0)
@@ -74,7 +82,7 @@ func (e *RiskEngine) Evaluate(doctorID, patientID uint64, isCrossHospital, hasCo
 			samePatientCount++
 		}
 	}
-	if samePatientCount > 3 {
+	if samePatientCount >= 3 {
 		score += 25
 		rules = append(rules, "RULE-F1: 5分钟窗口高频调阅 (+25)")
 	}
@@ -95,11 +103,6 @@ func (e *RiskEngine) Evaluate(doctorID, patientID uint64, isCrossHospital, hasCo
 		rules = append(rules, "RULE-A1: 患者未在线显式授权 (+30)")
 	}
 
-	if isEmergency {
-		score += 40
-		rules = append(rules, "RULE-E1: 触发 Break-Glass 抢救调阅 (+40)")
-	}
-
 	if score > 100 {
 		score = 100
 	}
@@ -116,4 +119,21 @@ func (e *RiskEngine) Evaluate(doctorID, patientID uint64, isCrossHospital, hasCo
 		Level:      level,
 		RulesFired: rules,
 	}
+}
+
+// RecordSuccessfulAccess 仅在病历被真正成功授权调阅并解密呈现后记录，杜绝重复刷新或被拦截请求污染频率窗口
+func (e *RiskEngine) RecordSuccessfulAccess(doctorID, patientID uint64) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	now := time.Now()
+	cutoff := now.Add(-10 * time.Minute)
+	valid := make([]AccessRecordItem, 0)
+	for _, item := range e.accessWindow {
+		if item.Time.After(cutoff) {
+			valid = append(valid, item)
+		}
+	}
+	valid = append(valid, AccessRecordItem{DoctorID: doctorID, PatientID: patientID, Time: now})
+	e.accessWindow = valid
 }

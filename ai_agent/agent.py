@@ -110,14 +110,35 @@ class MedTrustAgent:
 
         # 4. 临床病历/检验报告受控检索
         elif any(w in msg for w in ["病历", "检查", "报告", "记录", "用药", "历史", "就诊", "患者", "档案"]):
-            # 尝试动态抽取患者姓名
+            # 动态抽取患者姓名或业务单号
             keyword = ""
-            for name in ["张伟", "李雷", "韩梅梅", "王芳", "赵敏"]:
+            for name in ["张伟", "李雷", "韩梅梅", "王芳", "赵敏", "张三", "李四", "王五"]:
                 if name in msg:
                     keyword = name
                     break
+
             if not keyword:
-                keyword = "张伟"
+                m_pat = re.search(r'(?:患者|姓名|查阅|调阅)\s*([A-Za-z\u4e00-\u9fa5]{2,4})', msg)
+                if m_pat:
+                    candidate = m_pat.group(1)
+                    stop_words = ["病历", "档案", "记录", "报告", "医生", "检查", "用药", "历史", "就诊", "数据", "资料", "信息", "情况", "结果", "附件"]
+                    if not any(sw in candidate for sw in stop_words):
+                        keyword = candidate
+                if not keyword:
+                    m_rec = re.search(r'(REC\d+|ENC\d+)', msg, re.IGNORECASE)
+                    if m_rec:
+                        keyword = m_rec.group(1)
+
+            # 严谨性校验：若指令未明确患者主体，提示用户指定，杜绝默认臆测患者
+            if not keyword:
+                return {
+                    "reply": (
+                        "【提示】请在指令中明确需要检索的患者姓名或病历单号（例如：“查询患者张伟的病历记录” 或 “调阅 REC20250501001”），"
+                        "以便系统准确定位档案，并在 Go 统一安全网关校验您的调阅权限与知情同意策略。"
+                    ),
+                    "tool_called": "NEED_PARAMETER",
+                    "tool_status": "PROMPT_USER"
+                }
 
             tool_called = f"tool_query_medical_records(keyword='{keyword}')"
             tool_result = tool_query_medical_records(token, keyword=keyword)

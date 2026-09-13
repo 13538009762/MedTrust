@@ -430,7 +430,7 @@
                   v-if="viewOrder.file_id"
                   size="small"
                   type="primary"
-                  @click="openImagePreview(`/api/v1/medical-files/${viewOrder.file_id}/view`, viewOrder.report_file_name || viewOrder.exam_item)"
+                  @click="openImagePreview(`/api/v1/medical-files/${viewOrder.file_id}/view?token=${auth.token}`, viewOrder.report_file_name || viewOrder.exam_item)"
                 >
                   🖼️ 在线查阅影像图片
                 </el-button>
@@ -439,7 +439,7 @@
                   size="small"
                   type="success"
                   plain
-                  @click="downloadFile(`/api/v1/medical-files/${viewOrder.file_id}/download`, viewOrder.report_file_name || '医学检查附件')"
+                  @click="downloadFile(`/api/v1/medical-files/${viewOrder.file_id}/download?token=${auth.token}`, viewOrder.report_file_name || '医学检查附件')"
                 >
                   📥 下载原始附件
                 </el-button>
@@ -448,9 +448,9 @@
             <!-- 如果是图片格式，直接呈现高清内联略缩图 -->
             <div v-if="viewOrder.file_id && isImageExt(viewOrder.report_file_type || viewOrder.report_file_name)" class="mt-2 text-center img-container">
               <img
-                :src="`/api/v1/medical-files/${viewOrder.file_id}/view`"
+                :src="`/api/v1/medical-files/${viewOrder.file_id}/view?token=${auth.token}`"
                 class="report-inline-img"
-                @click="openImagePreview(`/api/v1/medical-files/${viewOrder.file_id}/view`, viewOrder.report_file_name || viewOrder.exam_item)"
+                @click="openImagePreview(`/api/v1/medical-files/${viewOrder.file_id}/view?token=${auth.token}`, viewOrder.report_file_name || viewOrder.exam_item)"
                 title="点击放大查阅影像"
               />
               <div class="text-xs text-gray-400 mt-1">（点击影像图片可全屏高清放大查阅）</div>

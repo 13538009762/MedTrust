@@ -111,7 +111,7 @@ func (s *MedicalService) UploadRecord(p UploadRecordParams) (*model.MedicalRecor
 	}
 
 	// 4. 联盟链交易锚定: 提交 MedicalAsset 智能合约存证
-	txID, height, err := blockchain.DefaultLedger.CommitAsset("MEDICAL_RECORD", recordNo, map[string]interface{}{
+	txID, height, err := blockchain.DefaultService.CommitAsset("MEDICAL_RECORD", recordNo, map[string]interface{}{
 		"record_no":      recordNo,
 		"patient_id":     p.PatientID,
 		"doctor_id":      p.DoctorID,
@@ -215,7 +215,7 @@ func (s *MedicalService) VerifyRecord(r *model.MedicalRecord) {
 		}
 	}
 
-	chainData, exists := blockchain.DefaultLedger.QueryAsset(r.RecordNo)
+	chainData, exists := blockchain.DefaultService.QueryAsset(r.RecordNo)
 	if !exists || chainData == nil {
 		currentHash := ComputeRecordHash(r)
 		r.CurrentHash = currentHash
@@ -299,7 +299,7 @@ func EnsureBaselineLedgerAnchored() {
 	}
 
 	for _, rec := range list {
-		if _, exists := blockchain.DefaultLedger.QueryAsset(rec.RecordNo); !exists {
+		if _, exists := blockchain.DefaultService.QueryAsset(rec.RecordNo); !exists {
 			fileHash := ""
 			cid := ""
 			if len(rec.Files) > 0 {
@@ -307,7 +307,7 @@ func EnsureBaselineLedgerAnchored() {
 				cid = rec.Files[0].IPFSCID
 			}
 			clinicalHash := ComputeRecordHash(&rec)
-			txID, height, err := blockchain.DefaultLedger.CommitAsset("MEDICAL_RECORD", rec.RecordNo, map[string]interface{}{
+			txID, height, err := blockchain.DefaultService.CommitAsset("MEDICAL_RECORD", rec.RecordNo, map[string]interface{}{
 				"record_no":     rec.RecordNo,
 				"patient_id":    rec.PatientID,
 				"doctor_id":     rec.DoctorID,
@@ -428,14 +428,41 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 			list[i].HospitalName = hosp.Name
 		}
 
-		// 计算针对当前调用者的访问权限状态
+		// 计算针对当前调用者的访问权限状态 (基于 RBAC + ABAC + 患者授权)
 		if currentUserID > 0 {
 			if list[i].DoctorID == currentUserID {
 				list[i].HasAccess = true
 				list[i].AccessType = "OWNER"
 			} else if list[i].HospitalID == currentDoc.HospitalID {
-				list[i].HasAccess = true
-				list[i].AccessType = "HOSPITAL"
+				// 院内机构：同科室或全科综合门诊协同，或高级职称专家
+				isSameDept := currentDoc.DepartmentID == 0 || list[i].DepartmentName == "" ||
+					list[i].DepartmentName == "综合门诊"
+				if !isSameDept {
+					var docDept model.Department
+					_ = repository.DB.First(&docDept, currentDoc.DepartmentID)
+					if docDept.Name != "" && docDept.Name == list[i].DepartmentName {
+						isSameDept = true
+					}
+				}
+				if isSameDept || currentDoc.Title == "主任医师" || currentDoc.Title == "副主任医师" {
+					list[i].HasAccess = true
+					list[i].AccessType = "HOSPITAL"
+				} else {
+					hasAuth := false
+					for _, a := range docAuths {
+						if a.PatientID == list[i].PatientID && (a.ScopeType == "ALL" || (a.ScopeType == "SINGLE" && a.RecordID == list[i].ID)) {
+							hasAuth = true
+							break
+						}
+					}
+					if hasAuth {
+						list[i].HasAccess = true
+						list[i].AccessType = "AUTHORIZED"
+					} else {
+						list[i].HasAccess = false
+						list[i].AccessType = "UNAUTHORIZED"
+					}
+				}
 			} else {
 				hasAuth := false
 				for _, a := range docAuths {
@@ -460,6 +487,33 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 		}
 
 		s.VerifyRecord(&list[i])
+
+		// 安全脱敏防御：若当前医生未获得调阅权限，严禁向前端返回临床敏感诊断与明细数据
+		if currentUserID > 0 && !list[i].HasAccess {
+			list[i].Diagnosis = "【受控访问限制·未授权掩码】"
+			list[i].Symptoms = "【未取得患者授权】"
+			list[i].Etiology = "【未取得患者授权】"
+			list[i].TreatmentPlan = "【未取得患者授权】"
+			list[i].ChiefComplaint = "【未取得患者授权】"
+			list[i].PresentIllness = "【未取得患者授权】"
+			list[i].InitialDiagnosis = "【未取得患者授权】"
+			list[i].DiagnosticBasis = "【未取得患者授权】"
+			list[i].ExamItems = "【未取得患者授权】"
+			list[i].ExamReason = "【未取得患者授权】"
+			list[i].ExamResult = "【未取得患者授权】"
+			list[i].VitalSigns = "【受控屏蔽】"
+			if len(list[i].PatientPhone) >= 7 {
+				list[i].PatientPhone = list[i].PatientPhone[:3] + "****" + list[i].PatientPhone[7:]
+			} else if list[i].PatientPhone != "" {
+				list[i].PatientPhone = "***"
+			}
+			if len(list[i].PatientIDCard) >= 14 {
+				list[i].PatientIDCard = list[i].PatientIDCard[:6] + "********" + list[i].PatientIDCard[14:]
+			} else if list[i].PatientIDCard != "" {
+				list[i].PatientIDCard = "******************"
+			}
+			list[i].Files = nil
+		}
 	}
 	return list, nil
 }
@@ -890,8 +944,8 @@ func (s *MedicalService) CompleteEncounterFinal(p CompleteEncounterFinalParams) 
 	clinicalHash := crypto.CalculateSHA256([]byte(fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s",
 		rec.RecordNo, rec.DataType, rec.OnsetTime, rec.Duration, rec.Symptoms, rec.Etiology, rec.TreatmentPlan, rec.Diagnosis, fileHash)))
 
-	// 对称加密并推送到 IPFS
-	encKey, _ := crypto.GenerateRandomKey()
+	// 对称加密并推送到 IPFS (严格使用与解密端完全统一的密钥派生策略 DeriveRecordKey)
+	encKey := crypto.DeriveRecordKey("", rec.RecordNo)
 	iv, _ := crypto.GenerateRandomIV()
 	aad := []byte(fmt.Sprintf("%d:%s", rec.PatientID, rec.RecordNo))
 	ciphertext, err := crypto.EncryptAES256GCM(encKey, iv, fileBytes, aad)
@@ -906,7 +960,7 @@ func (s *MedicalService) CompleteEncounterFinal(p CompleteEncounterFinalParams) 
 	}
 
 	// 联盟链存证: 提交 MedicalAsset 智能合约存证
-	txID, height, err := blockchain.DefaultLedger.CommitAsset("MEDICAL_RECORD", rec.RecordNo, map[string]interface{}{
+	txID, height, err := blockchain.DefaultService.CommitAsset("MEDICAL_RECORD", rec.RecordNo, map[string]interface{}{
 		"record_no":      rec.RecordNo,
 		"patient_id":     rec.PatientID,
 		"doctor_id":      p.DoctorID,

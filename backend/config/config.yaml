@@ -6,15 +6,19 @@ server:
 database:
   dsn: "root:123456@tcp(127.0.0.1:3306)/medtrust?charset=utf8mb4&parseTime=True&loc=Local"
 
+# 分布式链下密文存储服务 (支持真实 IPFS 守护进程与 LocalStorageAdapter 容灾模式)
 ipfs:
-  api_url: "http://127.0.0.1:5001"
-  storage_dir: "./data/ipfs_storage"
+  api_url: "http://127.0.0.1:5001" # IPFS RPC API 端点
+  storage_dir: "./data/ipfs_storage" # 本地密文持久化存储与加速缓存目录
 
+# 区块链存证与账本服务 (双模设计: 具备完整 Fabric 2.5 链码与 gRPC 网关，亦具备单机离线容灾引擎)
 blockchain:
   channel_id: "medicalchannel"
   chaincode_id: "medicalcontract"
   ledger_dir: "./data/fabric_ledger"
   fabric:
+    # enabled 为 false 时：系统以本地高仿真区块链引擎 (MockLedgerService) 运行，保障无 Docker 容器下的答辩演示零崩溃
+    # enabled 为 true 时：系统将探测并连接真实 Fabric 2.5 Peer 节点 (127.0.0.1:7051) 并执行智能合约背书
     enabled: false
     peer_endpoint: "127.0.0.1:7051"
     gateway_peer: "peer0.orga.medical.com"

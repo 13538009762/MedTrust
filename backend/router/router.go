@@ -21,10 +21,6 @@ func SetupRouter() *gin.Engine {
 		v1.POST("/auth/login", controller.DefaultAuthController.Login)
 		v1.POST("/auth/register", controller.DefaultAuthController.Register)
 
-		// 附件与影像查阅/下载 (支持 <img> / 标签页直接渲染)
-		v1.GET("/medical-files/:id/view", controller.DefaultMedicalController.ViewMedicalFile)
-		v1.GET("/medical-files/:id/download", controller.DefaultMedicalController.DownloadMedicalFile)
-
 		// 需登录鉴权保护路由
 		authGroup := v1.Group("")
 		authGroup.Use(middleware.JWTAuthMiddleware())
@@ -33,6 +29,10 @@ func SetupRouter() *gin.Engine {
 			authGroup.PUT("/auth/profile", controller.DefaultAuthController.UpdateProfile)
 			authGroup.PUT("/auth/password", controller.DefaultAuthController.ChangePassword)
 			authGroup.PUT("/auth/medical-key", controller.DefaultAuthController.ChangeMedicalKey)
+
+			// 附件与影像查阅/下载 (受 JWT 登录鉴权与访问控制引擎保护)
+			authGroup.GET("/medical-files/:id/view", controller.DefaultMedicalController.ViewMedicalFile)
+			authGroup.GET("/medical-files/:id/download", controller.DefaultMedicalController.DownloadMedicalFile)
 
 			// 医疗记录与就诊生命周期模块
 			authGroup.POST("/medical-records/upload", middleware.RequireRoles("doctor"), controller.DefaultMedicalController.Upload)

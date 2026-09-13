@@ -709,7 +709,7 @@
                   <el-button type="primary" size="small" :icon="View" @click="openImageModal(file)">
                     🖼️ 查阅检验/影像图片
                   </el-button>
-                  <el-button type="success" size="small" plain :icon="Download" @click="downloadFileDirect(`/api/v1/medical-files/${file.id}/download`, file.file_name)">
+                  <el-button type="success" size="small" plain :icon="Download" @click="downloadFileDirect(`/api/v1/medical-files/${file.id}/download?token=${auth.token}`, file.file_name)">
                     📥 下载图片
                   </el-button>
                 </template>
@@ -731,7 +731,7 @@
               </div>
               <div class="text-center p-2">
                 <img
-                  :src="`/api/v1/medical-files/${file.id}/view`"
+                  :src="`/api/v1/medical-files/${file.id}/view?token=${auth.token}`"
                   class="preview-thumbnail"
                   @click="openImageModal(file)"
                   title="点击全屏查阅大图"
@@ -1058,7 +1058,7 @@ function isImageFileType(ft?: string) {
 }
 
 function openImageModal(file: any) {
-  imageModalUrl.value = `/api/v1/medical-files/${file.id}/view`
+  imageModalUrl.value = `/api/v1/medical-files/${file.id}/view?token=${auth.token}`
   imageModalTitle.value = file.file_name || '医学检查图像'
   imageModalVisible.value = true
 }

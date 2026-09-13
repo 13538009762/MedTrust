@@ -209,7 +209,7 @@ func (ctrl *AccessController) ApproveRequest(c *gin.Context) {
 	_, _ = rand.Read(randBytes)
 	authNo := fmt.Sprintf("AUTH%s%s", time.Now().Format("20060102"), hex.EncodeToString(randBytes))
 
-	txID, _, _ := blockchain.DefaultLedger.CommitAsset("AUTHORIZATION", authNo, map[string]interface{}{
+	txID, _, _ := blockchain.DefaultService.CommitAsset("AUTHORIZATION", authNo, map[string]interface{}{
 		"auth_no":     authNo,
 		"patient_id":  patientID,
 		"target_type": "DOCTOR",
@@ -368,7 +368,7 @@ func (ctrl *AccessController) CreateAuthorization(c *gin.Context) {
 	_, _ = rand.Read(randBytes)
 	authNo := fmt.Sprintf("AUTH%s%s", time.Now().Format("20060102"), hex.EncodeToString(randBytes))
 
-	txID, _, _ := blockchain.DefaultLedger.CommitAsset("AUTHORIZATION", authNo, map[string]interface{}{
+	txID, _, _ := blockchain.DefaultService.CommitAsset("AUTHORIZATION", authNo, map[string]interface{}{
 		"auth_no":     authNo,
 		"patient_id":  patientID,
 		"target_type": req.AuthTargetType,
@@ -458,7 +458,7 @@ func (ctrl *AccessController) RevokeAuthorization(c *gin.Context) {
 	auth.Status = "REVOKED"
 	repository.DB.Save(&auth)
 
-	_, _, _ = blockchain.DefaultLedger.CommitAsset("REVOKE_AUTH", auth.AuthNo, map[string]interface{}{
+	_, _, _ = blockchain.DefaultService.CommitAsset("REVOKE_AUTH", auth.AuthNo, map[string]interface{}{
 		"auth_no":   auth.AuthNo,
 		"status":    "REVOKED",
 		"timestamp": time.Now().Format(time.RFC3339),
@@ -526,7 +526,7 @@ func (ctrl *AccessController) UnlockByKey(c *gin.Context) {
 	_, _ = rand.Read(randBytes)
 	authNo := fmt.Sprintf("AUTH-KEY-%s-%s", time.Now().Format("20060102"), hex.EncodeToString(randBytes))
 
-	txID, _, _ := blockchain.DefaultLedger.CommitAsset("AUTHORIZATION_KEY", authNo, map[string]interface{}{
+	txID, _, _ := blockchain.DefaultService.CommitAsset("AUTHORIZATION_KEY", authNo, map[string]interface{}{
 		"auth_no":     authNo,
 		"patient_id":  patient.ID,
 		"target_type": "DOCTOR",

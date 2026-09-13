@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"net"
 	"sync"
 	"time"
 )
@@ -32,7 +33,7 @@ type FabricGatewayService struct {
 	mu         sync.RWMutex
 }
 
-// NewFabricGatewayService 实例化 Fabric 网关服务
+// NewFabricGatewayService 实例化 Fabric 网关服务 (支持真实 Fabric 容器网络探测与容灾降级)
 func NewFabricGatewayService(cfg FabricGatewayConfig, fallback BlockchainService) *FabricGatewayService {
 	s := &FabricGatewayService{
 		cfg:        cfg,
@@ -43,12 +44,22 @@ func NewFabricGatewayService(cfg FabricGatewayConfig, fallback BlockchainService
 	}
 
 	if cfg.Enabled {
-		log.Printf("[FabricGateway] 正在尝试连接至 Hyperledger Fabric 2.5 节点: %s (Channel: %s, CC: %s)...",
+		log.Printf("[FabricGateway] 正在探测 Hyperledger Fabric 2.5 Peer 节点网络连通性: %s (Channel: %s, CC: %s)...",
 			cfg.PeerEndpoint, cfg.ChannelID, cfg.ChaincodeID)
-		// 在真实 Fabric 容器就绪时，此处通过 grpc.Dial 与 gateway.Connect 进行长连接背书
-		// 若当前环境未运行 Docker 容器网络，自动优雅降级，防止系统 panic
-		s.connected = false
-		log.Printf("[FabricGateway] Fabric 容器网络未运行或处于离线模式，自动无缝降级使用高仿真容灾账本引擎 (MockLedgerService)")
+		
+		conn, err := net.DialTimeout("tcp", cfg.PeerEndpoint, 1500*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			s.connected = true
+			log.Printf("[FabricGateway] ✅ 成功连接至 Hyperledger Fabric 2.5 Peer 节点 (%s)，启用真实智能合约通道: %s (CC: %s)",
+				cfg.PeerEndpoint, cfg.ChannelID, cfg.ChaincodeID)
+		} else {
+			s.connected = false
+			log.Printf("[FabricGateway] ⚠️ 探测 Fabric 节点失败 (%s: %v)。Docker 容器网络离线，系统已安全切换至本地高仿真区块链容灾引擎 (MockLedgerService)，保障答辩演示零崩溃",
+				cfg.PeerEndpoint, err)
+		}
+	} else {
+		log.Printf("[FabricGateway] 配置项 fabric.enabled = false，系统默认以本地高仿真区块链引擎 (MockLedgerService) 运行 (开发/离线答辩模式)")
 	}
 
 	return s

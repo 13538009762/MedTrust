@@ -67,18 +67,31 @@ func (e *AccessEngine) EvaluateAccess(doctorID, patientID, recordID uint64, isEm
 		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "该医生账号已被监管限制跨机构调阅权限"}, nil
 	}
 
-	// 2. 本院同机构病历：同一医疗机构内诊疗延续与医嘱互认，系统直接放行
+	// 2. 本院机构病历访问控制 (ABAC 细粒度科室协同判定)
 	if !isCrossHospital {
-		return &AccessDecision{
-			Allowed:        true,
-			IsEmergency:    false,
-			Decision:       "ALLOWED",
-			Reason:         "病历归属当前医生所属医疗机构，属于院内诊疗互通，系统直接放行",
-			RiskEvaluation: risk.RiskEvaluation{Level: "LOW", TotalScore: 5},
-		}, nil
+		var docDept model.Department
+		if doctor.DepartmentID > 0 {
+			_ = repository.DB.First(&docDept, doctor.DepartmentID)
+		}
+
+		// 同科室协同诊疗或未区分科室时直接放行
+		isSameDept := doctor.DepartmentID == 0 || record.DepartmentName == "" ||
+			record.DepartmentName == "综合门诊" || (docDept.Name != "" && docDept.Name == record.DepartmentName)
+
+		if isSameDept {
+			return &AccessDecision{
+				Allowed:        true,
+				IsEmergency:    false,
+				Decision:       "ALLOWED",
+				Reason:         "病历归属当前医生所属医院同科室诊疗协同，系统核验放行",
+				RiskEvaluation: risk.RiskEvaluation{Level: "LOW", TotalScore: 5},
+			}, nil
+		}
+		// 院内跨科室会诊：若未取得患者授权且非紧急情况，引导授权或由高级职称医生协同
+		// 后续流程进入显式授权与风险评估流水线
 	}
 
-	// 2. 检查患者显式授权
+	// 3. 检查患者显式授权
 	now := time.Now()
 	var auths []model.Authorization
 	repository.DB.Where("patient_id = ? AND status = 'ACTIVE' AND start_time <= ? AND end_time >= ?", patientID, now, now).Find(&auths)
@@ -99,7 +112,21 @@ func (e *AccessEngine) EvaluateAccess(doctorID, patientID, recordID uint64, isEm
 		}
 	}
 
-	// 风险评分引擎评估
+	// 院内跨科室调阅且无患者授权场景：若为副主任医师及以上高级职称且处于工作时间，允许会诊放行（低风险）；否则需患者授权
+	if !isCrossHospital && !hasConsent {
+		isSenior := doctor.Title == "主任医师" || doctor.Title == "副主任医师"
+		if isSenior {
+			return &AccessDecision{
+				Allowed:        true,
+				IsEmergency:    false,
+				Decision:       "ALLOWED",
+				Reason:         "同院跨科室专家会诊协同调阅，经高级职称属性（ABAC）核验通过，系统放行",
+				RiskEvaluation: risk.RiskEvaluation{Level: "LOW", TotalScore: 15},
+			}, nil
+		}
+	}
+
+	// 风险评分引擎评估 (紧急访问走专属绿色通道)
 	eval := e.riskEngine.Evaluate(doctorID, patientID, isCrossHospital, hasConsent, isEmergency)
 
 	// 分支 A: 具备患者有效授权
@@ -132,14 +159,15 @@ func (e *AccessEngine) EvaluateAccess(doctorID, patientID, recordID uint64, isEm
 	}
 
 	// 分支 B: 未取得患者显式授权
-	// 检查该医生是否曾在过去 24 小时内对该病历成功实施过破窗放行
+	// 检查该医生是否曾在过去 24 小时内对该病历成功实施过破窗放行，且未被监管裁定违规或患者提出异议
 	var pastEmg model.EmergencyAccessEvent
-	if err := repository.DB.Where("doctor_id = ? AND record_id = ? AND created_at >= ?", doctorID, recordID, now.Add(-24*time.Hour)).First(&pastEmg).Error; err == nil {
+	if err := repository.DB.Where("doctor_id = ? AND record_id = ? AND created_at >= ? AND audit_status != 'CLOSED_VIOLATION' AND patient_feedback != 'OBJECTED'",
+		doctorID, recordID, now.Add(-24*time.Hour)).First(&pastEmg).Error; err == nil {
 		return &AccessDecision{
 			Allowed:        true,
 			IsEmergency:    true,
 			Decision:       "ALLOWED",
-			Reason:         "已在紧急破窗 24 小时急救与随诊有效期内核准放行，系统免重复申请直接放行",
+			Reason:         "已在紧急破窗 24 小时急救与随诊有效期内核准放行 (无患者异议与监管违规)，系统免重复申请直接放行",
 			RiskEvaluation: risk.RiskEvaluation{Level: "LOW", TotalScore: 10},
 		}, nil
 	}
@@ -154,7 +182,7 @@ func (e *AccessEngine) EvaluateAccess(doctorID, patientID, recordID uint64, isEm
 		}, nil
 	}
 
-	// 分支 C: 触发 Break-Glass 抢救放行
+	// 分支 C: 触发 Break-Glass 抢救放行 (专属绿色通道)
 	return &AccessDecision{
 		Allowed:        true,
 		IsEmergency:    true,
@@ -162,4 +190,11 @@ func (e *AccessEngine) EvaluateAccess(doctorID, patientID, recordID uint64, isEm
 		Reason:         "临床急救访问责任声明核验通过，临时放行并生成不可篡改紧急事件单",
 		RiskEvaluation: eval,
 	}, nil
+}
+
+// RecordSuccessfulAccess 记录一次真实且成功的病历调阅行为至时间窗口
+func (e *AccessEngine) RecordSuccessfulAccess(doctorID, patientID uint64) {
+	if e.riskEngine != nil {
+		e.riskEngine.RecordSuccessfulAccess(doctorID, patientID)
+	}
 }

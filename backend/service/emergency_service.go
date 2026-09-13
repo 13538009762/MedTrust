@@ -33,7 +33,7 @@ func (s *EmergencyService) SubmitEmergencyAccess(doctorID, recordID uint64, reas
 	eventNo := fmt.Sprintf("EA%s%s", time.Now().Format("20060102"), hex.EncodeToString(randBytes))
 
 	// 上链存证
-	txID, _, err := blockchain.DefaultLedger.CommitAsset("EMERGENCY_ACCESS", eventNo, map[string]interface{}{
+	txID, _, err := blockchain.DefaultService.CommitAsset("EMERGENCY_ACCESS", eventNo, map[string]interface{}{
 		"event_no":    eventNo,
 		"doctor_id":   doctorID,
 		"patient_id":  record.PatientID,
@@ -122,7 +122,7 @@ func (s *EmergencyService) AuditEvent(supervisorID uint64, eventNo, auditStatus,
 	repository.DB.Save(&event)
 
 	// 更新 Fabric 链上状态
-	_, _, _ = blockchain.DefaultLedger.CommitAsset("EMERGENCY_AUDIT", eventNo, map[string]interface{}{
+	_, _, _ = blockchain.DefaultService.CommitAsset("EMERGENCY_AUDIT", eventNo, map[string]interface{}{
 		"event_no":      eventNo,
 		"supervisor_id": supervisorID,
 		"audit_status":  auditStatus,
