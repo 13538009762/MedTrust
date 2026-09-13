@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"medtrust-backend/model"
 	"medtrust-backend/pkg/crypto"
+	"medtrust-backend/pkg/pdf"
 	"medtrust-backend/repository"
 	"medtrust-backend/service"
 )
@@ -234,59 +235,43 @@ func (ctrl *MedicalController) Download(c *gin.Context) {
 		fileHash = rec.Files[0].FileHash
 	}
 
-	docContent := fmt.Sprintf(`================================================================================
-【MedTrust 医疗可信数据共享联盟·国家卫健委临床就诊电子病历归档凭据】
-================================================================================
-开单医疗机构：%s
-就诊业务单号：%s | 就诊类型：%s | 接诊科室：%s
-患者真实姓名：%s | 身份证号：%s | 联系电话：%s
-就诊建档时间：%s | 责任医师：%s
---------------------------------------------------------------------------------
-【S - Subjective 主观病史采集】
-● 患者就诊主诉：%s
-● 临床现病史：%s
-● 发病时间周期：%s (持续状况：%s)
+	clinicalHash := service.ComputeRecordHash(&rec)
 
-【O - Objective 客观检查与测量】
-● 查体基础生命体征：%s
-● 医技科室辅助检查回传报告明细：
-%s
-
-【A - Assessment 综合评估与确诊】
-● 临床初步拟定诊断：%s (依据：%s)
-● 经治医师最终确诊：%s
-● 诱发病因与病理机制：%s
-
-【P - Plan 综合处置与处方方案】
-● 综合治疗医嘱与处方方案：
-%s
-
---------------------------------------------------------------------------------
-【安全存证与区块链密码学存证证据链 (Hyperledger Fabric & IPFS)】
-● 联盟链存证交易号 (Fabric TxID)：%s
-● 联盟链存证区块高度：%d
-● IPFS 分布式密文存储唯一标识 (CID)：%s
-● 原始明文 SHA-256 安全数据指纹：%s
-● 智能合约存证防篡改核验：通过 (100%% 吻合，链上链下数据一致)
-● 责任医师电子防伪签名：%s (经 CA 认证)
-================================================================================`,
-		rec.HospitalName,
-		rec.RecordNo, rec.EncounterType, rec.DepartmentName,
-		rec.PatientName, rec.PatientIDCard, rec.PatientPhone,
-		rec.CreatedAt.Format("2006-01-02 15:04:05"), rec.DoctorName,
-		rec.ChiefComplaint, rec.PresentIllness, rec.OnsetTime, rec.Duration,
-		rec.VitalSigns,
-		rec.ExamResult,
-		rec.InitialDiagnosis, rec.DiagnosticBasis, rec.Diagnosis, rec.Etiology,
-		rec.TreatmentPlan,
-		rec.FabricTxID, rec.BlockHeight,
-		cid, fileHash,
-		rec.DoctorName,
-	)
+	pdfBytes, err := pdf.GenerateAttestationPDF(pdf.AttestationData{
+		RecordNo:         rec.RecordNo,
+		HospitalName:     rec.HospitalName,
+		EncounterType:    rec.EncounterType,
+		DepartmentName:   rec.DepartmentName,
+		PatientName:      rec.PatientName,
+		PatientIDCard:    rec.PatientIDCard,
+		PatientPhone:     rec.PatientPhone,
+		DoctorName:       rec.DoctorName,
+		CreatedAt:        rec.CreatedAt,
+		ChiefComplaint:   rec.ChiefComplaint,
+		PresentIllness:   rec.PresentIllness,
+		OnsetTime:        rec.OnsetTime,
+		Duration:         rec.Duration,
+		VitalSigns:       rec.VitalSigns,
+		ExamResult:       rec.ExamResult,
+		InitialDiagnosis: rec.InitialDiagnosis,
+		DiagnosticBasis:  rec.DiagnosticBasis,
+		Diagnosis:        rec.Diagnosis,
+		Etiology:         rec.Etiology,
+		TreatmentPlan:    rec.TreatmentPlan,
+		FabricTxID:       rec.FabricTxID,
+		BlockHeight:      rec.BlockHeight,
+		IPFSCID:          cid,
+		FileHash:         fileHash,
+		ClinicalHash:     clinicalHash,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "生成规范 PDF 凭据失败: " + err.Error()})
+		return
+	}
 
 	c.Header("Content-Disposition", "attachment; filename="+fileName)
-	c.Header("Content-Type", "application/pdf; charset=utf-8")
-	c.String(http.StatusOK, docContent)
+	c.Header("Content-Type", "application/pdf")
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
 }
 
 // ListPatients 供医生选择患者或通过姓名/手机号/身份证号检索患者

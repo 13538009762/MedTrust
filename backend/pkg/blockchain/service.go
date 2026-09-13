@@ -1,5 +1,19 @@
 package blockchain
 
+// MedicalAsset 医疗数据统一上链存证资产模型 (规范契合 Fabric 智能合约)
+type MedicalAsset struct {
+	RecordID     string `json:"record_id"`
+	PatientID    string `json:"patient_id"`
+	CID          string `json:"cid"`
+	FileHash     string `json:"file_hash"`
+	ClinicalHash string `json:"clinical_hash"`
+	HospitalID   string `json:"hospital_id"`
+	CreatorID    string `json:"creator_id"`
+	DataType     string `json:"data_type"`
+	CreateTime   string `json:"create_time"`
+}
+
+
 // ChainRecord 账本流转存证记录
 type ChainRecord struct {
 	TxID        string                 `json:"tx_id"`

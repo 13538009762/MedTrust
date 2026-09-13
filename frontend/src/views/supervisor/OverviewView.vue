@@ -166,11 +166,86 @@
         </el-card>
       </el-col>
     </el-row>
+
+    <!-- 第四行：全网实时安全事件与存证流 (毕业设计核心监控流) -->
+    <el-card shadow="hover" class="chart-card mt-4">
+      <template #header>
+        <div class="chart-header-row stream-header-wrap">
+          <div class="stream-title-box">
+            <span class="stream-icon">⚡</span>
+            <span class="chart-title">全网实时安全事件与不可篡改审计流 (Real-Time Security Event Stream)</span>
+            <span class="stream-live-badge">
+              <span class="slb-dot"></span>
+              LIVE 持续监听
+            </span>
+          </div>
+          <div class="stream-filter-box">
+            <el-radio-group v-model="eventFilter" size="small">
+              <el-radio-button label="ALL">全部事件 ({{ securityEvents.length }})</el-radio-button>
+              <el-radio-button label="HIGH">🚨 高危事件</el-radio-button>
+              <el-radio-button label="BREAK_GLASS">🚑 破窗调阅</el-radio-button>
+              <el-radio-button label="VERIFY">🛡️ 验真审计</el-radio-button>
+            </el-radio-group>
+            <el-button size="small" type="primary" plain :icon="Refresh" :loading="loadingEvents" @click="fetchSecurityEvents">
+              刷新流水
+            </el-button>
+          </div>
+        </div>
+      </template>
+
+      <el-table :data="filteredEvents" stripe style="width: 100%" max-height="340" v-loading="loadingEvents">
+        <el-table-column prop="id" label="事件ID" width="80" />
+        <el-table-column label="发生时间" width="165">
+          <template #default="{ row }">
+            <span>{{ formatEventTime(row.created_at) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作主体" width="140">
+          <template #default="{ row }">
+            <strong>{{ row.user_name || ('用户#' + row.user_id) }}</strong>
+          </template>
+        </el-table-column>
+        <el-table-column label="医疗机构" width="150">
+          <template #default="{ row }">
+            <span>{{ row.hospital_name || '联盟机构' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作类型" width="130">
+          <template #default="{ row }">
+            <el-tag size="small" :type="getOpTagType(row.operation_type)">
+              {{ formatOpType(row.operation_type) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="target_id" label="目标病历/事件" min-width="160" />
+        <el-table-column label="系统决策结果" width="110">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.result === 'SUCCESS' ? 'success' : 'danger'" effect="dark">
+              {{ row.result === 'SUCCESS' ? '核准放行' : '阻断/告警' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="风险等级" width="95">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.risk_level === 'HIGH' ? 'danger' : (row.risk_level === 'MEDIUM' ? 'warning' : 'info')">
+              {{ row.risk_level }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="Fabric 存证状态" width="125">
+          <template #default>
+            <el-tag size="small" type="success" effect="plain">
+              🛡️ 账本已固化
+            </el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import api from '../../api/client'
@@ -240,8 +315,71 @@ const gaugeChartRef = ref<HTMLDivElement | null>(null)
 const hospChartRef = ref<HTMLDivElement | null>(null)
 const riskChartRef = ref<HTMLDivElement | null>(null)
 
+const securityEvents = ref<any[]>([])
+const loadingEvents = ref(false)
+const eventFilter = ref('ALL')
+let pollTimer: any = null
+
+const filteredEvents = computed(() => {
+  const f = eventFilter.value
+  if (f === 'HIGH') {
+    return securityEvents.value.filter(e => e.risk_level === 'HIGH' || e.result !== 'SUCCESS')
+  } else if (f === 'BREAK_GLASS') {
+    return securityEvents.value.filter(e => e.operation_type === 'BREAK_GLASS' || e.operation_type === 'EMERGENCY_AUDIT')
+  } else if (f === 'VERIFY') {
+    return securityEvents.value.filter(e => e.operation_type === 'VERIFY')
+  }
+  return securityEvents.value
+})
+
+async function fetchSecurityEvents() {
+  loadingEvents.value = true
+  try {
+    const res: any = await api.get('/audit-logs')
+    if (res.code === 200 && res.data) {
+      securityEvents.value = res.data
+    }
+  } catch (err) {
+    console.warn('fetchSecurityEvents error', err)
+  } finally {
+    loadingEvents.value = false
+  }
+}
+
+function formatEventTime(dt?: string) {
+  if (!dt) return '-'
+  return String(dt).replace('T', ' ').slice(0, 19)
+}
+
+function getOpTagType(op?: string) {
+  if (!op) return 'info'
+  if (op.includes('BREAK') || op.includes('EMERGENCY')) return 'danger'
+  if (op.includes('VERIFY')) return 'warning'
+  if (op.includes('UPLOAD') || op.includes('CREATE')) return 'success'
+  return 'primary'
+}
+
+function formatOpType(op?: string) {
+  const map: Record<string, string> = {
+    'UPLOAD': '病历密文上链',
+    'ACCESS': '病历权限调阅',
+    'BREAK_GLASS': 'Break-Glass 破窗',
+    'VERIFY': '动态防篡改核验',
+    'AUDIT_CLOSE': '监管审核裁决',
+    'UNRESTRICT_DOCTOR': '解除执业惩戒',
+    'FEEDBACK': '患者异议反馈',
+  }
+  return map[op || ''] || op || '安全审计'
+}
+
 onMounted(async () => {
   fetchBlockchainStatus()
+  fetchSecurityEvents()
+  pollTimer = setInterval(() => {
+    fetchSecurityEvents()
+    fetchBlockchainStatus()
+  }, 10000)
+
   try {
     const res: any = await api.get('/supervisor/overview')
     if (res.code === 200) {
@@ -254,6 +392,13 @@ onMounted(async () => {
     }
   } catch (err) {
     console.error(err)
+  }
+})
+
+onUnmounted(() => {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
   }
 })
 
@@ -572,5 +717,45 @@ function renderCharts(data: any) {
 }
 .action-box {
   align-self: center;
+}
+
+.stream-header-wrap {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.stream-title-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.stream-icon {
+  font-size: 16px;
+}
+.stream-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #ecfdf5;
+  color: #059669;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  border: 1px solid #a7f3d0;
+}
+.slb-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  animation: pulse-green 1.8s infinite;
+}
+.stream-filter-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 </style>

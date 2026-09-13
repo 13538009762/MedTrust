@@ -139,3 +139,19 @@ func (s *EmergencyService) AuditEvent(supervisorID uint64, eventNo, auditStatus,
 	DefaultAuditService.Log(supervisorID, "AUDIT_CLOSE", "EVENT", eventNo, 0, "SUCCESS", "LOW", "127.0.0.1")
 	return nil
 }
+
+// LiftDoctorRestriction 监管人员一键解除对医生的处罚限制，恢复正常执业状态
+func (s *EmergencyService) LiftDoctorRestriction(supervisorID, doctorID uint64, comment string) error {
+	var doc model.User
+	if err := repository.DB.First(&doc, doctorID).Error; err != nil {
+		return fmt.Errorf("医生不存在: %w", err)
+	}
+
+	if err := repository.DB.Model(&model.User{}).Where("id = ?", doctorID).Update("status", "NORMAL").Error; err != nil {
+		return err
+	}
+
+	DefaultAuditService.Log(supervisorID, "UNRESTRICT_DOCTOR", "USER", fmt.Sprintf("%d", doctorID), doc.HospitalID, "SUCCESS", "LOW", "127.0.0.1")
+	return nil
+}
+

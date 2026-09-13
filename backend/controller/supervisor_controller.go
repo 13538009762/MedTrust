@@ -246,3 +246,26 @@ func (ctrl *SupervisorController) RestoreTamperedRecord(c *gin.Context) {
 		Data:    res,
 	})
 }
+
+type LiftDoctorRestrictionDTO struct {
+	DoctorID uint64 `json:"doctor_id" binding:"required"`
+	Comment  string `json:"comment"`
+}
+
+// LiftDoctorRestriction 监管人员一键解除医生受限惩戒
+func (ctrl *SupervisorController) LiftDoctorRestriction(c *gin.Context) {
+	supervisorID := c.GetUint64("user_id")
+	var req LiftDoctorRestrictionDTO
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "参数错误: " + err.Error()})
+		return
+	}
+
+	if err := service.DefaultEmergencyService.LiftDoctorRestriction(supervisorID, req.DoctorID, req.Comment); err != nil {
+		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "已成功解除该医生的权限限制，状态恢复为 NORMAL 正常"})
+}
+

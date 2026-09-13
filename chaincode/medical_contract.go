@@ -191,34 +191,24 @@ func (c *MedicalContract) UpdateEmergencyStatus(ctx contractapi.TransactionConte
 	return ctx.GetStub().PutState("EMERGENCY_"+eventNo, updatedBytes)
 }
 
-// CreateMedicalRecord 提交符合链上原则的轻量病历存证 (仅存证摘要与指纹，密文存 IPFS)
+// CreateMedicalRecord 提交符合链上原则的轻量病历存证 (统一映射至 MedicalAsset 统一资产模型)
 func (c *MedicalContract) CreateMedicalRecord(ctx contractapi.TransactionContextInterface, recordID, cid, fileHash, hospitalID, dataType, timestamp string) error {
-	rec := MedicalRecord{
-		RecordID:   recordID,
-		CID:        cid,
-		FileHash:   fileHash,
-		HospitalID: hospitalID,
-		DataType:   dataType,
-		Timestamp:  timestamp,
+	asset := MedicalAsset{
+		RecordID:     recordID,
+		CID:          cid,
+		FileHash:     fileHash,
+		ClinicalHash: fileHash,
+		HospitalID:   hospitalID,
+		DataType:     dataType,
+		CreateTime:   timestamp,
 	}
-	recBytes, _ := json.Marshal(rec)
-	return ctx.GetStub().PutState("RECORD_"+recordID, recBytes)
+	assetBytes, _ := json.Marshal(asset)
+	return ctx.GetStub().PutState("RECORD_"+recordID, assetBytes)
 }
 
-// QueryMedicalRecord 查询病历链上存证摘要
-func (c *MedicalContract) QueryMedicalRecord(ctx contractapi.TransactionContextInterface, recordID string) (*MedicalRecord, error) {
-	val, err := ctx.GetStub().GetState("RECORD_" + recordID)
-	if err != nil {
-		return nil, fmt.Errorf("读取账本记录失败: %v", err)
-	}
-	if val == nil {
-		return nil, fmt.Errorf("病历记录 %s 在账本中不存在", recordID)
-	}
-	var rec MedicalRecord
-	if err := json.Unmarshal(val, &rec); err != nil {
-		return nil, fmt.Errorf("解析病历记录失败: %v", err)
-	}
-	return &rec, nil
+// QueryMedicalRecord 查询病历链上存证摘要 (统一返回 MedicalAsset 结构)
+func (c *MedicalContract) QueryMedicalRecord(ctx contractapi.TransactionContextInterface, recordID string) (*MedicalAsset, error) {
+	return c.QueryMedicalAsset(ctx, recordID)
 }
 
 // CreateAuthorization 记录患者知情授权策略

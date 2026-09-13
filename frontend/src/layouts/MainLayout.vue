@@ -129,6 +129,16 @@
         </div>
 
         <div class="header-right">
+          <!-- 答辩演示向导快捷入口 -->
+          <el-button
+            type="primary"
+            size="small"
+            class="defense-guide-launch-btn"
+            @click="defenseModalVisible = true"
+          >
+            🎓 答辩演示向导
+          </el-button>
+
           <!-- 区块链底层实时状态微件 -->
           <el-tooltip :content="chainTooltip" placement="bottom">
             <div
@@ -186,6 +196,9 @@
 
       <!-- 全局受控 AI 助手悬浮窗 -->
       <AiAssistantDialog />
+
+      <!-- 毕业答辩演示向导大弹窗 -->
+      <DefenseDemoGuideModal v-model="defenseModalVisible" />
     </el-container>
   </el-container>
 </template>
@@ -196,8 +209,10 @@ import { useRoute, useRouter } from 'vue-router'
 import { Expand, Fold, SwitchButton } from '@element-plus/icons-vue'
 import { useAuthStore } from '../stores/auth'
 import AiAssistantDialog from '../components/AiAssistantDialog.vue'
+import DefenseDemoGuideModal from '../components/DefenseDemoGuideModal.vue'
 import api from '../api/client'
 
+const defenseModalVisible = ref(false)
 const isCollapse = ref(false)
 const route = useRoute()
 const router = useRouter()
@@ -559,5 +574,18 @@ function onLogout() {
 .fade-slide-leave-to {
   opacity: 0;
   transform: translate3d(0, -14px, 0);
+}
+.defense-guide-launch-btn {
+  background: linear-gradient(135deg, #1e3a8a 0%, #7c3aed 100%) !important;
+  border: none !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  border-radius: 6px !important;
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.35) !important;
+  animation: pulseDefenseGlow 2.5s infinite ease-in-out;
+}
+@keyframes pulseDefenseGlow {
+  0%, 100% { box-shadow: 0 2px 8px rgba(124, 58, 237, 0.35); }
+  50% { box-shadow: 0 4px 14px rgba(124, 58, 237, 0.65); }
 }
 </style>

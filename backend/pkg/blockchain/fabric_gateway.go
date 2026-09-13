@@ -278,22 +278,41 @@ func (s *FabricGatewayService) CommitAsset(assetType, assetID string, payload ma
 
 	switch assetType {
 	case "MEDICAL_RECORD":
-		methodName = "CreateMedicalRecord"
 		recordID := assetID
 		if r, ok := payload["record_no"].(string); ok && r != "" {
 			recordID = r
 		}
+		patientID := fmt.Sprintf("%v", payload["patient_id"])
 		cid := fmt.Sprintf("%v", payload["cid"])
-		// 优先取综合临床指纹 clinical_hash（绑定全量病史、主诉、诱因过敏史、确诊、用药方案及附件指纹），确保数据库任何文字篡改都能被 Fabric 账本即刻阻断
-		targetHash := fmt.Sprintf("%v", payload["file_hash"])
-		if ch, ok := payload["clinical_hash"].(string); ok && ch != "" && ch != "<nil>" {
-			targetHash = ch
-		} else if ch, ok := payload["clinical_hash"]; ok && fmt.Sprintf("%v", ch) != "" && fmt.Sprintf("%v", ch) != "<nil>" {
-			targetHash = fmt.Sprintf("%v", ch)
+		fileHash := fmt.Sprintf("%v", payload["file_hash"])
+		clinicalHash := fmt.Sprintf("%v", payload["clinical_hash"])
+		if clinicalHash == "" || clinicalHash == "<nil>" {
+			clinicalHash = fileHash
 		}
 		hospID := fmt.Sprintf("%v", payload["hospital_id"])
+		creatorID := fmt.Sprintf("%v", payload["doctor_id"])
+		if creatorID == "" || creatorID == "<nil>" {
+			creatorID = fmt.Sprintf("%v", payload["creator_id"])
+		}
 		dataType := fmt.Sprintf("%v", payload["data_type"])
-		args = []string{recordID, cid, targetHash, hospID, dataType, nowStr}
+		if dataType == "" || dataType == "<nil>" {
+			dataType = "EMR"
+		}
+
+		asset := MedicalAsset{
+			RecordID:     recordID,
+			PatientID:    patientID,
+			CID:          cid,
+			FileHash:     fileHash,
+			ClinicalHash: clinicalHash,
+			HospitalID:   hospID,
+			CreatorID:    creatorID,
+			DataType:     dataType,
+			CreateTime:   nowStr,
+		}
+		assetBytes, _ := json.Marshal(asset)
+		methodName = "CreateMedicalAsset"
+		args = []string{string(assetBytes)}
 
 	case "AUTHORIZATION":
 		methodName = "CreateAuthorization"
@@ -381,11 +400,11 @@ func (s *FabricGatewayService) QueryAsset(assetID string) (map[string]interface{
 		return nil, false
 	}
 
-	// 优先以 QueryMedicalRecord 查询
-	result, err := s.contract.EvaluateTransaction("QueryMedicalRecord", assetID)
+	// 优先以 QueryMedicalAsset 查询统一模型
+	result, err := s.contract.EvaluateTransaction("QueryMedicalAsset", assetID)
 	if err != nil {
-		// 备用 QueryMedicalAsset
-		result, err = s.contract.EvaluateTransaction("QueryMedicalAsset", assetID)
+		// 备用 QueryMedicalRecord
+		result, err = s.contract.EvaluateTransaction("QueryMedicalRecord", assetID)
 		if err != nil {
 			return nil, false
 		}

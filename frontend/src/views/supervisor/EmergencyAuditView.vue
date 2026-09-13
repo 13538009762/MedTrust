@@ -1,9 +1,14 @@
 <template>
   <div class="page-container">
-    <div class="page-header">
+    <div class="page-header flex-between">
       <div>
         <h2 class="page-title">🚨 紧急访问 (Break-Glass) 监管审核台</h2>
-        <p class="page-sub">监管人员为唯一的医疗合规审判者。审查急救原因、患者知情异议反馈，执行合规结案或阶梯式违规惩戒</p>
+        <p class="page-sub">监管人员为唯一的医疗合规审判者。审查急救原因、患者知情异议反馈，执行合规结案或阶梯式违规惩戒与复权治理</p>
+      </div>
+      <div class="header-actions">
+        <el-button type="warning" plain @click="openGeneralLiftModal">
+          🔓 受限医生复权管理
+        </el-button>
       </div>
     </div>
 
@@ -33,15 +38,26 @@
             <el-tag v-else type="primary" size="small">待审核</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="审核判定" width="120" fixed="right">
+        <el-table-column label="审核判定与处置" width="200" fixed="right">
           <template #default="{ row }">
-            <el-button
-              type="primary"
-              size="small"
-              @click="openAuditModal(row)"
-            >
-              审查裁决
-            </el-button>
+            <div class="action-btns">
+              <el-button
+                type="primary"
+                size="small"
+                @click="openAuditModal(row)"
+              >
+                审查裁决
+              </el-button>
+              <el-button
+                v-if="row.audit_status === 'CLOSED_VIOLATION'"
+                type="warning"
+                size="small"
+                plain
+                @click="openLiftModal(row)"
+              >
+                🔓 解除限制
+              </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -84,6 +100,51 @@
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="submitting" @click="submitAudit">提交裁决并上链固化</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 一键解除医生权限限制（复权审批）弹窗 -->
+    <el-dialog v-model="liftDialogVisible" title="🔓 解除医生权限限制（复权审批）" width="540px">
+      <el-alert
+        title="复权机制说明"
+        type="info"
+        description="当受限医生整改期满或申诉复核通过后，监管部门可解除其访问控制限制，将其账号状态由 RESTRICTED 恢复为 NORMAL 正常，并在区块链上记存复权审计日志。"
+        show-icon
+        :closable="false"
+        class="mb-3"
+      />
+      <el-form :model="liftForm" label-width="110px">
+        <el-form-item label="选择医生" required>
+          <el-select
+            v-if="!selectedFromRow"
+            v-model="liftForm.doctor_id"
+            placeholder="请选择需要解除限制的医生"
+            style="width: 100%;"
+            filterable
+          >
+            <el-option
+              v-for="doc in doctorList"
+              :key="doc.id"
+              :label="`${doc.real_name || doc.username} (${doc.hospital_name || '医院'} · 状态: ${doc.status})`"
+              :value="doc.id"
+            />
+          </el-select>
+          <el-input v-else v-model="liftDoctorDisplay" disabled />
+        </el-form-item>
+        <el-form-item label="复权处置意见" required>
+          <el-input
+            v-model="liftForm.comment"
+            type="textarea"
+            :rows="3"
+            placeholder="请输入复权审查理由，该决议将写入区块链存证（例如：经监管复核，医生已完成整改且急救合规培训考核合格，解除限制恢复正常）"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="liftDialogVisible = false">取消</el-button>
+        <el-button type="success" :loading="lifting" @click="submitLiftRestriction">
+          确认解除限制并恢复正常
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -151,6 +212,73 @@ async function submitAudit() {
     submitting.value = false
   }
 }
+
+const liftDialogVisible = ref(false)
+const selectedFromRow = ref(false)
+const liftDoctorDisplay = ref('')
+const lifting = ref(false)
+const doctorList = ref<any[]>([])
+
+const liftForm = ref({
+  doctor_id: undefined as number | undefined,
+  comment: '经监管部门复核申诉与整改情况，急救合规考核合格，准予解除权限限制恢复正常执业状态。',
+})
+
+async function loadDoctorList() {
+  try {
+    const res: any = await api.get('/system/doctors')
+    if (res.code === 200) {
+      doctorList.value = res.data || []
+    }
+  } catch (err) {
+    console.warn('loadDoctorList failed', err)
+  }
+}
+
+function openLiftModal(row: any) {
+  selectedFromRow.value = true
+  liftForm.value.doctor_id = row.doctor_id
+  liftDoctorDisplay.value = `${row.doctor_name} (工号/ID: ${row.doctor_id} · ${row.source_hospital_name})`
+  liftForm.value.comment = '经监管复核，医生已补交客观急救材料并通过合规审查，同意解除权限限制。'
+  liftDialogVisible.value = true
+}
+
+async function openGeneralLiftModal() {
+  selectedFromRow.value = false
+  await loadDoctorList()
+  const restricted = doctorList.value.find(d => d.status === 'RESTRICTED')
+  if (restricted) {
+    liftForm.value.doctor_id = restricted.id
+  } else if (doctorList.value.length > 0) {
+    liftForm.value.doctor_id = doctorList.value[0].id
+  }
+  liftForm.value.comment = '经监管复核，医生已完成合规培训，解除权限限制。'
+  liftDialogVisible.value = true
+}
+
+async function submitLiftRestriction() {
+  if (!liftForm.value.doctor_id) {
+    ElMessage.warning('请选择需要解除限制的医生')
+    return
+  }
+  lifting.value = true
+  try {
+    const res: any = await api.post('/supervisor/lift-doctor-restriction', {
+      doctor_id: liftForm.value.doctor_id,
+      comment: liftForm.value.comment || '经监管部门审查准予解除惩戒限制。'
+    })
+    if (res.code === 200) {
+      ElMessage.success('已成功解除该医生的限制，状态恢复为 NORMAL 正常！区块链已记录复权存证。')
+      liftDialogVisible.value = false
+      loadEvents()
+      loadDoctorList()
+    }
+  } catch (err: any) {
+    ElMessage.error(err?.message || '解除限制失败')
+  } finally {
+    lifting.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -160,6 +288,11 @@ async function submitAudit() {
 }
 .page-header {
   margin-bottom: 20px;
+}
+.flex-between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 .page-title {
   font-size: 22px;
@@ -176,5 +309,10 @@ async function submitAudit() {
 .audit-info-box p {
   line-height: 1.8;
   font-size: 14px;
+}
+.action-btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 </style>

@@ -12,6 +12,7 @@ import (
 	"medtrust-backend/pkg/blockchain"
 	"medtrust-backend/pkg/crypto"
 	"medtrust-backend/pkg/ipfs"
+	"medtrust-backend/pkg/pdf"
 	"medtrust-backend/repository"
 )
 
@@ -88,11 +89,29 @@ func (s *MedicalService) UploadRecord(p UploadRecordParams) (*model.MedicalRecor
 		p.Status = "COMPLETED"
 	}
 
-	// 若未单独上传附件，系统自动为本次就诊生成规范电子病历归档切片凭证
+	// 若未单独上传附件，系统自动为本次就诊生成规范电子病历归档切片凭证 (符合 PDF 1.4 标准)
 	if len(p.FileData) == 0 {
-		reportText := fmt.Sprintf("【MedTrust 医疗可信共享平台·规范临床就诊全量凭据】\n就诊编号: %s\n就诊患者编号: %d\n经治责任医生: %s (ID: %d)\n所属医疗机构: %d\n就诊类型: %s | 接诊科室: %s\n发病与病程: %s (%s)\n主诉症状: %s\n生命体征: %s\n初步诊断: %s\n辅助检查申请: %t (项目: %s)\n医技报告结果: %s\n最终诊断: %s\n处置治疗方案: %s\n电子存证生成时间: %s\n",
-			recordNo, p.PatientID, doc.RealName, p.DoctorID, doc.HospitalID, p.EncounterType, p.DepartmentName, p.OnsetTime, p.Duration, p.ChiefComplaint, p.VitalSigns, p.InitialDiagnosis, p.NeedExam, p.ExamItems, p.ExamResult, p.Diagnosis, p.TreatmentPlan, time.Now().Format("2006-01-02 15:04:05"))
-		p.FileData = []byte(reportText)
+		pdfBytes, _ := pdf.GenerateAttestationPDF(pdf.AttestationData{
+			RecordNo:         recordNo,
+			HospitalName:     doc.HospitalName,
+			EncounterType:    p.EncounterType,
+			DepartmentName:   p.DepartmentName,
+			PatientName:      fmt.Sprintf("患者#%d", p.PatientID),
+			DoctorName:       doc.RealName,
+			CreatedAt:        time.Now(),
+			ChiefComplaint:   p.ChiefComplaint,
+			PresentIllness:   p.PresentIllness,
+			OnsetTime:        p.OnsetTime,
+			Duration:         p.Duration,
+			VitalSigns:       p.VitalSigns,
+			ExamResult:       p.ExamResult,
+			InitialDiagnosis: p.InitialDiagnosis,
+			DiagnosticBasis:  p.DiagnosticBasis,
+			Diagnosis:        p.Diagnosis,
+			Etiology:         p.Etiology,
+			TreatmentPlan:    p.TreatmentPlan,
+		})
+		p.FileData = pdfBytes
 		p.FileName = fmt.Sprintf("临床就诊规范归档凭据_%s.pdf", recordNo)
 		p.FileType = "pdf"
 	}
@@ -926,13 +945,33 @@ func (s *MedicalService) CompleteEncounterFinal(p CompleteEncounterFinalParams) 
 		rec.Etiology = rec.DiagnosticBasis
 	}
 
-	// 生成规范病历电子文档
-	reportText := p.SOAPContent
-	if reportText == "" {
-		reportText = fmt.Sprintf("【MedTrust 医疗可信共享平台·规范临床就诊全量凭据】\n就诊编号: %s\n就诊患者编号: %d\n经治责任医生: %s (ID: %d)\n所属医疗机构: %d\n就诊类型: %s | 接诊科室: %s\n发病与病程: %s (%s)\n主诉症状: %s\n生命体征: %s\n初步诊断: %s\n辅助检查申请: %t (项目: %s)\n医技报告结果: %s\n最终确诊: %s\n病因与诱因: %s\n处置治疗方案: %s\n电子存证生成时间: %s\n",
-			rec.RecordNo, rec.PatientID, doc.RealName, p.DoctorID, doc.HospitalID, rec.EncounterType, rec.DepartmentName, rec.OnsetTime, rec.Duration, rec.ChiefComplaint, rec.VitalSigns, rec.InitialDiagnosis, rec.NeedExam, rec.ExamItems, rec.ExamResult, rec.Diagnosis, rec.Etiology, rec.TreatmentPlan, time.Now().Format("2006-01-02 15:04:05"))
+	// 生成符合 PDF 1.4 标准的规范病历电子文档
+	pdfBytes, pdfErr := pdf.GenerateAttestationPDF(pdf.AttestationData{
+		RecordNo:         rec.RecordNo,
+		HospitalName:     rec.HospitalName,
+		EncounterType:    rec.EncounterType,
+		DepartmentName:   rec.DepartmentName,
+		PatientName:      rec.PatientName,
+		DoctorName:       doc.RealName,
+		CreatedAt:        time.Now(),
+		ChiefComplaint:   rec.ChiefComplaint,
+		PresentIllness:   rec.PresentIllness,
+		OnsetTime:        rec.OnsetTime,
+		Duration:         rec.Duration,
+		VitalSigns:       rec.VitalSigns,
+		ExamResult:       rec.ExamResult,
+		InitialDiagnosis: rec.InitialDiagnosis,
+		DiagnosticBasis:  rec.DiagnosticBasis,
+		Diagnosis:        rec.Diagnosis,
+		Etiology:         rec.Etiology,
+		TreatmentPlan:    rec.TreatmentPlan,
+	})
+	var fileBytes []byte
+	if pdfErr == nil && len(pdfBytes) > 0 {
+		fileBytes = pdfBytes
+	} else {
+		fileBytes = []byte(p.SOAPContent)
 	}
-	fileBytes := []byte(reportText)
 
 	// 计算明文哈希与临床综合指纹
 	fileHash := crypto.CalculateSHA256(fileBytes)
