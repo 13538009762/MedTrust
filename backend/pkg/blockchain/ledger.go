@@ -11,16 +11,8 @@ import (
 	"time"
 )
 
-type ChainRecord struct {
-	TxID        string                 `json:"tx_id"`
-	BlockHeight uint64                 `json:"block_height"`
-	Timestamp   string                 `json:"timestamp"`
-	AssetType   string                 `json:"asset_type"`
-	AssetID     string                 `json:"asset_id"`
-	Payload     map[string]interface{} `json:"payload"`
-}
-
-type LedgerEngine struct {
+// MockLedgerService 高仿真本地区块链账本引擎 (满足无 Docker 容器环境下的答辩与单测演示)
+type MockLedgerService struct {
 	ledgerDir     string
 	currentHeight uint64
 	stateStore    map[string]string
@@ -28,24 +20,44 @@ type LedgerEngine struct {
 	mu            sync.RWMutex
 }
 
-var DefaultLedger *LedgerEngine
+// 保持向前兼容别名
+type LedgerEngine = MockLedgerService
+
+var DefaultLedger *MockLedgerService
 var once sync.Once
 
-func InitLedger(ledgerDir string) *LedgerEngine {
+func InitLedger(ledgerDir string) *MockLedgerService {
 	once.Do(func() {
 		_ = os.MkdirAll(ledgerDir, 0755)
-		DefaultLedger = &LedgerEngine{
+		DefaultLedger = &MockLedgerService{
 			ledgerDir:     ledgerDir,
 			currentHeight: 100,
 			stateStore:    make(map[string]string),
 			history:       make([]ChainRecord, 0),
 		}
 		DefaultLedger.load()
+		DefaultService = DefaultLedger
 	})
 	return DefaultLedger
 }
 
-func (l *LedgerEngine) load() {
+// InitBlockchainService 初始化区块链服务引擎 (支持 Fabric 2.5 官方网关与 Mock 引擎无缝切换)
+func InitBlockchainService(ledgerDir string, fabricCfg FabricGatewayConfig) BlockchainService {
+	mock := InitLedger(ledgerDir)
+	if fabricCfg.Enabled {
+		gateway := NewFabricGatewayService(fabricCfg, mock)
+		DefaultService = gateway
+		return gateway
+	}
+	DefaultService = mock
+	return mock
+}
+
+func (l *MockLedgerService) IsLiveFabric() bool {
+	return false
+}
+
+func (l *MockLedgerService) load() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	historyFile := filepath.Join(l.ledgerDir, "ledger_history.json")
@@ -64,13 +76,13 @@ func (l *LedgerEngine) load() {
 	}
 }
 
-func (l *LedgerEngine) persist() {
+func (l *MockLedgerService) persist() {
 	historyFile := filepath.Join(l.ledgerDir, "ledger_history.json")
 	data, _ := json.MarshalIndent(l.history, "", "  ")
 	_ = os.WriteFile(historyFile, data, 0644)
 }
 
-func (l *LedgerEngine) CommitAsset(assetType, assetID string, payload map[string]interface{}) (txID string, height uint64, err error) {
+func (l *MockLedgerService) CommitAsset(assetType, assetID string, payload map[string]interface{}) (txID string, height uint64, err error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -97,7 +109,7 @@ func (l *LedgerEngine) CommitAsset(assetType, assetID string, payload map[string
 	return txID, l.currentHeight, nil
 }
 
-func (l *LedgerEngine) QueryAsset(assetID string) (map[string]interface{}, bool) {
+func (l *MockLedgerService) QueryAsset(assetID string) (map[string]interface{}, bool) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	str, ok := l.stateStore[assetID]
@@ -111,8 +123,20 @@ func (l *LedgerEngine) QueryAsset(assetID string) (map[string]interface{}, bool)
 	return res, true
 }
 
-func (l *LedgerEngine) GetStats() (totalTx int, currentHeight uint64) {
+func (l *MockLedgerService) GetStats() (totalTx int, currentHeight uint64) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	return len(l.history) + 24, l.currentHeight
+}
+
+func (l *MockLedgerService) GetHistory(assetID string) ([]ChainRecord, error) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	var matches []ChainRecord
+	for _, rec := range l.history {
+		if rec.AssetID == assetID {
+			matches = append(matches, rec)
+		}
+	}
+	return matches, nil
 }

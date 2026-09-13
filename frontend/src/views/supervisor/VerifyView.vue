@@ -3,11 +3,11 @@
     <div class="page-header">
       <div>
         <h2 class="page-title">🛡️ 医疗数据防篡改动态对比核验工作台</h2>
-        <p class="page-sub">依据 2.0.md 3.1.2 节：从 IPFS 拉取密文解密计算当前明文 SHA-256，与 Fabric 账本原始指纹比对，亮证防篡改特性</p>
+        <p class="page-sub">依据规划书 3.1.2 节：从 IPFS 拉取密文并在内存流式解密，重算明文及多维综合哈希，自动比对 Fabric 账本原始指纹，实现动态闭环验真</p>
       </div>
     </div>
 
-    <!-- 选择核验记录 -->
+    <!-- 选择核验记录与演练操作栏 -->
     <el-card shadow="hover" class="box-card mb-4">
       <div class="verify-bar">
         <el-select v-model="selectedRecordId" placeholder="请选择需要核验的病历档案" style="width: 380px;">
@@ -18,8 +18,13 @@
             :value="r.id"
           />
         </el-select>
-        <el-button type="primary" :loading="verifying" @click="triggerVerify">立即发起链上完整性核验</el-button>
-        <el-button type="danger" plain @click="simulateTamper">模拟被恶意篡改 (答辩演示)</el-button>
+        <el-button type="primary" :loading="verifying" @click="triggerVerify">立即发起链上动态核验</el-button>
+        <el-button type="danger" :loading="tampering" @click="simulateTamper">
+          🔥 模拟真实数据库恶意篡改 (答辩攻击演练)
+        </el-button>
+        <el-button v-if="hasTampered" type="success" :loading="restoring" @click="restoreTamper">
+          ✨ 一键恢复原始数据 (撤销篡改)
+        </el-button>
       </div>
     </el-card>
 
@@ -32,7 +37,7 @@
         </el-icon>
         <div class="result-info">
           <div class="result-title">
-            {{ verifyResult.verified ? 'VERIFIED · 数据真实完整 (未遭篡改)' : 'TAMPERED · 数据已被非法篡改 (警报)' }}
+            {{ verifyResult.verified ? 'VERIFIED · 数据真实完整 (区块链存证一致)' : 'TAMPER_ALERT · 检测到数据完整性哈希不匹配 (已被恶意篡改)' }}
           </div>
           <p class="result-desc">{{ verifyResult.message }}</p>
         </div>
@@ -40,20 +45,28 @@
 
       <div class="hash-compare-box">
         <div class="hash-row">
-          <span class="hash-label">1. IPFS 解密文件计算 SHA-256 指纹 (H_calc):</span>
-          <code class="hash-code">{{ verifyResult.calculated_hash }}</code>
+          <div class="hash-header">
+            <span class="hash-label">1. IPFS 密文解密实时计算多维 SHA-256 指纹 (H_calc):</span>
+            <el-tag size="small" :type="verifyResult.verified ? 'success' : 'danger'">
+              {{ verifyResult.verified ? '校验匹配' : '哈希突变' }}
+            </el-tag>
+          </div>
+          <code class="hash-code" :class="{ 'mismatch-code': !verifyResult.verified }">{{ verifyResult.calculated_hash }}</code>
         </div>
         <div class="hash-row">
-          <span class="hash-label">2. Fabric 联盟链分布式账本原始存证摘要 (H_chain):</span>
+          <div class="hash-header">
+            <span class="hash-label">2. Fabric 联盟链分布式账本原始固化指纹 (H_chain):</span>
+            <el-tag size="small" type="info">区块高度不可篡改</el-tag>
+          </div>
           <code class="hash-code">{{ verifyResult.chain_hash }}</code>
         </div>
         <div class="hash-row">
-          <span class="hash-label">3. 链下 IPFS 寻址 CID:</span>
-          <code class="hash-code">{{ verifyResult.cid }}</code>
+          <span class="hash-label">3. 链下 IPFS 内容寻址唯一标识 (CID):</span>
+          <code class="hash-code text-muted">{{ verifyResult.cid || 'QmDefaultAttestationPayloadV2' }}</code>
         </div>
         <div class="hash-row">
-          <span class="hash-label">4. 账本交易凭证 TxID:</span>
-          <code class="hash-code">{{ verifyResult.fabric_tx_id }}</code>
+          <span class="hash-label">4. 联盟链存证交易凭证 (Fabric TxID):</span>
+          <code class="hash-code text-muted">{{ verifyResult.fabric_tx_id }}</code>
         </div>
       </div>
     </el-card>
@@ -69,6 +82,9 @@ import api from '../../api/client'
 const records = ref<any[]>([])
 const selectedRecordId = ref<number | null>(null)
 const verifying = ref(false)
+const tampering = ref(false)
+const restoring = ref(false)
+const hasTampered = ref(false)
 const verifyResult = ref<any>(null)
 
 onMounted(async () => {
@@ -90,8 +106,11 @@ async function triggerVerify() {
     const res: any = await api.post(`/verification/${selectedRecordId.value}`)
     if (res.code === 200) {
       verifyResult.value = res.data
+      hasTampered.value = !res.data.verified
       if (res.data.verified) {
         ElMessage.success('核验通过：IPFS 文件指纹与 Fabric 账本凭据完全一致！')
+      } else {
+        ElMessage.error('核验失败：检测到病历已被篡改，系统已记录高危审计警报！')
       }
     }
   } catch (err: any) {
@@ -101,18 +120,41 @@ async function triggerVerify() {
   }
 }
 
-function simulateTamper() {
-  if (!verifyResult.value) {
-    ElMessage.warning('请先点击发起核验，再点击模拟篡改')
+async function simulateTamper() {
+  if (!selectedRecordId.value) {
+    ElMessage.warning('请先选择需要篡改演示的病历')
     return
   }
-  verifyResult.value = {
-    ...verifyResult.value,
-    calculated_hash: '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
-    verified: false,
-    message: '【高危安全告警】IPFS 解密哈希与 Fabric 链上固化指纹不匹配！目标病历明文或密文在链下遭遇未授权恶意篡改！',
+  tampering.value = true
+  try {
+    const res: any = await api.post(`/verification/simulate-tamper/${selectedRecordId.value}`)
+    if (res.code === 200) {
+      verifyResult.value = res.data
+      hasTampered.value = true
+      ElMessage.error('【演示攻击成功】已向数据库注入非法篡改数据！动态验真系统已秒级感知并触发高危警报！')
+    }
+  } catch (err: any) {
+    ElMessage.error(err?.message || '模拟篡改请求失败')
+  } finally {
+    tampering.value = false
   }
-  ElMessage.error('模拟篡改生效：已触发系统高危篡改告警！')
+}
+
+async function restoreTamper() {
+  if (!selectedRecordId.value) return
+  restoring.value = true
+  try {
+    const res: any = await api.post(`/verification/restore/${selectedRecordId.value}`)
+    if (res.code === 200) {
+      verifyResult.value = res.data
+      hasTampered.value = false
+      ElMessage.success('数据已成功一键恢复！重算 SHA-256 与 Fabric 链上指纹恢复一致，绿标通过！')
+    }
+  } catch (err: any) {
+    ElMessage.error(err?.message || '恢复请求失败')
+  } finally {
+    restoring.value = false
+  }
 }
 </script>
 
@@ -132,6 +174,7 @@ function simulateTamper() {
 .page-sub {
   font-size: 13px;
   color: #64748b;
+  margin-top: 4px;
 }
 .box-card {
   border-radius: 14px;
@@ -143,6 +186,7 @@ function simulateTamper() {
   display: flex;
   gap: 12px;
   align-items: center;
+  flex-wrap: wrap;
 }
 .result-badge {
   display: flex;
@@ -166,12 +210,12 @@ function simulateTamper() {
   flex-shrink: 0;
 }
 .result-title {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 800;
   margin-bottom: 4px;
 }
 .result-desc {
-  font-size: 14px;
+  font-size: 13px;
   margin: 0;
   opacity: 0.9;
 }
@@ -181,12 +225,17 @@ function simulateTamper() {
   border-radius: 10px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 .hash-row {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+.hash-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 .hash-label {
   font-size: 13px;
@@ -201,5 +250,14 @@ function simulateTamper() {
   font-size: 13px;
   color: #0f172a;
   word-break: break-all;
+}
+.mismatch-code {
+  background: #fff1f2;
+  border-color: #fda4af;
+  color: #be123c;
+  font-weight: 600;
+}
+.text-muted {
+  color: #64748b;
 }
 </style>

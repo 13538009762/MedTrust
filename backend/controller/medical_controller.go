@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"medtrust-backend/model"
+	"medtrust-backend/pkg/crypto"
 	"medtrust-backend/repository"
 	"medtrust-backend/service"
 )
@@ -449,7 +449,7 @@ func (ctrl *MedicalController) CompleteEncounterFinal(c *gin.Context) {
 	})
 }
 
-// ViewMedicalFile 查阅病历附件或影像（支持图片/PDF在线预览）
+// ViewMedicalFile 查阅病历附件或影像（支持图片/PDF在线预览，从 IPFS 拉取并在内存中动态流式解密，零磁盘落地）
 func (ctrl *MedicalController) ViewMedicalFile(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var file model.MedicalFile
@@ -458,35 +458,48 @@ func (ctrl *MedicalController) ViewMedicalFile(c *gin.Context) {
 		return
 	}
 
-	uploadsDir := "./data/uploads"
-	filePath := filepath.Join(uploadsDir, fmt.Sprintf("%s_%s", file.IPFSCID, file.FileName))
-	if data, err := os.ReadFile(filePath); err == nil {
-		ext := strings.ToLower(file.FileType)
-		contentType := "application/octet-stream"
-		switch ext {
-		case "png":
-			contentType = "image/png"
-		case "jpg", "jpeg":
-			contentType = "image/jpeg"
-		case "gif":
-			contentType = "image/gif"
-		case "webp":
-			contentType = "image/webp"
-		case "svg":
-			contentType = "image/svg+xml"
-		case "pdf":
-			contentType = "application/pdf"
-		}
-		c.Header("Content-Type", contentType)
-		c.Header("Content-Disposition", "inline; filename="+file.FileName)
-		c.Data(http.StatusOK, contentType, data)
-		return
+	var rec model.MedicalRecord
+	if file.RecordID > 0 {
+		_ = repository.DB.First(&rec, file.RecordID)
 	}
 
+	// 1. 优先从 IPFS 分布式节点拉取 AES-256-GCM 密文并在内存动态解密
+	if file.IPFSCID != "" {
+		if cipherPack, err := service.DefaultMedicalService.GetIPFSData(file.IPFSCID); err == nil && len(cipherPack) > 0 {
+			plainData, decErr := crypto.DecryptRecordFile(cipherPack, rec.PatientID, rec.RecordNo)
+			if decErr != nil && file.FileName != "" {
+				plainData, decErr = crypto.DecryptRecordFile(cipherPack, rec.PatientID, "")
+			}
+			if decErr == nil && len(plainData) > 0 {
+				ext := strings.ToLower(file.FileType)
+				contentType := "application/octet-stream"
+				switch ext {
+				case "png":
+					contentType = "image/png"
+				case "jpg", "jpeg":
+					contentType = "image/jpeg"
+				case "gif":
+					contentType = "image/gif"
+				case "webp":
+					contentType = "image/webp"
+				case "svg":
+					contentType = "image/svg+xml"
+				case "pdf":
+					contentType = "application/pdf"
+				}
+				c.Header("Content-Type", contentType)
+				c.Header("Content-Disposition", "inline; filename="+file.FileName)
+				c.Data(http.StatusOK, contentType, plainData)
+				return
+			}
+		}
+	}
+
+	// 2. 密文未就绪或初始模板记录时，以医学切片/报告动态流式渲染兜底
 	ctrl.serveMockMedicalImage(c, &file)
 }
 
-// DownloadMedicalFile 下载病历附件
+// DownloadMedicalFile 下载病历附件 (内存动态解密流式传输)
 func (ctrl *MedicalController) DownloadMedicalFile(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var file model.MedicalFile
@@ -495,13 +508,21 @@ func (ctrl *MedicalController) DownloadMedicalFile(c *gin.Context) {
 		return
 	}
 
-	uploadsDir := "./data/uploads"
-	filePath := filepath.Join(uploadsDir, fmt.Sprintf("%s_%s", file.IPFSCID, file.FileName))
-	if data, err := os.ReadFile(filePath); err == nil {
-		c.Header("Content-Disposition", "attachment; filename="+file.FileName)
-		c.Header("Content-Type", "application/octet-stream")
-		c.Data(http.StatusOK, "application/octet-stream", data)
-		return
+	var rec model.MedicalRecord
+	if file.RecordID > 0 {
+		_ = repository.DB.First(&rec, file.RecordID)
+	}
+
+	if file.IPFSCID != "" {
+		if cipherPack, err := service.DefaultMedicalService.GetIPFSData(file.IPFSCID); err == nil && len(cipherPack) > 0 {
+			plainData, decErr := crypto.DecryptRecordFile(cipherPack, rec.PatientID, rec.RecordNo)
+			if decErr == nil && len(plainData) > 0 {
+				c.Header("Content-Disposition", "attachment; filename="+file.FileName)
+				c.Header("Content-Type", "application/octet-stream")
+				c.Data(http.StatusOK, "application/octet-stream", plainData)
+				return
+			}
+		}
 	}
 
 	c.Redirect(http.StatusFound, fmt.Sprintf("/api/v1/medical-records/%d/download", file.RecordID))

@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -22,6 +23,15 @@ type Config struct {
 		ChannelID   string `yaml:"channel_id"`
 		ChaincodeID string `yaml:"chaincode_id"`
 		LedgerDir   string `yaml:"ledger_dir"`
+		Fabric      struct {
+			Enabled      bool   `yaml:"enabled"`
+			PeerEndpoint string `yaml:"peer_endpoint"`
+			GatewayPeer  string `yaml:"gateway_peer"`
+			MSPID        string `yaml:"msp_id"`
+			TLSCertPath  string `yaml:"tls_cert_path"`
+			CertPath     string `yaml:"cert_path"`
+			KeyPath      string `yaml:"key_path"`
+		} `yaml:"fabric"`
 	} `yaml:"blockchain"`
 	Risk struct {
 		LowThreshold  int `yaml:"low_threshold"`

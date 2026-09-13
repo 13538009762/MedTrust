@@ -25,7 +25,17 @@ func main() {
 	fmt.Println("[MedTrust] MySQL Database Connected & AutoMigrated Successfully")
 
 	// 初始化区块链与 IPFS 服务
-	blockchain.InitLedger(cfg.Blockchain.LedgerDir)
+	blockchain.InitBlockchainService(cfg.Blockchain.LedgerDir, blockchain.FabricGatewayConfig{
+		Enabled:      cfg.Blockchain.Fabric.Enabled,
+		PeerEndpoint: cfg.Blockchain.Fabric.PeerEndpoint,
+		GatewayPeer:  cfg.Blockchain.Fabric.GatewayPeer,
+		MSPID:        cfg.Blockchain.Fabric.MSPID,
+		ChannelID:    cfg.Blockchain.ChannelID,
+		ChaincodeID:  cfg.Blockchain.ChaincodeID,
+		TLSCertPath:  cfg.Blockchain.Fabric.TLSCertPath,
+		CertPath:     cfg.Blockchain.Fabric.CertPath,
+		KeyPath:      cfg.Blockchain.Fabric.KeyPath,
+	})
 	service.InitMedicalService(cfg.IPFS.APIURL, cfg.IPFS.StorageDir)
 	service.InitAccessEngine(cfg.Risk.LowThreshold, cfg.Risk.HighThreshold)
 	service.EnsureBaselineLedgerAnchored()

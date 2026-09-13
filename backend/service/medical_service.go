@@ -4,8 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -98,24 +96,15 @@ func (s *MedicalService) UploadRecord(p UploadRecordParams) (*model.MedicalRecor
 		p.FileType = "pdf"
 	}
 
-	// 2. 计算原始明文数据的 SHA-256 基准数据指纹与临床多维哈希
-	fileHash := crypto.CalculateSHA256(p.FileData)
-	clinicalHash := crypto.CalculateSHA256([]byte(fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s",
-		recordNo, p.DataType, p.OnsetTime, p.Duration, p.Symptoms, p.Etiology, p.TreatmentPlan, p.Diagnosis, fileHash)))
-
-	// 3. 生成动态对称密钥和 IV
-	encKey, _ := crypto.GenerateRandomKey()
-	iv, _ := crypto.GenerateRandomIV()
-
-	// 将患者编号与病历编号作为 AAD 绑定进 GCM 验证
-	aad := []byte(fmt.Sprintf("%d:%s", p.PatientID, recordNo))
-	ciphertext, err := crypto.EncryptAES256GCM(encKey, iv, p.FileData, aad)
+	// 2. 使用 AES-256-GCM 流式加密原始明文，绑定 AAD (患者ID:病历编号)，生成 SHA-256 指纹
+	pack, fileHash, err := crypto.EncryptRecordFile(p.FileData, p.PatientID, recordNo)
 	if err != nil {
 		return nil, fmt.Errorf("AES-256-GCM 加密失败: %w", err)
 	}
+	clinicalHash := crypto.CalculateSHA256([]byte(fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s",
+		recordNo, p.DataType, p.OnsetTime, p.Duration, p.Symptoms, p.Etiology, p.TreatmentPlan, p.Diagnosis, fileHash)))
 
-	// 3. 密文存储至 IPFS 节点获取唯一 CID
-	pack := append(iv, ciphertext...)
+	// 3. 密文存储至 IPFS 节点获取唯一 CID (严禁明文磁盘落地)
 	cid, err := s.ipfsService.PutData(pack)
 	if err != nil {
 		return nil, fmt.Errorf("IPFS 存储失败: %w", err)
@@ -186,13 +175,7 @@ func (s *MedicalService) UploadRecord(p UploadRecordParams) (*model.MedicalRecor
 		return nil, fmt.Errorf("保存病历附件记录失败: %w", err)
 	}
 	record.Files = []model.MedicalFile{fileRecord}
-
-	uploadsDir := "./data/uploads"
-	_ = os.MkdirAll(uploadsDir, 0755)
-	if len(p.FileData) > 0 {
-		_ = os.WriteFile(filepath.Join(uploadsDir, fmt.Sprintf("%s_%s", cid, p.FileName)), p.FileData, 0644)
-	}
-
+	// 严格遵循链下密文存储规范，服务端本地磁盘零明文落地，数据均以 AES-256-GCM 密文托管于 IPFS
 	DefaultAuditService.Log(p.DoctorID, "UPLOAD", "RECORD", recordNo, doc.HospitalID, "SUCCESS", "LOW", "127.0.0.1")
 	return &record, nil
 }
@@ -759,13 +742,14 @@ func (s *MedicalService) CompleteExamOrder(p CompleteExamOrderParams) (*model.Me
 
 	// 若上传了影像/报告附件
 	if len(p.FileData) > 0 {
-		fileHash := crypto.CalculateSHA256(p.FileData)
-		encKey, _ := crypto.GenerateRandomKey()
-		iv, _ := crypto.GenerateRandomIV()
-		aad := []byte(fmt.Sprintf("%d:%s", order.PatientID, order.OrderNo))
-		ciphertext, err := crypto.EncryptAES256GCM(encKey, iv, p.FileData, aad)
+		var rec model.MedicalRecord
+		_ = repository.DB.First(&rec, order.RecordID)
+		targetRecordNo := order.OrderNo
+		if rec.RecordNo != "" {
+			targetRecordNo = rec.RecordNo
+		}
+		pack, fileHash, err := crypto.EncryptRecordFile(p.FileData, order.PatientID, targetRecordNo)
 		if err == nil {
-			pack := append(iv, ciphertext...)
 			cid, err := s.ipfsService.PutData(pack)
 			if err == nil {
 				finalFileName := p.FileName
@@ -790,12 +774,7 @@ func (s *MedicalService) CompleteExamOrder(p CompleteExamOrderParams) (*model.Me
 				order.ReportFileName = finalFileName
 				order.ReportFileType = p.FileType
 
-				// 1. 本地落盘明文文件，供前端图片/PDF查阅直接渲染展示
-				uploadsDir := "./data/uploads"
-				_ = os.MkdirAll(uploadsDir, 0755)
-				_ = os.WriteFile(filepath.Join(uploadsDir, fmt.Sprintf("%s_%s", cid, finalFileName)), p.FileData, 0644)
-
-				// 2. 插入 MedicalFile 记录并绑定到当前 RecordID，确保全院/跨院调阅病历时能够穿透查看附件
+				// 插入 MedicalFile 记录并绑定到当前 RecordID，确保全院/跨院调阅病历时能够穿透查看附件 (零本地明文落地)
 				medFile := model.MedicalFile{
 					RecordID:  order.RecordID,
 					FileName:  finalFileName,
@@ -965,4 +944,13 @@ func (s *MedicalService) CompleteEncounterFinal(p CompleteEncounterFinalParams) 
 	s.VerifyRecord(&rec)
 	return &rec, nil
 }
+
+// GetIPFSData 从 IPFS 节点或本地 IPFS 缓存拉取密文数据
+func (s *MedicalService) GetIPFSData(cid string) ([]byte, error) {
+	if s.ipfsService == nil {
+		return nil, fmt.Errorf("IPFS 服务未初始化")
+	}
+	return s.ipfsService.GetData(cid)
+}
+
 

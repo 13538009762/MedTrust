@@ -12,8 +12,16 @@ ipfs:
 
 blockchain:
   channel_id: "medicalchannel"
-  chaincode_id: "medicalcc"
+  chaincode_id: "medicalcontract"
   ledger_dir: "./data/fabric_ledger"
+  fabric:
+    enabled: false
+    peer_endpoint: "127.0.0.1:7051"
+    gateway_peer: "peer0.orga.medical.com"
+    msp_id: "OrgAMSP"
+    tls_cert_path: "./fabric_crypto/tls/ca.crt"
+    cert_path: "./fabric_crypto/users/User1@orga.medical.com/msp/signcerts/cert.pem"
+    key_path: "./fabric_crypto/users/User1@orga.medical.com/msp/keystore"
 
 risk:
   low_threshold: 30
