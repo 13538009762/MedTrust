@@ -1,0 +1,28 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Go Backend",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/backend/cmd/main.go",
+      "cwd": "${workspaceFolder}/backend",
+      "env": {}
+    },
+    {
+      "name": "Debug Python AI Agent",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["main:app", "--host", "127.0.0.1", "--port", "8000"],
+      "cwd": "${workspaceFolder}/ai_agent"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Full Stack (Go Backend + Python AI)",
+      "configurations": ["Debug Go Backend", "Debug Python AI Agent"]
+    }
+  ]
+}

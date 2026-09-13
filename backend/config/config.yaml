@@ -1,0 +1,20 @@
+server:
+  port: 8080
+  jwt_secret: "medtrust_secure_jwt_secret_key_2026"
+  jwt_expire_hours: 24
+
+database:
+  dsn: "root:123456@tcp(127.0.0.1:3306)/medtrust?charset=utf8mb4&parseTime=True&loc=Local"
+
+ipfs:
+  api_url: "http://127.0.0.1:5001"
+  storage_dir: "./data/ipfs_storage"
+
+blockchain:
+  channel_id: "medicalchannel"
+  chaincode_id: "medicalcc"
+  ledger_dir: "./data/fabric_ledger"
+
+risk:
+  low_threshold: 30
+  high_threshold: 60

@@ -1,0 +1,67 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "🚀 启动全部服务 (Go + Python + Vue)",
+      "dependsOn": [
+        "1. 启动 Go 后端 (8080)",
+        "2. 启动 Python AI Agent (8000)",
+        "3. 启动 Vue 前端 (5173)"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "1. 启动 Go 后端 (8080)",
+      "type": "shell",
+      "command": "powershell -NoExit -Command \"cd backend; if (Test-Path medtrust_backend.exe) { Write-Host '正在启动编译好的 medtrust_backend.exe...' -ForegroundColor Green; .\\medtrust_backend.exe } else { Write-Host '正在编译运行 main.go...' -ForegroundColor Green; go run ./cmd/main.go }\"",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "group": "medtrust-services",
+        "panel": "new",
+        "focus": false,
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "2. 启动 Python AI Agent (8000)",
+      "type": "shell",
+      "command": "powershell -NoExit -Command \"cd ai_agent; Write-Host '正在启动 Python FastAPI 受控 AI Agent (端口 8000)...' -ForegroundColor Cyan; python -m uvicorn main:app --host 127.0.0.1 --port 8000\"",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "group": "medtrust-services",
+        "panel": "new",
+        "focus": false,
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "3. 启动 Vue 前端 (5173)",
+      "type": "shell",
+      "command": "powershell -NoExit -Command \"cd frontend; Write-Host '正在启动 Vue 3 + Vite 前端 (端口 5173)...' -ForegroundColor Magenta; npm run dev\"",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "group": "medtrust-services",
+        "panel": "new",
+        "focus": false,
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "4. 初始化/重置数据库 (MySQL)",
+      "type": "shell",
+      "command": "python setup_db.py; python seed_db.py",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "focus": true
+      }
+    }
+  ]
+}
