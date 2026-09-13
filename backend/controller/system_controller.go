@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 	"medtrust-backend/model"
+	"medtrust-backend/pkg/blockchain"
 	"medtrust-backend/repository"
 	"medtrust-backend/service"
 )
@@ -183,3 +184,13 @@ func (ctrl *SystemController) ListDoctors(c *gin.Context) {
 
 	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "查询成功", Data: doctors})
 }
+
+func (ctrl *SystemController) GetBlockchainStatus(c *gin.Context) {
+	status := blockchain.DefaultService.GetBlockchainStatus()
+	c.JSON(http.StatusOK, model.Response{
+		Code:    http.StatusOK,
+		Message: "success",
+		Data:    status,
+	})
+}
+

@@ -132,7 +132,8 @@
 
         <el-table-column label="就诊流转状态" width="140">
           <template #default="{ row }">
-            <el-tag v-if="row.status === 'WAITING_EXAM'" type="warning" effect="dark">⏳ 待医技检查</el-tag>
+            <el-tag v-if="row.is_tampered" type="danger" effect="dark" class="tamper-tag-glow">🚨 存在篡改</el-tag>
+            <el-tag v-else-if="row.status === 'WAITING_EXAM'" type="warning" effect="dark">⏳ 待医技检查</el-tag>
             <el-tag v-else-if="row.status === 'PROCESSING_EXAM'" type="primary" effect="dark">🔄 检查进行中</el-tag>
             <el-tag v-else-if="row.status === 'EXAM_COMPLETED'" type="info" effect="dark" class="status-ready-tag">📋 检查完成/待确诊</el-tag>
             <el-tag v-else-if="row.status === 'INITIAL_DIAGNOSIS'" type="info">🩺 初诊完成/待确诊</el-tag>
@@ -1735,6 +1736,17 @@ onMounted(() => {
   background: #fef2f2;
   border: 1px solid #fca5a5;
   color: #991b1b;
+}
+
+.tamper-tag-glow {
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.6);
+  animation: pulse-red 1.5s infinite;
+  font-weight: 700;
+}
+
+@keyframes pulse-red {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.85; transform: scale(1.05); }
 }
 
 .t-head {

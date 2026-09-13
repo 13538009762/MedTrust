@@ -13,19 +13,20 @@ ipfs:
 
 # 区块链存证与账本服务 (双模设计: 具备完整 Fabric 2.5 链码与 gRPC 网关，亦具备单机离线容灾引擎)
 blockchain:
-  channel_id: "medicalchannel"
-  chaincode_id: "medicalcontract"
+  mode: "mock" # "fabric" 或 "mock"，支持环境变量 BLOCKCHAIN_MODE 覆盖 (最高优先级)
+  channel_id: "medchannel"
+  chaincode_id: "medical"
   ledger_dir: "./data/fabric_ledger"
   fabric:
-    # enabled 为 false 时：系统以本地高仿真区块链引擎 (MockLedgerService) 运行，保障无 Docker 容器下的答辩演示零崩溃
-    # enabled 为 true 时：系统将探测并连接真实 Fabric 2.5 Peer 节点 (127.0.0.1:7051) 并执行智能合约背书
     enabled: false
     peer_endpoint: "127.0.0.1:7051"
-    gateway_peer: "peer0.orga.medical.com"
-    msp_id: "OrgAMSP"
-    tls_cert_path: "./fabric_crypto/tls/ca.crt"
-    cert_path: "./fabric_crypto/users/User1@orga.medical.com/msp/signcerts/cert.pem"
-    key_path: "./fabric_crypto/users/User1@orga.medical.com/msp/keystore"
+    gateway_peer: "peer0.org1.example.com"
+    msp_id: "Org1MSP"
+    tls_cert_path: "./fabric_crypto/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt"
+    cert_path: "./fabric_crypto/peerOrganizations/org1.example.com/users/User1@org1.example.com/msp/signcerts/cert.pem"
+    key_path: "./fabric_crypto/peerOrganizations/org1.example.com/users/User1@org1.example.com/msp/keystore"
+
+
 
 risk:
   low_threshold: 30

@@ -85,15 +85,26 @@ MedTrust/
 │   ├── setup_db.py                # 9 张核心数据表结构创建与迁移
 │   └── seed_db.py                 # 全量多维演示数据填充 (12份国家标准病历)
 │
+├── deploy/                        # 容器化部署与区块链拓扑编排
+│   └── fabric/                    # Hyperledger Fabric 2.5 联盟链集群 (Orderer, Org1, Org2, CLI)
+│       ├── docker-compose-test-net.yaml # 容器网络编排定义
+│       ├── crypto-config.yaml     # 医院组织与 Orderer MSP 证书生成配置
+│       └── configtx.yaml          # medchannel 通道创世配置
+│
 ├── docs/                          # 项目开发文档与需求规范
+│   ├── fabric_deployment.md       # 🔗 Hyperledger Fabric 2.5 部署与双模操作指南
 │   ├── 2.0.md                     # 2.0 版本升级规格书
 │   ├── 何欢恒任务书.docx           # 毕业设计/竞赛任务书
 │   └── 何欢恒大纲.docx             # 论文/报告大纲
 │
-├── scripts/                       # 辅助工具与脚手架代码归档
-│   └── scaffold/                  # 历史构建与代码生成器脚本归档
+├── scripts/                       # 自动化运维与部署脚本
+│   ├── start-fabric.bat / .sh     # ⚡ 一键启动 Fabric 2.5 容器集群、加入通道并部署合约
+│   ├── stop-fabric.bat / .sh      # 🛑 一键安全停止 Fabric 网络与销毁链码容器
+│   └── scaffold/                  # 历史代码脚手架归档
 │
-├── chaincode/                     # 区块链智能合约 (Chaincode)
+├── chaincode/                     # Go 医疗智能合约源码 (名称: medical, 通道: medchannel)
+│   ├── medical_contract.go        # 病历存证、患者授权与审计日志上链逻辑
+│   └── go.mod                     # fabric-contract-api-go 依赖清单
 │
 ├── init_db.bat                    # 🚀 [快捷脚本] 一键初始化数据库与预置数据
 ├── start_all.bat                  # 🚀 [快捷脚本] 一键并发拉起所有微服务并打开浏览器
@@ -118,14 +129,24 @@ MedTrust/
 ### 2. 数据库一键初始化
 双击根目录下的 **`init_db.bat`**，系统将自动创建 `medtrust` 数据库，构建 9 张标准数据表并写入多院多病种完整演示数据。
 
-### 3. 一键启动全套系统
+### 3. Hyperledger Fabric 真实联盟链启动 (可选/答辩推荐)
+如需体验真实联盟链与智能合约（涵盖 Org1-第一人民医院、Org2-省立中心医院、Orderer、medchannel 通道与 medical 链码）：
+- **启动 Fabric 真实网络**：运行 `scripts\start-fabric.bat` (Linux/macOS 运行 `scripts/start-fabric.sh`)。
+  启动成功后终端显示 `Fabric Network Started Successfully`，并在 Docker 中运行 Peer、Orderer 与链码容器。
+- **停止 Fabric 网络**：运行 `scripts\stop-fabric.bat` (Linux/macOS 运行 `scripts/stop-fabric.sh`)。
+- **双模灵活切换**：
+  - `BLOCKCHAIN_MODE=fabric` (默认推荐)：连接真实 Fabric Gateway 进行提案背书与上链出块，若网络不可达将严格熔断提示 `Fabric Unavailable`，杜绝虚假上链；
+  - `BLOCKCHAIN_MODE=mock`：自动启用轻量级 `MockLedger` 内存与本地 JSON 账本，适合无 Docker 环境下的快速逻辑联调。
+- 更多详细部署、拓扑与合约配置见文档：[docs/fabric_deployment.md](docs/fabric_deployment.md)。
+
+### 4. 一键启动全套系统
 双击根目录下的 **`start_all.bat`**，系统将自动并发拉起：
-1. **Go 后端 API 网关**：`http://localhost:8080`
+1. **Go 后端 API 网关**：`http://localhost:8080` (支持实时通过 `/api/v1/system/blockchain/status` 侦测链状态)
 2. **Python AI Agent 服务**：`http://localhost:8000`
-3. **Vue 3 现代化前端**：`http://localhost:5173`
+3. **Vue 3 现代化前端**：`http://localhost:5173` (监管大屏与顶部导航直观呈现 Fabric/Mock 运行状态卡片)
 并在 3 秒后自动唤起默认浏览器进入系统登录页。
 
-### 4. 一键安全停止所有服务
+### 5. 一键安全停止所有服务
 双击根目录下的 **`stop_all.bat`**，脚本会**精准根据微服务监听端口（8080, 8000, 5173, 8090）**识别并安全终止对应进程，不影响电脑上其他开发环境。
 
 ---

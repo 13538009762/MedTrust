@@ -20,10 +20,12 @@ type Config struct {
 		StorageDir string `yaml:"storage_dir"`
 	} `yaml:"ipfs"`
 	Blockchain struct {
+		Mode        string `yaml:"mode"` // "fabric" or "mock"
 		ChannelID   string `yaml:"channel_id"`
 		ChaincodeID string `yaml:"chaincode_id"`
 		LedgerDir   string `yaml:"ledger_dir"`
 		Fabric      struct {
+			Mode         string `yaml:"mode"`
 			Enabled      bool   `yaml:"enabled"`
 			PeerEndpoint string `yaml:"peer_endpoint"`
 			GatewayPeer  string `yaml:"gateway_peer"`
@@ -33,6 +35,7 @@ type Config struct {
 			KeyPath      string `yaml:"key_path"`
 		} `yaml:"fabric"`
 	} `yaml:"blockchain"`
+
 	Risk struct {
 		LowThreshold  int `yaml:"low_threshold"`
 		HighThreshold int `yaml:"high_threshold"`

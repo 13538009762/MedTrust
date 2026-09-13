@@ -145,7 +145,14 @@
         <div class="pec-header">
           <div class="pec-title">
             <span class="pec-icon">🔬</span>
-            <strong>【{{ route.query.patient_name || searchKeyword }}】已做过的全部外院/全网检查单与影像报告 (共 {{ patientExamRecords.length }} 项)</strong>
+            <strong>
+              <template v-if="route.query.patient_name">
+                【{{ route.query.patient_name }}】关联全部外院/全网检查单与影像报告 (共 {{ patientExamRecords.length }} 项)
+              </template>
+              <template v-else>
+                检索关键词【{{ searchKeyword }}】匹配的外院/全网检查单与报告 (共 {{ patientExamRecords.length }} 项)
+              </template>
+            </strong>
             <el-tag size="small" type="success" effect="dark" class="ml-2">跨机构可信存证</el-tag>
           </div>
           <span class="pec-tip">点击检查单卡片直接调阅；跨院未授权检查单将自动触发安全网关动态风险评估</span>
@@ -169,7 +176,19 @@
           </div>
 
           <div class="pec-item-name">
-            {{ exam.exam_items || exam.symptoms || exam.diagnosis || '医技检查项目' }}
+            <span v-if="exam.patient_name" class="font-bold text-indigo-700 mr-1">[{{ exam.patient_name }}]</span>
+            <span v-if="exam.exam_items && !exam.exam_items.includes('未取得患者授权')">
+              {{ exam.exam_items }}
+            </span>
+            <span v-else-if="exam.symptoms && !exam.symptoms.includes('未取得患者授权')">
+              {{ exam.symptoms }}
+            </span>
+            <span v-else-if="exam.diagnosis && !exam.diagnosis.includes('未授权')">
+              {{ exam.diagnosis }}
+            </span>
+            <span v-else>
+              {{ exam.data_type === 'IMAGE' ? '跨院医学影像数据' : '跨院临床检查单据' }} ({{ exam.record_no }})
+            </span>
           </div>
 
           <div class="pec-item-meta">
@@ -179,11 +198,16 @@
             <div class="meta-row text-xs text-slate-500 mt-0.5">
               <span>🕒 {{ formatTime(exam.created_at) }} · 开单医生: {{ exam.doctor_name }}</span>
             </div>
-            <div v-if="exam.exam_result" class="meta-result text-xs text-slate-600 mt-1">
-              <strong>报告结论：</strong>{{ exam.exam_result }}
+            <div v-if="exam.has_access || exam.doctor_id === auth.user?.id || exam.hospital_id === auth.user?.hospital_id">
+              <div v-if="exam.exam_result" class="meta-result text-xs text-slate-600 mt-1">
+                <strong>报告结论：</strong>{{ exam.exam_result }}
+              </div>
+              <div v-else-if="exam.diagnosis" class="meta-result text-xs text-slate-600 mt-1">
+                <strong>诊断依据：</strong>{{ exam.diagnosis }}
+              </div>
             </div>
-            <div v-else-if="exam.diagnosis" class="meta-result text-xs text-slate-600 mt-1">
-              <strong>诊断依据：</strong>{{ exam.diagnosis }}
+            <div v-else class="meta-result text-xs text-amber-700 mt-1 font-medium">
+              🔒 敏感数据已安全掩码保护，点击卡片申请调阅或输入密钥解锁
             </div>
           </div>
 

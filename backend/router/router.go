@@ -21,7 +21,11 @@ func SetupRouter() *gin.Engine {
 		v1.POST("/auth/login", controller.DefaultAuthController.Login)
 		v1.POST("/auth/register", controller.DefaultAuthController.Register)
 
+		// 区块链网络状态 (公开可查)
+		v1.GET("/system/blockchain/status", controller.DefaultSystemController.GetBlockchainStatus)
+
 		// 需登录鉴权保护路由
+
 		authGroup := v1.Group("")
 		authGroup.Use(middleware.JWTAuthMiddleware())
 		{

@@ -12,7 +12,38 @@ type MedicalContract struct {
 	contractapi.Contract
 }
 
-// MedicalAsset 医疗数据上链存证资产
+// MedicalRecord 符合极简链上存证原则的病历记录 (密文存 IPFS)
+type MedicalRecord struct {
+	RecordID   string `json:"record_id"`
+	CID        string `json:"cid"`
+	FileHash   string `json:"file_hash"`
+	HospitalID string `json:"hospital_id"`
+	DataType   string `json:"data_type"`
+	Timestamp  string `json:"timestamp"`
+}
+
+// Authorization 符合链上原则的患者授权存证
+type Authorization struct {
+	AuthorizationID    string `json:"authorization_id"`
+	PatientID          string `json:"patient_id"`
+	DoctorID           string `json:"doctor_id"`
+	HospitalID         string `json:"hospital_id"`
+	AuthorizationScope string `json:"authorization_scope"`
+	ExpireTime         string `json:"expire_time"`
+	Status             string `json:"status"`
+}
+
+// AuditLog 符合链上原则的审计日志存证
+type AuditLog struct {
+	AuditID   string `json:"audit_id"`
+	UserID    string `json:"user_id"`
+	Action    string `json:"action"`
+	RecordID  string `json:"record_id"`
+	RiskLevel string `json:"risk_level"`
+	Timestamp string `json:"timestamp"`
+}
+
+// MedicalAsset 医疗数据上链存证资产 (向前兼容)
 type MedicalAsset struct {
 	RecordID     string `json:"record_id"`     // 病历业务流水号 (如 ENC2026...)
 	PatientID    string `json:"patient_id"`    // 患者编号
@@ -24,6 +55,7 @@ type MedicalAsset struct {
 	DataType     string `json:"data_type"`     // EMR, REPORT, IMAGE
 	CreateTime   string `json:"create_time"`   // 上链时间戳
 }
+
 
 // AuthorizationRecord 患者授权上链存证
 type AuthorizationRecord struct {
@@ -159,7 +191,103 @@ func (c *MedicalContract) UpdateEmergencyStatus(ctx contractapi.TransactionConte
 	return ctx.GetStub().PutState("EMERGENCY_"+eventNo, updatedBytes)
 }
 
-// CreateAuditRecord 记录系统敏感操作全量审计存证
+// CreateMedicalRecord 提交符合链上原则的轻量病历存证 (仅存证摘要与指纹，密文存 IPFS)
+func (c *MedicalContract) CreateMedicalRecord(ctx contractapi.TransactionContextInterface, recordID, cid, fileHash, hospitalID, dataType, timestamp string) error {
+	rec := MedicalRecord{
+		RecordID:   recordID,
+		CID:        cid,
+		FileHash:   fileHash,
+		HospitalID: hospitalID,
+		DataType:   dataType,
+		Timestamp:  timestamp,
+	}
+	recBytes, _ := json.Marshal(rec)
+	return ctx.GetStub().PutState("RECORD_"+recordID, recBytes)
+}
+
+// QueryMedicalRecord 查询病历链上存证摘要
+func (c *MedicalContract) QueryMedicalRecord(ctx contractapi.TransactionContextInterface, recordID string) (*MedicalRecord, error) {
+	val, err := ctx.GetStub().GetState("RECORD_" + recordID)
+	if err != nil {
+		return nil, fmt.Errorf("读取账本记录失败: %v", err)
+	}
+	if val == nil {
+		return nil, fmt.Errorf("病历记录 %s 在账本中不存在", recordID)
+	}
+	var rec MedicalRecord
+	if err := json.Unmarshal(val, &rec); err != nil {
+		return nil, fmt.Errorf("解析病历记录失败: %v", err)
+	}
+	return &rec, nil
+}
+
+// CreateAuthorization 记录患者知情授权策略
+func (c *MedicalContract) CreateAuthorization(ctx contractapi.TransactionContextInterface, authorizationID, patientID, doctorID, hospitalID, authorizationScope, expireTime, status string) error {
+	auth := Authorization{
+		AuthorizationID:    authorizationID,
+		PatientID:          patientID,
+		DoctorID:           doctorID,
+		HospitalID:         hospitalID,
+		AuthorizationScope: authorizationScope,
+		ExpireTime:         expireTime,
+		Status:             status,
+	}
+	authBytes, _ := json.Marshal(auth)
+	return ctx.GetStub().PutState("AUTH_"+authorizationID, authBytes)
+}
+
+// RevokeAuthorization 撤销患者授权策略
+func (c *MedicalContract) RevokeAuthorization(ctx contractapi.TransactionContextInterface, authorizationID string) error {
+	val, err := ctx.GetStub().GetState("AUTH_" + authorizationID)
+	if err != nil || val == nil {
+		return fmt.Errorf("授权条目 %s 不存在", authorizationID)
+	}
+	var auth Authorization
+	_ = json.Unmarshal(val, &auth)
+	auth.Status = "REVOKED"
+	updatedBytes, _ := json.Marshal(auth)
+	return ctx.GetStub().PutState("AUTH_"+authorizationID, updatedBytes)
+}
+
+// CreateAuditLog 记录系统敏感操作全量审计存证
+func (c *MedicalContract) CreateAuditLog(ctx contractapi.TransactionContextInterface, auditID, userID, action, recordID, riskLevel, timestamp string) error {
+	logEntry := AuditLog{
+		AuditID:   auditID,
+		UserID:    userID,
+		Action:    action,
+		RecordID:  recordID,
+		RiskLevel: riskLevel,
+		Timestamp: timestamp,
+	}
+	logBytes, _ := json.Marshal(logEntry)
+	return ctx.GetStub().PutState("AUDIT_"+auditID, logBytes)
+}
+
+// QueryAuditLogs 查询链上审计日志 (支持按 recordID 过滤或返回全部)
+func (c *MedicalContract) QueryAuditLogs(ctx contractapi.TransactionContextInterface, recordID string) ([]*AuditLog, error) {
+	iterator, err := ctx.GetStub().GetStateByRange("AUDIT_", "AUDIT_\uffff")
+	if err != nil {
+		return nil, fmt.Errorf("查询审计日志失败: %v", err)
+	}
+	defer iterator.Close()
+
+	var logs []*AuditLog
+	for iterator.HasNext() {
+		item, err := iterator.Next()
+		if err != nil {
+			continue
+		}
+		var logEntry AuditLog
+		if err := json.Unmarshal(item.Value, &logEntry); err == nil {
+			if recordID == "" || recordID == "ALL" || logEntry.RecordID == recordID {
+				logs = append(logs, &logEntry)
+			}
+		}
+	}
+	return logs, nil
+}
+
+// CreateAuditRecord 记录系统敏感操作全量审计存证 (向前兼容)
 func (c *MedicalContract) CreateAuditRecord(ctx contractapi.TransactionContextInterface, auditJSON string) error {
 	var audit AuditRecord
 	if err := json.Unmarshal([]byte(auditJSON), &audit); err != nil {
@@ -169,3 +297,4 @@ func (c *MedicalContract) CreateAuditRecord(ctx contractapi.TransactionContextIn
 	auditBytes, _ := json.Marshal(audit)
 	return ctx.GetStub().PutState("AUDIT_"+audit.LogID, auditBytes)
 }
+

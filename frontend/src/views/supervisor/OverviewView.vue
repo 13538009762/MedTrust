@@ -7,6 +7,86 @@
       </div>
     </div>
 
+    <!-- 区块链底层网络实时运行状态卡片 (毕业设计核心技术指标) -->
+    <el-card shadow="hover" class="blockchain-status-card mb-4">
+      <div class="chain-status-container">
+        <div class="chain-status-left">
+          <div class="chain-badge-wrapper">
+            <span
+              class="status-pulse-dot"
+              :class="{
+                'dot-green': chainStatus.connected && chainStatus.mode === 'fabric',
+                'dot-amber': chainStatus.mode === 'mock',
+                'dot-red': chainStatus.mode === 'fabric' && !chainStatus.connected
+              }"
+            ></span>
+            <span
+              class="status-title-text"
+              :class="{
+                'text-status-green': chainStatus.connected && chainStatus.mode === 'fabric',
+                'text-status-amber': chainStatus.mode === 'mock',
+                'text-status-red': chainStatus.mode === 'fabric' && !chainStatus.connected
+              }"
+            >
+              {{ chainStatus.message || (chainStatus.connected ? 'Fabric Network Running' : 'Fabric Unavailable') }}
+            </span>
+          </div>
+          <div class="chain-sub-desc">
+            <template v-if="chainStatus.mode === 'fabric' && chainStatus.connected">
+              Hyperledger Fabric 2.5 联盟链网络正常运行，经由 gRPC Gateway 安全互联，Raft 共识持续出块中
+            </template>
+            <template v-else-if="chainStatus.mode === 'mock'">
+              本地仿真开发模式 (MockLedger fallback 模式)，适合无 Docker 环境下的快速单机逻辑联调
+            </template>
+            <template v-else>
+              底层 Fabric 联盟链服务未就绪，系统已触发安全熔断保护，拒绝伪造上链存证
+            </template>
+          </div>
+        </div>
+
+        <div class="chain-status-meta">
+          <div class="meta-item">
+            <span class="meta-label">运行模式 (Mode)</span>
+            <el-tag
+              :type="chainStatus.mode === 'fabric' ? (chainStatus.connected ? 'success' : 'danger') : 'warning'"
+              size="small"
+              effect="dark"
+            >
+              {{ chainStatus.mode === 'fabric' ? 'Fabric 2.5' : 'MockLedger' }}
+            </el-tag>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">通道标识 (Channel)</span>
+            <span class="meta-val highlight">{{ chainStatus.network || 'medchannel' }}</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">智能合约 (Chaincode)</span>
+            <span class="meta-val highlight">{{ chainStatus.chaincode || 'medical' }}</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">接入 Peer 节点</span>
+            <span class="meta-val" :title="chainStatus.peer">{{ chainStatus.peer || 'peer0.org1.example.com' }}</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">最新区块高度</span>
+            <span class="meta-val block-height">#{{ chainStatus.latest_block ?? stats.block_height }}</span>
+          </div>
+          <div class="meta-item action-box">
+            <el-button
+              type="primary"
+              size="small"
+              plain
+              :icon="Refresh"
+              :loading="refreshingStatus"
+              @click="fetchBlockchainStatus"
+            >
+              刷新状态
+            </el-button>
+          </div>
+        </div>
+      </div>
+    </el-card>
+
     <!-- 顶部四项核心指标卡片 -->
     <el-row :gutter="16" class="metric-row">
       <el-col :span="6">
@@ -91,8 +171,56 @@
 
 <script setup lang="ts">
 import { ref, onMounted, nextTick } from 'vue'
+import { Refresh } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import api from '../../api/client'
+
+interface BlockchainStatus {
+  mode: string
+  connected: boolean
+  network: string
+  chaincode: string
+  peer: string
+  latest_block: number
+  message: string
+}
+
+const chainStatus = ref<BlockchainStatus>({
+  mode: 'fabric',
+  connected: false,
+  network: 'medchannel',
+  chaincode: 'medical',
+  peer: 'peer0.org1.example.com',
+  latest_block: 0,
+  message: '正在检测底层区块链状态...',
+})
+const refreshingStatus = ref(false)
+
+async function fetchBlockchainStatus() {
+  refreshingStatus.value = true
+  try {
+    const res: any = await api.get('/system/blockchain/status')
+    const st = (res && res.data !== undefined) ? res.data : res
+    if (st && st.mode) {
+      chainStatus.value = st
+      if (st.latest_block !== undefined && st.latest_block > 0) {
+        stats.value.block_height = st.latest_block
+      }
+    }
+  } catch (e) {
+    chainStatus.value = {
+      mode: 'fabric',
+      connected: false,
+      network: 'medchannel',
+      chaincode: 'medical',
+      peer: 'peer0.org1.example.com',
+      latest_block: stats.value.block_height || 0,
+      message: 'Fabric Unavailable: 网络连接断开',
+    }
+  } finally {
+    refreshingStatus.value = false
+  }
+}
 
 const stats = ref<any>({
   total_records: 0,
@@ -113,10 +241,14 @@ const hospChartRef = ref<HTMLDivElement | null>(null)
 const riskChartRef = ref<HTMLDivElement | null>(null)
 
 onMounted(async () => {
+  fetchBlockchainStatus()
   try {
     const res: any = await api.get('/supervisor/overview')
     if (res.code === 200) {
       stats.value = res.data
+      if (chainStatus.value.latest_block > 0) {
+        stats.value.block_height = chainStatus.value.latest_block
+      }
       await nextTick()
       renderCharts(res.data)
     }
@@ -327,5 +459,118 @@ function renderCharts(data: any) {
 }
 .mt-4 {
   margin-top: 16px;
+}
+
+.blockchain-status-card {
+  border-radius: 12px;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  color: #f8fafc;
+  border: 1px solid #334155;
+}
+.mb-4 {
+  margin-bottom: 16px;
+}
+.chain-status-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 4px 6px;
+}
+.chain-status-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.chain-badge-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.status-pulse-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+  position: relative;
+}
+.dot-green {
+  background-color: #10b981;
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  animation: pulse-green 2s infinite;
+}
+.dot-amber {
+  background-color: #f59e0b;
+  box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7);
+  animation: pulse-amber 2s infinite;
+}
+.dot-red {
+  background-color: #ef4444;
+  box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+  animation: pulse-red 2s infinite;
+}
+
+@keyframes pulse-green {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+@keyframes pulse-amber {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(245, 158, 11, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+}
+@keyframes pulse-red {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+.status-title-text {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+.text-status-green { color: #34d399; }
+.text-status-amber { color: #fbbf24; }
+.text-status-red { color: #f87171; }
+
+.chain-sub-desc {
+  font-size: 12px;
+  color: #94a3b8;
+}
+.chain-status-meta {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.meta-label {
+  font-size: 11px;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.meta-val {
+  font-size: 13px;
+  font-weight: 600;
+  color: #cbd5e1;
+  font-family: monospace;
+}
+.meta-val.highlight {
+  color: #38bdf8;
+}
+.meta-val.block-height {
+  color: #a78bfa;
+  font-size: 15px;
+}
+.action-box {
+  align-self: center;
 }
 </style>

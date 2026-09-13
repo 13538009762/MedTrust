@@ -129,6 +129,20 @@
         </div>
 
         <div class="header-right">
+          <!-- 区块链底层实时状态微件 -->
+          <el-tooltip :content="chainTooltip" placement="bottom">
+            <div
+              class="header-chain-badge"
+              :class="chainBadgeClass"
+              @click="onChainBadgeClick"
+              title="查看底层联盟链运行状态"
+            >
+              <span class="mini-pulse-dot" :class="chainDotClass"></span>
+              <span class="chain-badge-text">{{ chainStatus.message || 'Fabric 状态' }}</span>
+              <span v-if="chainStatus.latest_block" class="chain-block-num">#{{ chainStatus.latest_block }}</span>
+            </div>
+          </el-tooltip>
+
           <!-- 角色标签 -->
           <el-tag
             :type="getRoleTagType(auth.user?.role)"
@@ -190,6 +204,68 @@ const router = useRouter()
 const auth = useAuthStore()
 const pendingCount = ref(0)
 
+interface BlockchainStatus {
+  mode: string
+  connected: boolean
+  network: string
+  chaincode: string
+  peer: string
+  latest_block: number
+  message: string
+}
+
+const chainStatus = ref<BlockchainStatus>({
+  mode: 'fabric',
+  connected: false,
+  network: 'medchannel',
+  chaincode: 'medical',
+  peer: 'peer0.org1.example.com',
+  latest_block: 0,
+  message: 'Fabric 状态检测中...',
+})
+
+async function fetchChainStatus() {
+  try {
+    const res: any = await api.get('/system/blockchain/status')
+    const st = (res && res.data !== undefined) ? res.data : res
+    if (st && st.mode) {
+      chainStatus.value = st
+    }
+  } catch {
+    chainStatus.value = {
+      mode: 'fabric',
+      connected: false,
+      network: 'medchannel',
+      chaincode: 'medical',
+      peer: 'peer0.org1.example.com',
+      latest_block: 0,
+      message: 'Fabric Unavailable',
+    }
+  }
+}
+
+const chainTooltip = computed(() => {
+  return `运行模式: ${chainStatus.value.mode} | 通道: ${chainStatus.value.network || 'medchannel'} | 合约: ${chainStatus.value.chaincode || 'medical'} | 节点: ${chainStatus.value.peer || '-'} | 最新高度: #${chainStatus.value.latest_block || 0}`
+})
+
+const chainBadgeClass = computed(() => {
+  if (chainStatus.value.mode === 'fabric' && chainStatus.value.connected) return 'badge-fabric-ok'
+  if (chainStatus.value.mode === 'mock') return 'badge-mock-dev'
+  return 'badge-fabric-err'
+})
+
+const chainDotClass = computed(() => {
+  if (chainStatus.value.mode === 'fabric' && chainStatus.value.connected) return 'dot-green'
+  if (chainStatus.value.mode === 'mock') return 'dot-amber'
+  return 'dot-red'
+})
+
+function onChainBadgeClick() {
+  if (auth.user?.role === 'supervisor' || auth.user?.role === 'admin') {
+    router.push('/supervisor/overview')
+  }
+}
+
 const activeMenu = computed(() => {
   if (route.path === '/doctor/cross-query' || route.path === '/doctor/query') {
     return '/doctor/query/all'
@@ -213,10 +289,12 @@ async function checkPendingConsent() {
 
 onMounted(() => {
   checkPendingConsent()
+  fetchChainStatus()
 })
 
 watch(() => route.path, () => {
   checkPendingConsent()
+  fetchChainStatus()
 })
 
 function getRoleTagType(role?: string) {
@@ -346,6 +424,94 @@ function onLogout() {
   align-items: center;
   gap: 14px;
 }
+
+.header-chain-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+.badge-fabric-ok {
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+.badge-fabric-ok:hover {
+  background: rgba(16, 185, 129, 0.2);
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
+}
+.badge-mock-dev {
+  background: rgba(245, 158, 11, 0.12);
+  color: #d97706;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+.badge-mock-dev:hover {
+  background: rgba(245, 158, 11, 0.2);
+}
+.badge-fabric-err {
+  background: rgba(239, 68, 68, 0.12);
+  color: #dc2626;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+.badge-fabric-err:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.mini-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.dot-green {
+  background-color: #10b981;
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  animation: pulse-green 2s infinite;
+}
+.dot-amber {
+  background-color: #f59e0b;
+  box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7);
+  animation: pulse-amber 2s infinite;
+}
+.dot-red {
+  background-color: #ef4444;
+  box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+  animation: pulse-red 2s infinite;
+}
+
+.chain-badge-text {
+  letter-spacing: 0.3px;
+}
+.chain-block-num {
+  font-family: monospace;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+@keyframes pulse-green {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+@keyframes pulse-amber {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(245, 158, 11, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+}
+@keyframes pulse-red {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
 .status-warning-tag {
   font-weight: 700;
 }

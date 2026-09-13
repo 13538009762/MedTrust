@@ -26,6 +26,7 @@ func main() {
 
 	// 初始化区块链与 IPFS 服务
 	blockchain.InitBlockchainService(cfg.Blockchain.LedgerDir, blockchain.FabricGatewayConfig{
+		Mode:         cfg.Blockchain.Mode,
 		Enabled:      cfg.Blockchain.Fabric.Enabled,
 		PeerEndpoint: cfg.Blockchain.Fabric.PeerEndpoint,
 		GatewayPeer:  cfg.Blockchain.Fabric.GatewayPeer,
@@ -38,7 +39,7 @@ func main() {
 	})
 	service.InitMedicalService(cfg.IPFS.APIURL, cfg.IPFS.StorageDir)
 	service.InitAccessEngine(cfg.Risk.LowThreshold, cfg.Risk.HighThreshold)
-	service.EnsureBaselineLedgerAnchored()
+	go service.EnsureBaselineLedgerAnchored()
 	fmt.Println("[MedTrust] Fabric Ledger & IPFS Engine Initialized with Baseline Assets")
 
 	r := router.SetupRouter()

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -226,61 +227,42 @@ func (s *MedicalService) VerifyRecord(r *model.MedicalRecord) {
 	}
 
 	chainHash := ""
-	if h, ok := chainData["clinical_hash"]; ok && fmt.Sprintf("%v", h) != "" {
+	if h, ok := chainData["clinical_hash"]; ok && fmt.Sprintf("%v", h) != "" && fmt.Sprintf("%v", h) != "<nil>" {
 		chainHash = fmt.Sprintf("%v", h)
-	} else if h, ok := chainData["file_hash"]; ok && fmt.Sprintf("%v", h) != "" {
+	} else if h, ok := chainData["file_hash"]; ok && fmt.Sprintf("%v", h) != "" && fmt.Sprintf("%v", h) != "<nil>" {
 		chainHash = fmt.Sprintf("%v", h)
 	}
 	r.ChainHash = chainHash
 
-	// 动态智能比对：针对就诊流程中多附件（医技切片+最终归档凭据）进行精准哈希验证
+	// 动态智能比对：针对就诊流程中的临床多维结构化数据与附件进行严密防篡改核验
 	matched := false
 	matchedHash := ""
 
-	chainFileHash, _ := chainData["file_hash"].(string)
-	chainCID, _ := chainData["cid"].(string)
-
-	// 1. 优先使用与链上凭证 CID/file_hash 对应的文件计算
-	for _, f := range r.Files {
-		if (chainFileHash != "" && f.FileHash == chainFileHash) || (chainCID != "" && f.IPFSCID == chainCID) {
+	// 1. 首先以当前病历所有临床字段+主附件指纹计算综合哈希
+	defaultHash := ComputeRecordHash(r)
+	if defaultHash == chainHash {
+		matched = true
+		matchedHash = defaultHash
+	} else if len(r.Files) > 1 {
+		// 2. 若存在多个流转阶段附件，检查是否与某一历史归档阶段关联哈希一致
+		for _, f := range r.Files {
 			raw := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s",
 				r.RecordNo, r.DataType, r.OnsetTime, r.Duration, r.Symptoms, r.Etiology, r.TreatmentPlan, r.Diagnosis, f.FileHash)
 			calc := crypto.CalculateSHA256([]byte(raw))
-			if calc == chainHash || f.FileHash == chainHash {
+			if calc == chainHash {
 				matched = true
 				matchedHash = calc
 				break
-			}
-		}
-	}
-
-	// 2. 若未直接匹配，遍历所有附件与归档文件验证
-	if !matched && len(r.Files) > 0 {
-		for i := len(r.Files) - 1; i >= 0; i-- {
-			f := r.Files[i]
-			raw := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s",
-				r.RecordNo, r.DataType, r.OnsetTime, r.Duration, r.Symptoms, r.Etiology, r.TreatmentPlan, r.Diagnosis, f.FileHash)
-			calc := crypto.CalculateSHA256([]byte(raw))
-			if calc == chainHash || f.FileHash == chainHash {
-				matched = true
-				matchedHash = calc
-				break
-			}
-			if matchedHash == "" {
-				matchedHash = calc
 			}
 		}
 	}
 
 	if matchedHash == "" {
-		matchedHash = ComputeRecordHash(r)
-	}
-	// 针对无附件病历（初诊/检查中）或直接计算哈希一致时，正确判定为核验通过
-	if !matched && (matchedHash == chainHash || (chainFileHash != "" && matchedHash == chainFileHash)) {
-		matched = true
+		matchedHash = defaultHash
 	}
 	r.CurrentHash = matchedHash
 
+	// 严密安全校验：凡是计算哈希与链上不可篡改指纹不相等的，绝对判定为篡改！
 	if chainHash != "" && !matched {
 		r.IsTampered = true
 		r.Verified = false
@@ -299,14 +281,25 @@ func EnsureBaselineLedgerAnchored() {
 	}
 
 	for _, rec := range list {
-		if _, exists := blockchain.DefaultService.QueryAsset(rec.RecordNo); !exists {
-			fileHash := ""
-			cid := ""
-			if len(rec.Files) > 0 {
-				fileHash = rec.Files[0].FileHash
-				cid = rec.Files[0].IPFSCID
+		fileHash := ""
+		cid := ""
+		if len(rec.Files) > 0 {
+			fileHash = rec.Files[0].FileHash
+			cid = rec.Files[0].IPFSCID
+		}
+		clinicalHash := ComputeRecordHash(&rec)
+
+		chainData, exists := blockchain.DefaultService.QueryAsset(rec.RecordNo)
+		needCommit := !exists
+		if exists && chainData != nil {
+			currChainHash := fmt.Sprintf("%v", chainData["file_hash"])
+			// 如果链上存的是旧的单纯附件文件哈希 (currChainHash == fileHash)，而非临床数据综合指纹 (clinicalHash)
+			if currChainHash != "" && fileHash != "" && currChainHash == fileHash && currChainHash != clinicalHash {
+				needCommit = true
 			}
-			clinicalHash := ComputeRecordHash(&rec)
+		}
+
+		if needCommit {
 			txID, height, err := blockchain.DefaultService.CommitAsset("MEDICAL_RECORD", rec.RecordNo, map[string]interface{}{
 				"record_no":     rec.RecordNo,
 				"patient_id":    rec.PatientID,
@@ -323,6 +316,8 @@ func EnsureBaselineLedgerAnchored() {
 					"fabric_tx_id": txID,
 					"block_height": height,
 				})
+				log.Printf("[EnsureBaselineLedgerAnchored] ✅ 成功固化病历 %s 综合临床指纹至账本: TxID=%s, BlockHeight=%d, Hash=%s",
+					rec.RecordNo, txID, height, clinicalHash)
 			}
 		}
 	}

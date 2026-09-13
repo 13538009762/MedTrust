@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
+
 
 // MockLedgerService 高仿真本地区块链账本引擎 (满足无 Docker 容器环境下的答辩与单测演示)
 type MockLedgerService struct {
@@ -44,18 +46,49 @@ func InitLedger(ledgerDir string) *MockLedgerService {
 // InitBlockchainService 初始化区块链服务引擎 (支持 Fabric 2.5 官方网关与 Mock 引擎无缝切换)
 func InitBlockchainService(ledgerDir string, fabricCfg FabricGatewayConfig) BlockchainService {
 	mock := InitLedger(ledgerDir)
-	if fabricCfg.Enabled {
-		gateway := NewFabricGatewayService(fabricCfg, mock)
+
+	// 优先读取环境变量 BLOCKCHAIN_MODE (支持 fabric 或 mock)
+	mode := strings.ToLower(os.Getenv("BLOCKCHAIN_MODE"))
+	if mode == "" {
+		mode = strings.ToLower(fabricCfg.Mode)
+	}
+	if mode == "" {
+		if fabricCfg.Enabled {
+			mode = "fabric"
+		} else {
+			mode = "mock"
+		}
+	}
+
+	if mode == "fabric" {
+		gateway := NewFabricGatewayService(fabricCfg)
 		DefaultService = gateway
 		return gateway
 	}
+
 	DefaultService = mock
 	return mock
 }
 
+
 func (l *MockLedgerService) IsLiveFabric() bool {
 	return false
 }
+
+func (l *MockLedgerService) GetBlockchainStatus() BlockchainStatusDTO {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return BlockchainStatusDTO{
+		Mode:        "mock",
+		Connected:   false,
+		Message:     "MockLedger Development Mode",
+		Network:     "medchannel",
+		Chaincode:   "medical",
+		Peer:        "peer0.org1.example.com (Mock)",
+		LatestBlock: l.currentHeight,
+	}
+}
+
 
 func (l *MockLedgerService) load() {
 	l.mu.Lock()
