@@ -2,7 +2,7 @@
   <div class="page-container">
     <div class="page-header">
       <div>
-        <h2 class="page-title">🛡️ 全局不可篡改审计日志溯源</h2>
+        <h2 class="page-title">全局不可篡改审计日志溯源</h2>
         <p class="page-sub">系统内所有上传、授权、调阅、Break-Glass、核验全生命周期均自动记账并锚定至 Fabric 联盟链</p>
       </div>
     </div>

@@ -60,3 +60,5 @@ deploy/fabric/crypto-config/
 deploy/fabric/medchannel.block
 *.key
 priv_sk
+vendor/
+chaincode/vendor/

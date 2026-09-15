@@ -47,6 +47,11 @@ func SetupRouter() *gin.Engine {
 			authGroup.GET("/medical-records/:id/download", controller.DefaultMedicalController.Download)
 			authGroup.GET("/patients", middleware.RequireRoles("doctor", "admin", "supervisor"), controller.DefaultMedicalController.ListPatients)
 
+			// 医护职业安全防护与高危传染病预警分析
+			authGroup.GET("/patients/:id/infection-risks", middleware.RequireRoles("doctor", "admin", "supervisor"), controller.DefaultMedicalController.GetPatientInfectionRisks)
+			authGroup.GET("/medical-records/:id/infection-risks", controller.DefaultMedicalController.GetRecordInfectionRisks)
+			authGroup.POST("/infection-risks/evaluate-text", middleware.RequireRoles("doctor"), controller.DefaultMedicalController.EvaluateInfectionText)
+
 			// 医技检查中心模块 (检验科/放射科/医生)
 			authGroup.GET("/exam-orders", controller.DefaultMedicalController.ListExamOrders)
 			authGroup.POST("/exam-orders/:id/process", middleware.RequireRoles("doctor", "admin"), controller.DefaultMedicalController.ProcessExamOrder)
@@ -55,6 +60,9 @@ func SetupRouter() *gin.Engine {
 			// 跨院与访问控制模块
 			authGroup.POST("/access/requests", middleware.RequireRoles("doctor"), controller.DefaultAccessController.RequestAccess)
 			authGroup.POST("/access/requests/apply-consent", middleware.RequireRoles("doctor"), controller.DefaultAccessController.ApplyConsent)
+			authGroup.POST("/access/batch-consent", middleware.RequireRoles("doctor"), controller.DefaultAccessController.BatchApplyConsent)
+			authGroup.POST("/access/unlock-patient-key", middleware.RequireRoles("doctor"), controller.DefaultAccessController.UnlockPatientByKey)
+			authGroup.POST("/access/emergency-batch", middleware.RequireRoles("doctor"), controller.DefaultAccessController.EmergencyBatchAccess)
 			authGroup.POST("/access/requests/unlock-by-key", middleware.RequireRoles("doctor"), controller.DefaultAccessController.UnlockByKey)
 			authGroup.GET("/access/requests/pending", middleware.RequireRoles("patient"), controller.DefaultAccessController.ListPendingRequests)
 			authGroup.POST("/access/requests/:id/approve", middleware.RequireRoles("patient"), controller.DefaultAccessController.ApproveRequest)
@@ -62,10 +70,12 @@ func SetupRouter() *gin.Engine {
 			authGroup.POST("/access/break-glass", middleware.RequireRoles("doctor"), controller.DefaultAccessController.BreakGlass)
 			authGroup.POST("/access/break-glass/patient-feedback", middleware.RequireRoles("patient"), controller.DefaultAccessController.PatientFeedback)
 
-			// 患者自主授权模块
+			// 患者自主授权模块与病历可见性配置
 			authGroup.POST("/authorizations", middleware.RequireRoles("patient"), controller.DefaultAccessController.CreateAuthorization)
 			authGroup.GET("/authorizations", controller.DefaultAccessController.ListAuthorizations)
 			authGroup.DELETE("/authorizations/:id", middleware.RequireRoles("patient"), controller.DefaultAccessController.RevokeAuthorization)
+			authGroup.POST("/medical-records/:id/access-policy", middleware.RequireRoles("patient"), controller.DefaultAccessController.SetRecordAccessPolicy)
+			authGroup.POST("/medical-records/batch-access-policy", middleware.RequireRoles("patient"), controller.DefaultAccessController.BatchSetAccessPolicy)
 
 			// 监管看板模块
 			authGroup.GET("/supervisor/overview", middleware.RequireRoles("supervisor", "admin"), controller.DefaultSupervisorController.Overview)

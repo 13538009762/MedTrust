@@ -50,24 +50,23 @@
 
           <div class="identity-sub-row">
             <span class="identity-chip">
-              <span class="chip-label">🔑 登录账号:</span>
+              <span class="chip-label">登录账号:</span>
               <span class="chip-val font-mono">@{{ auth.user?.username || '—' }}</span>
             </span>
             <span class="identity-chip">
-              <span class="chip-label">🔢 电子工号/档案号:</span>
+              <span class="chip-label">电子工号/档案号:</span>
               <code class="emp-code">{{ auth.user?.user_no || '—' }}</code>
             </span>
             <span v-if="auth.user?.hospital_name" class="identity-chip">
-              <span class="chip-label">🏥 归属机构:</span>
+              <span class="chip-label">归属机构:</span>
               <span class="chip-val">{{ auth.user?.hospital_name }}</span>
             </span>
           </div>
 
           <!-- 资质与科室标签栏 -->
           <div class="dept-bar">
-            <span class="dept-label">💼 资质/专业科室:</span>
+            <span class="dept-label">资质/专业科室:</span>
             <div class="dept-pill">
-              <span class="dept-avatar">🏛️</span>
               <span class="dept-name">{{ auth.user?.department_name || (auth.user?.role === 'patient' ? '全民健康服务' : '行政管理科室') }}</span>
               <el-tag size="small" type="info" effect="plain" class="title-tag">
                 {{ auth.user?.title || (auth.user?.role === 'patient' ? '实名电子就诊人' : '医疗业务人员') }}
@@ -94,22 +93,21 @@
 
       <!-- 2. 双栏多维结构化资料卡片 -->
       <div class="info-blocks-grid">
-        <!-- 卡片 1: 🏛️ 医疗机构与专业资质 -->
+        <!-- 卡片 1: 医疗机构与专业资质 -->
         <div class="info-block-card">
           <div class="block-card-header">
-            <span class="block-icon">🏛️</span>
             <span class="block-title">医疗机构与专业资质</span>
           </div>
           <div class="block-card-body">
             <div class="field-item">
-              <span class="field-label">🏢 所属医疗机构</span>
+              <span class="field-label">所属医疗机构</span>
               <div class="field-val font-bold">
                 {{ auth.user?.hospital_name || '跨医疗机构统一联合网络' }}
               </div>
             </div>
 
             <div class="field-item">
-              <span class="field-label">🔬 临床就诊科室</span>
+              <span class="field-label">临床就诊科室</span>
               <div class="field-val">
                 <el-tag size="small" type="primary" effect="plain">
                   {{ auth.user?.department_name || (auth.user?.role === 'patient' ? '门急诊全科' : '综合业务管理中心') }}
@@ -118,7 +116,7 @@
             </div>
 
             <div class="field-item">
-              <span class="field-label">👑 系统安全角色</span>
+              <span class="field-label">系统安全角色</span>
               <div class="field-val">
                 <el-tag size="default" :type="getRoleTagType(auth.user?.role)" effect="light">
                   {{ getRoleName(auth.user?.role) }}
@@ -127,14 +125,14 @@
             </div>
 
             <div class="field-item">
-              <span class="field-label">💼 临床职称 / 身份</span>
+              <span class="field-label">临床职称 / 身份</span>
               <div class="field-val font-bold">
                 {{ auth.user?.title || (auth.user?.role === 'patient' ? '实名制就诊人 (持身份证建档)' : '系统工作人员') }}
               </div>
             </div>
 
             <div class="field-item">
-              <span class="field-label">⛓️ 联盟链节点 MSP</span>
+              <span class="field-label">联盟链节点 MSP</span>
               <div class="field-val font-mono text-muted text-xs">
                 MedTrust-Hosp{{ auth.user?.hospital_id || 1 }}MSP::Peer0
               </div>
@@ -142,15 +140,14 @@
           </div>
         </div>
 
-        <!-- 卡片 2: 👤 身份认证与安全资料 -->
+        <!-- 卡片 2: 身份认证与安全资料 -->
         <div class="info-block-card">
           <div class="block-card-header">
-            <span class="block-icon">👤</span>
             <span class="block-title">身份认证与跨院防重名索引</span>
           </div>
           <div class="block-card-body">
             <div class="field-item">
-              <span class="field-label">🪪 居民身份证号</span>
+              <span class="field-label">居民身份证号</span>
               <div class="field-val contact-val">
                 <span class="font-mono text-primary font-bold">
                   {{ auth.user?.id_card || '尚未录入' }}
@@ -168,7 +165,7 @@
             </div>
 
             <div class="field-item">
-              <span class="field-label">📱 关联联系手机</span>
+              <span class="field-label">关联联系手机</span>
               <div class="field-val contact-val">
                 <span class="font-mono font-bold">
                   {{ auth.user?.phone || '尚未绑定' }}
@@ -186,7 +183,7 @@
             </div>
 
             <div class="field-item">
-              <span class="field-label">🔑 跨院病历调阅专属密钥</span>
+              <span class="field-label">跨院病历调阅专属密钥</span>
               <div class="field-val contact-val">
                 <span class="font-mono font-bold" :style="{ color: showKeyPlain ? '#059669' : '#64748b' }">
                   {{ showKeyPlain ? (auth.user?.medical_key || '123456') : '••••••' }}
@@ -205,13 +202,13 @@
                   size="small"
                   @click="openMedicalKeyDialog"
                 >
-                  ✏️ 修改密钥
+                  修改密钥
                 </el-button>
               </div>
             </div>
 
             <div class="field-item">
-              <span class="field-label">🛡️ 跨院防重名索引</span>
+              <span class="field-label">跨院防重名索引</span>
               <div class="field-val">
                 <el-tag size="small" type="success" effect="plain">
                   已开启跨机构精准唯一匹配
@@ -220,14 +217,14 @@
             </div>
 
             <div class="field-item">
-              <span class="field-label">🚨 破窗知情推送</span>
+              <span class="field-label">破窗知情推送</span>
               <div class="field-val text-muted text-xs">
                 当发生 Break-Glass 紧急访问时实时推送知情通知
               </div>
             </div>
 
             <div class="field-item">
-              <span class="field-label">📅 首次系统建档时间</span>
+              <span class="field-label">首次系统建档时间</span>
               <div class="field-val text-muted font-mono text-xs">
                 2026-09-01 00:00:00 (电子病历存证生效)
               </div>
@@ -240,14 +237,12 @@
     <!-- 业务数据统计卡片 -->
     <div class="stats-section">
       <div class="stats-header-bar">
-        <span class="stats-bar-icon">📊</span>
         <h3 class="stats-title">医疗数据与业务互联统计</h3>
       </div>
       <div class="stats-grid">
         <el-card class="stat-card" shadow="hover">
           <template #header>
             <div class="stat-card-header">
-              <span class="stat-icon">📑</span>
               <span>{{ auth.user?.role === 'doctor' ? '累计开具存证病历' : (auth.user?.role === 'patient' ? '个人健康档案总数' : '全网存证病历资产') }}</span>
             </div>
           </template>
@@ -257,7 +252,6 @@
         <el-card class="stat-card" shadow="hover">
           <template #header>
             <div class="stat-card-header">
-              <span class="stat-icon">🤝</span>
               <span>{{ auth.user?.role === 'patient' ? '有效授权策略凭证' : '跨院调阅与安全协同' }}</span>
             </div>
           </template>
@@ -267,7 +261,6 @@
         <el-card class="stat-card" shadow="hover">
           <template #header>
             <div class="stat-card-header">
-              <span class="stat-icon">🚨</span>
               <span>{{ auth.user?.role === 'patient' ? '收到抢救破窗预警' : 'Break-Glass 破窗急救' }}</span>
             </div>
           </template>
@@ -278,7 +271,7 @@
 
     <!-- 3. 编辑个人信息弹窗 (Edit Profile Dialog) -->
     <el-dialog 
-      title="✏️ 编辑个人档案与联系信息" 
+      title="编辑个人档案与联系信息" 
       v-model="editVisible" 
       width="540px"
       class="personal-edit-dialog"
@@ -332,7 +325,7 @@
 
     <!-- 4. 修改登录密码弹窗 (Change Password Dialog) -->
     <el-dialog 
-      title="🔐 修改登录密码" 
+      title="修改登录密码" 
       v-model="passVisible" 
       width="460px"
       class="personal-pass-dialog"
@@ -380,7 +373,7 @@
 
     <!-- 5. 修改跨院病历调阅专属密钥弹窗 (Change Medical Key Dialog) -->
     <el-dialog 
-      title="🔑 修改跨院病历调阅专属密钥" 
+      title="修改跨院病历调阅专属密钥" 
       v-model="medicalKeyVisible" 
       width="480px"
       class="personal-pass-dialog"

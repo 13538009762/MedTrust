@@ -2,7 +2,7 @@
   <div class="page-container">
     <div class="page-header">
       <div>
-        <h2 class="page-title">🚨 紧急访问知情与异议申诉中心</h2>
+        <h2 class="page-title">紧急访问知情与异议申诉中心</h2>
         <p class="page-sub">当医生在未事先取得授权的情况下触发 Break-Glass 抢救调阅您的病历时，系统在此实时知情通知，支持确认或提出异议</p>
       </div>
     </div>

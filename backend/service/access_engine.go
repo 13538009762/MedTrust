@@ -91,23 +91,56 @@ func (e *AccessEngine) EvaluateAccess(doctorID, patientID, recordID uint64, isEm
 		// 后续流程进入显式授权与风险评估流水线
 	}
 
-	// 3. 检查患者显式授权
+	// 3. 检查患者显式授权 (包括对指定医生、指定医院及全体执业医生的开放授权)
 	now := time.Now()
 	var auths []model.Authorization
 	repository.DB.Where("patient_id = ? AND status = 'ACTIVE' AND start_time <= ? AND end_time >= ?", patientID, now, now).Find(&auths)
 
 	hasConsent := false
+	isAllDoctorsConsent := false
+
+	// 先查找该病历专属的独立授权策略 (SINGLE 范围优先级高于全局 ALL 范围)
+	var singleAuth *model.Authorization
 	for _, a := range auths {
-		targetMatch := false
-		if a.AuthTargetType == "DOCTOR" && a.AuthTargetID == doctorID {
-			targetMatch = true
-		} else if a.AuthTargetType == "HOSPITAL" && a.AuthTargetID == doctor.HospitalID {
-			targetMatch = true
+		if a.ScopeType == "SINGLE" && a.RecordID == recordID {
+			copyA := a
+			singleAuth = &copyA
+			break
 		}
-		if targetMatch {
-			if a.ScopeType == "ALL" || (a.ScopeType == "SINGLE" && a.RecordID == recordID) {
+	}
+
+	if singleAuth != nil {
+		if singleAuth.AuthTargetType != "PRIVATE" {
+			targetMatch := false
+			if singleAuth.AuthTargetType == "ALL_DOCTORS" {
+				targetMatch = true
+				isAllDoctorsConsent = true
+			} else if singleAuth.AuthTargetType == "DOCTOR" && singleAuth.AuthTargetID == doctorID {
+				targetMatch = true
+			} else if singleAuth.AuthTargetType == "HOSPITAL" && singleAuth.AuthTargetID == doctor.HospitalID {
+				targetMatch = true
+			}
+			if targetMatch {
 				hasConsent = true
-				break
+			}
+		}
+	} else {
+		// 无单病历专属授权时，回退评估全局授权策略 (ScopeType == ALL)
+		for _, a := range auths {
+			if a.ScopeType == "ALL" {
+				targetMatch := false
+				if a.AuthTargetType == "ALL_DOCTORS" {
+					targetMatch = true
+					isAllDoctorsConsent = true
+				} else if a.AuthTargetType == "DOCTOR" && a.AuthTargetID == doctorID {
+					targetMatch = true
+				} else if a.AuthTargetType == "HOSPITAL" && a.AuthTargetID == doctor.HospitalID {
+					targetMatch = true
+				}
+				if targetMatch {
+					hasConsent = true
+					break
+				}
 			}
 		}
 	}
@@ -131,12 +164,16 @@ func (e *AccessEngine) EvaluateAccess(doctorID, patientID, recordID uint64, isEm
 
 	// 分支 A: 具备患者有效授权
 	if hasConsent {
+		reason := "常规授权有效，动态风险评估为低风险，系统直接放行"
+		if isAllDoctorsConsent {
+			reason = "患者已将该病历设置为向全体执业医生公开可见，系统核验放行"
+		}
 		if eval.Level == "LOW" {
 			return &AccessDecision{
 				Allowed:        true,
 				IsEmergency:    false,
 				Decision:       "ALLOWED",
-				Reason:         "常规授权有效，动态风险评估为低风险，系统直接放行",
+				Reason:         reason,
 				RiskEvaluation: eval,
 			}, nil
 		} else if eval.Level == "MEDIUM" {

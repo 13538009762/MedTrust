@@ -2,7 +2,7 @@
   <div class="page-container">
     <div class="page-header">
       <div>
-        <h2 class="page-title">🛡️ 医疗数据防篡改动态对比核验工作台</h2>
+        <h2 class="page-title">医疗数据防篡改动态对比核验工作台</h2>
         <p class="page-sub">依据规划书 3.1.2 节：从 IPFS 拉取密文并在内存流式解密，重算明文及多维综合哈希，自动比对 Fabric 账本原始指纹，实现动态闭环验真</p>
       </div>
     </div>
@@ -20,13 +20,13 @@
         </el-select>
         <el-button type="primary" :loading="verifying" @click="triggerVerify">立即发起链上动态核验</el-button>
         <el-button type="info" plain :disabled="!selectedRecord" @click="showRawAssetModal = true">
-          🔍 查看区块链原始存证 (Raw Asset)
+          查看区块链原始存证 (Raw Asset)
         </el-button>
         <el-button type="danger" :loading="tampering" @click="simulateTamper">
-          🔥 模拟真实数据库恶意篡改 (答辩攻击演练)
+          模拟真实数据库恶意篡改 (答辩攻击演练)
         </el-button>
         <el-button v-if="hasTampered" type="success" :loading="restoring" @click="restoreTamper">
-          ✨ 一键恢复原始数据 (撤销篡改)
+          一键恢复原始数据 (撤销篡改)
         </el-button>
       </div>
     </el-card>
@@ -48,7 +48,7 @@
 
       <!-- 三阶段核验细分卡片 (答辩演示核心亮点) -->
       <div class="stages-breakdown mb-4">
-        <h4 class="stages-title">🔬 三阶段防篡改递进式密码学核验明细</h4>
+        <h4 class="stages-title">三阶段防篡改递进式密码学核验明细</h4>
         <div class="stages-grid">
           <div
             v-for="(st, idx) in stageItems"
@@ -115,7 +115,7 @@
     <!-- 区块链原始存证弹窗 (Raw Asset Modal) -->
     <el-dialog
       v-model="showRawAssetModal"
-      title="🔗 Hyperledger Fabric 账本状态数据库原始存证 (Raw Asset Payload)"
+      title="Hyperledger Fabric 账本状态数据库原始存证 (Raw Asset Payload)"
       width="780px"
     >
       <div class="raw-asset-container">

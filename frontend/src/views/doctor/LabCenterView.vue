@@ -3,21 +3,21 @@
     <!-- 顶部状态统计卡片 -->
     <div class="stats-grid">
       <div class="stat-card pending">
-        <div class="stat-icon">📋</div>
+        <div class="stat-icon"><el-icon><Tickets /></el-icon></div>
         <div class="stat-info">
           <div class="stat-value">{{ pendingCount }}</div>
           <div class="stat-label">待处理检查单</div>
         </div>
       </div>
       <div class="stat-card processing">
-        <div class="stat-icon">⏳</div>
+        <div class="stat-icon"><el-icon><Timer /></el-icon></div>
         <div class="stat-info">
           <div class="stat-value">{{ processingCount }}</div>
           <div class="stat-label">检查进行中</div>
         </div>
       </div>
       <div class="stat-card completed">
-        <div class="stat-icon">✅</div>
+        <div class="stat-icon"><el-icon><CircleCheckFilled /></el-icon></div>
         <div class="stat-info">
           <div class="stat-value">{{ completedCount }}</div>
           <div class="stat-label">已出具报告回传</div>
@@ -43,7 +43,7 @@
       <!-- 角色与本院隔离合规提示 -->
       <div class="lab-role-alert mb-3">
         <el-alert
-          :title="`🛡️ 医技科室合规与数据边界：当前登录为「${auth.user?.hospital_name || '本院机构'} · ${auth.user?.department_name || '医技中心'} · ${auth.user?.real_name} (${auth.user?.title || '技师/医师'})」。依据《医疗机构临床实验室管理办法》与网络安全规范，医技检查中心仅展示并处理本院临床医生开立的检查申请单，禁止越权调取或处理外院检查。`"
+          :title="`医技科室合规与数据边界：当前登录为「${auth.user?.hospital_name || '本院机构'} · ${auth.user?.department_name || '医技中心'} · ${auth.user?.real_name} (${auth.user?.title || '技师/医师'})」。依据《医疗机构临床实验室管理办法》与网络安全规范，医技检查中心仅展示并处理本院临床医生开立的检查申请单，禁止越权调取或处理外院检查。`"
           type="info"
           :closable="false"
           show-icon
@@ -63,7 +63,7 @@
           <div class="hosp-locked-badge">
             <span class="text-xs text-slate-500">业务机构：</span>
             <el-tag type="primary" size="default" effect="plain">
-              🏥 {{ auth.user?.hospital_name || formatHospName(auth.user?.hospital_id) }}（本院医技工作站）
+              {{ auth.user?.hospital_name || formatHospName(auth.user?.hospital_id) }}（本院医技工作站）
             </el-tag>
           </div>
 
@@ -198,7 +198,7 @@
     <!-- 录入检查报告弹窗 -->
     <el-dialog
       v-model="processDialogVisible"
-      title="🔬 医技辅助检查执行与报告出具"
+      title="医技辅助检查执行与报告出具"
       width="780px"
       top="4vh"
       :close-on-click-modal="false"
@@ -245,19 +245,19 @@
           <!-- 临床关键信息背景框 (让技师明确开单背景与患者情况) -->
           <div class="clinical-context-box">
             <div class="context-row">
-              <span class="context-lbl">🎯 开单目的与临床指征：</span>
+              <span class="context-lbl">开单目的与临床指征：</span>
               <span class="context-val highlight-reason">{{ currentOrder.exam_reason || '临床排查与专科辅助诊断' }}</span>
             </div>
             <div v-if="currentOrder.patient_initial_diagnosis" class="context-row">
-              <span class="context-lbl">🩺 经治医生拟定初诊：</span>
+              <span class="context-lbl">经治医生拟定初诊：</span>
               <span class="context-val font-semibold text-blue-700">{{ currentOrder.patient_initial_diagnosis }}</span>
             </div>
             <div v-if="currentOrder.patient_chief_complaint" class="context-row">
-              <span class="context-lbl">📋 患者主诉与发病症状：</span>
+              <span class="context-lbl">患者主诉与发病症状：</span>
               <span class="context-val">{{ currentOrder.patient_chief_complaint }}</span>
             </div>
             <div v-if="currentOrder.patient_vital_signs" class="context-row">
-              <span class="context-lbl">💓 患者生命体征记录：</span>
+              <span class="context-lbl">患者生命体征记录：</span>
               <span class="context-val text-xs text-gray-700">{{ currentOrder.patient_vital_signs }}</span>
             </div>
           </div>
@@ -268,7 +268,6 @@
         <!-- 针对该检验项目的动态规范模板快捷载入 -->
         <div class="quick-template-bar mb-3">
           <div class="template-bar-label">
-            <span class="bolt-icon">⚡</span>
             <span class="font-medium text-slate-700">载入【{{ currentOrder.exam_item }}】专科行业规范模板：</span>
           </div>
           <div class="template-buttons">
@@ -320,7 +319,7 @@
           </el-row>
 
           <!-- 填写上传的图片是什么检查单 (支持自定义输入与专科智能快捷预设) -->
-          <el-form-item label="🖼️ 上传图片/单据名称与检查类型说明 (Exam Sheet / File Title)">
+          <el-form-item label="上传图片/单据名称与检查类型说明 (Exam Sheet / File Title)">
             <el-input
               v-model="reportForm.file_title"
               placeholder="例如：【12导联心电图】标准心电波形报告单 或 【胸部CT平扫】横断面影像切片"
@@ -380,7 +379,7 @@
           :disabled="!reportForm.exam_result || !reportForm.exam_conclusion"
           @click="submitReport"
         >
-          ✅ 提交报告并回传至医生接诊档案
+          提交报告并回传至医生接诊档案
         </el-button>
       </template>
     </el-dialog>
@@ -388,7 +387,7 @@
     <!-- 查看已完成报告单弹窗 -->
     <el-dialog
       v-model="viewDialogVisible"
-      title="📄 医技辅助检查回传报告单"
+      title="医技辅助检查回传报告单"
       width="680px"
     >
       <div v-if="viewOrder" class="view-report-body">
@@ -422,7 +421,7 @@
             <div class="section-lbl">【医技报告附件 / 原始影像存证】</div>
             <div class="file-preview-card">
               <div class="file-info-col">
-                <span class="file-name font-bold">📑 {{ viewOrder.report_file_name || '检查报告影像附件' }}</span>
+                <span class="file-name font-bold">{{ viewOrder.report_file_name || '检查报告影像附件' }}</span>
                 <span v-if="viewOrder.ipfs_cid" class="text-xs text-gray-500 block">IPFS CID: <code>{{ viewOrder.ipfs_cid }}</code></span>
               </div>
               <div class="file-action-col">
@@ -432,7 +431,7 @@
                   type="primary"
                   @click="openImagePreview(`/api/v1/medical-files/${viewOrder.file_id}/view?token=${auth.token}`, viewOrder.report_file_name || viewOrder.exam_item)"
                 >
-                  🖼️ 在线查阅影像图片
+                  在线查阅影像图片
                 </el-button>
                 <el-button
                   v-if="viewOrder.file_id"
@@ -441,7 +440,7 @@
                   plain
                   @click="downloadFile(`/api/v1/medical-files/${viewOrder.file_id}/download?token=${auth.token}`, viewOrder.report_file_name || '医学检查附件')"
                 >
-                  📥 下载原始附件
+                  下载原始附件
                 </el-button>
               </div>
             </div>
@@ -468,7 +467,7 @@
     <!-- 影像大图全屏查阅弹窗 -->
     <el-dialog
       v-model="imagePreviewVisible"
-      :title="`🖼️ ${previewImageTitle || '医学检验与影像检查报告大图'}`"
+      :title="previewImageTitle || '医学检验与影像检查报告大图'"
       width="850px"
       top="4vh"
     >
@@ -487,7 +486,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { Tickets, Refresh, Search, Download } from '@element-plus/icons-vue'
+import { Tickets, Refresh, Search, Download, Timer, CircleCheckFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import api from '../../api/client'
 import { useAuthStore } from '../../stores/auth'
@@ -656,21 +655,21 @@ function getQuickTemplates(item: string): QuickTemplate[] {
     return [
       {
         title: '生化全套指标正常 (国家标准参考基准值)',
-        tag: '🟢 生理正常',
+        tag: '生理正常',
         btnType: 'success',
         result: '【肝肾功能与电解质生化全套】\n- 谷丙转氨酶(ALT): 18 U/L (参考: 9-50)\n- 谷草转氨酶(AST): 22 U/L (参考: 15-40)\n- 总胆红素(TBIL): 12.4 μmol/L (参考: 3.4-17.1)\n- 血清白蛋白(ALB): 46.2 g/L (参考: 40-55)\n- 血肌酐(Cr): 68 μmol/L (参考: 57-111)\n- 尿素氮(BUN): 4.6 mmol/L (参考: 3.2-7.1)\n- 血尿酸(UA): 290 μmol/L (参考: 208-428)\n- 钾(K+): 4.15 mmol/L (参考: 3.5-5.3)\n- 钠(Na+): 141.0 mmol/L (参考: 136-145)\n- 空腹血糖(GLU): 5.12 mmol/L (参考: 3.9-6.1)',
         conclusion: '各项肝功能、肾功能指标与电解质水盐平衡均在国家标准生理参考区间内，生化代谢未见异常。'
       },
       {
         title: '转氨酶偏高 (轻中度肝细胞受损)',
-        tag: '🟡 转氨酶偏高',
+        tag: '转氨酶偏高',
         btnType: 'warning',
         result: '【肝肾功能与电解质生化全套】\n- 谷丙转氨酶(ALT): 86 U/L ↑ (参考: 9-50)\n- 谷草转氨酶(AST): 64 U/L ↑ (参考: 15-40)\n- 总胆红素(TBIL): 18.2 μmol/L (参考: 3.4-17.1)\n- 血清白蛋白(ALB): 42.1 g/L (参考: 40-55)\n- 血肌酐(Cr): 72 μmol/L (正常)\n- 尿素氮(BUN): 5.1 mmol/L (正常)\n- 钾(K+): 4.0 mmol/L，钠(Na+): 139 mmol/L',
         conclusion: '血清转氨酶轻中度升高，提示急性/亚急性肝细胞损害，建议结合病毒性肝炎、脂肪肝或药物性损伤病因复查。'
       },
       {
         title: '肾功能损害 (肌酐/尿素氮显著升高)',
-        tag: '🔴 肾功异常',
+        tag: '肾功异常',
         btnType: 'danger',
         result: '【肝肾功能与电解质生化全套】\n- 血肌酐(Cr): 192 μmol/L ↑ (参考: 57-111)\n- 尿素氮(BUN): 15.8 mmol/L ↑ (参考: 3.2-7.1)\n- 血尿酸(UA): 535 μmol/L ↑ (参考: 208-428)\n- 估算肾小球滤过率(eGFR): 36 mL/min/1.73m² ↓\n- 钾(K+): 5.32 mmol/L ↑ (参考: 3.5-5.3)\n- 肝功能各项测量值大致正常',
         conclusion: '血肌酐及尿素氮显著升高，伴高尿酸血症及轻度高钾倾向，提示肾小球滤过功能受损（肾功能不全），建议肾内科积极干预。'
@@ -680,21 +679,21 @@ function getQuickTemplates(item: string): QuickTemplate[] {
     return [
       {
         title: '12导联心电图大致正常 (窦性心律)',
-        tag: '🟢 窦性心律',
+        tag: '窦性心律',
         btnType: 'success',
         result: '【标准12导联静息心电图】\n- 节律: 窦性心律，心率 72 bpm\n- P波: 时限 0.08s，振幅正常\n- P-R间期: 0.16s (参考: 0.12-0.20s)\n- QRS波群: 时限 0.09s，各导联形态正常，电轴无显著偏移\n- ST-T段: ST段未见明显抬高或压低，T波形态自然直立，Q-Tc间期 412 ms',
         conclusion: '窦性心律，大致正常心电图。'
       },
       {
         title: 'ST-T缺血性压低 (下壁/前壁供血不足)',
-        tag: '🟡 心肌缺血',
+        tag: '心肌缺血',
         btnType: 'warning',
         result: '【标准12导联静息心电图】\n- 节律: 窦性心律，心率 88 bpm\n- ST-T段: V4-V6 导联及 II、III、aVF 导联 ST 段呈水平型下移约 0.08-0.12 mV，T波低平伴倒置\n- Q-Tc间期: 442 ms',
         conclusion: '窦性心律伴下侧壁 ST-T 段缺血性改变，高度提示心肌供血不足，建议结合心肌损伤标志物随诊。'
       },
       {
         title: '窦性心动过速 / 偶发室早',
-        tag: '🔴 心律失常',
+        tag: '心律失常',
         btnType: 'danger',
         result: '【标准12导联静息心电图】\n- 节律: 窦性心动过速，心率 116 bpm\n- 记录期内可见 2 次提前出现的宽大畸形 QRS 波群，代偿间歇完全\n- ST-T段轻度继发性改变',
         conclusion: '窦性心动过速伴偶发室性期前收缩（室早），建议进一步完善 24小时动态心电图 (Holter) 排查。'
@@ -704,21 +703,21 @@ function getQuickTemplates(item: string): QuickTemplate[] {
     return [
       {
         title: '全血细胞各项指标正常 (无感染贫血)',
-        tag: '🟢 细胞正常',
+        tag: '细胞正常',
         btnType: 'success',
         result: '【全血细胞分析与分类】\n- 白细胞计数(WBC): 6.4 ×10^9/L (参考: 3.5-9.5)\n- 中性粒细胞百分比(NEU%): 61.2% (参考: 40-75)\n- 淋巴细胞百分比(LYM%): 29.8% (参考: 20-50)\n- 红细胞计数(RBC): 4.82 ×10^12/L (参考: 4.3-5.8)\n- 血红蛋白浓度(Hb): 148 g/L (参考: 130-175)\n- 血小板计数(PLT): 225 ×10^9/L (参考: 125-350)\n- C-反应蛋白(CRP): 2.1 mg/L (参考: 0-8)',
         conclusion: '全血细胞分析各参数均在标准参考区间内，未见明显感染、贫血或出凝血异常指征。'
       },
       {
         title: '急性细菌感染 / 炎症指标增高',
-        tag: '🟡 细菌感染',
+        tag: '细菌感染',
         btnType: 'warning',
         result: '【全血细胞分析与分类】\n- 白细胞计数(WBC): 14.2 ×10^9/L ↑ (参考: 3.5-9.5)\n- 中性粒细胞百分比(NEU%): 84.6% ↑ (参考: 40-75)\n- 中性粒细胞绝对值(NEU#): 12.0 ×10^9/L ↑\n- 超敏C反应蛋白(hs-CRP): 34.5 mg/L ↑ (参考: 0-5)\n- 红细胞及血小板未见明显异常',
         conclusion: '白细胞总数及中性粒细胞比例显著增高，CRP明显升高，符合急性细菌性感染或活动性炎性反应。'
       },
       {
         title: '中度小细胞低色素性贫血',
-        tag: '🔴 贫血异常',
+        tag: '贫血异常',
         btnType: 'danger',
         result: '【全血细胞分析与分类】\n- 红细胞计数(RBC): 3.12 ×10^12/L ↓ (参考: 4.3-5.8)\n- 血红蛋白浓度(Hb): 82 g/L ↓ (参考: 130-175)\n- 平均红细胞体积(MCV): 71.4 fL ↓ (参考: 82-100)\n- 平均红细胞血红蛋白量(MCH): 23.2 pg ↓ (参考: 27-34)\n- 白细胞与血小板大致正常',
         conclusion: '小细胞低色素性中度贫血，高度提示缺铁性贫血可能，建议进一步检查血清铁蛋白及转铁蛋白饱和度。'
@@ -728,14 +727,14 @@ function getQuickTemplates(item: string): QuickTemplate[] {
     return [
       {
         title: '心肌损伤标志物全套阴性',
-        tag: '🟢 阴性正常',
+        tag: '阴性正常',
         btnType: 'success',
         result: '【心肌损伤全套化学发光检测】\n- 超敏肌钙蛋白I (hs-cTnI): < 0.012 ng/mL (阴性，参考: < 0.034)\n- 肌酸激酶同工酶 (CK-MB mass): 1.4 ng/mL (参考: 0-5.0)\n- 肌红蛋白 (Myo): 26.5 ng/mL (参考: 0-70)\n- B型脑钠肽前体 (NT-proBNP): 48 pg/mL (参考: < 125)',
         conclusion: '心肌坏死损伤标志物全套阴性，未见急性心肌梗死或急性心肌缺血坏死生物学证据。'
       },
       {
         title: '肌钙蛋白强阳性 (急性心梗指标)',
-        tag: '🔴 强阳性预警',
+        tag: '强阳性预警',
         btnType: 'danger',
         result: '【心肌损伤全套化学发光检测】\n- 超敏肌钙蛋白I (hs-cTnI): 3.86 ng/mL ↑ (显著阳性，参考: < 0.034)\n- 肌酸激酶同工酶 (CK-MB mass): 48.2 ng/mL ↑ (参考: 0-5.0)\n- 肌红蛋白 (Myo): 185.0 ng/mL ↑ (参考: 0-70)\n- NT-proBNP: 890 pg/mL ↑',
         conclusion: '高敏肌钙蛋白I与CK-MB强阳性显著升高，高度符合急性心肌梗死(AMI)或急性冠脉综合征改变，建议心内科紧急处置。'
@@ -745,21 +744,21 @@ function getQuickTemplates(item: string): QuickTemplate[] {
     return [
       {
         title: '平扫检查未见明确活动性病变',
-        tag: '🟢 未见异常',
+        tag: '未见异常',
         btnType: 'success',
         result: '【高分辨率CT平扫检查】\n- 双侧胸廓对称，纵隔居中气管通畅。\n- 双肺野透亮度正常，双肺纹理走行清晰规整，肺野内未见明确渗出、浸润、实变或肿块结节影。\n- 肺门大小形态未见明显增大，纵隔未见明显肿大淋巴结影。\n- 心影大小处于正常生理范围，双侧胸膜腔未见明显积液征象。',
         conclusion: '胸部CT平扫未见明显活动性炎性浸润或占位性病变。'
       },
       {
         title: '双下肺野斑片状炎性渗出影 (肺炎)',
-        tag: '🟡 炎性浸润',
+        tag: '炎性浸润',
         btnType: 'warning',
         result: '【高分辨率CT平扫检查】\n- 双侧胸廓对称，气管通畅。\n- 双侧下肺野背段及外底段见散在斑片状、磨玻璃样浅淡高密度影，边界欠清，内可见支气管充气征。\n- 纵隔淋巴结轻度反应性肿大，心影大小形态正常，未见明显胸腔积液。',
         conclusion: '双下肺野斑片状渗出性病变，考虑感染性病变（社区获得性肺炎表现可能），建议抗炎对症治疗后复查。'
       },
       {
         title: '肺部结节影 (磨玻璃结节 GGN)',
-        tag: '🔴 肺部结节',
+        tag: '肺部结节',
         btnType: 'danger',
         result: '【高分辨率CT平扫检查】\n- 右肺中叶外侧段近胸膜下见一结节状磨玻璃密度影，大小约为 8.5 mm × 7.2 mm，边界较清，内部密度欠均，边缘见微小分叶及轻度胸膜牵拉。\n- 其余肺野未见明显实变灶，纵隔结构清晰。',
         conclusion: '右肺中叶局灶性磨玻璃结节 (pGGN)，建议3个月后薄层低剂量CT随访或呼吸胸外科专科会诊评估。'
@@ -769,21 +768,21 @@ function getQuickTemplates(item: string): QuickTemplate[] {
     return [
       {
         title: `${item} - 测量指标正常参考范围`,
-        tag: '🟢 正常参考值',
+        tag: '正常参考值',
         btnType: 'success',
         result: `【${item}】\n各项测量理化数据均符合国家临床检验生理参考区间，各参数值处于稳定生理中线，未检出阳性病理性改变。`,
         conclusion: '各项测量指标未见明显异常，符合健康生理参考标准。'
       },
       {
         title: `${item} - 测量指标轻度异常偏离`,
-        tag: '🟡 轻度异常',
+        tag: '轻度异常',
         btnType: 'warning',
         result: `【${item}】\n主要测量指标轻度偏离正常区间上限，提示机体处于早期应激、轻微炎性反应或代偿阶段。`,
         conclusion: '检查指标轻度异常，建议结合专科临床表现及随访排查。'
       },
       {
         title: `${item} - 测量指标显著异常 / 阳性发现`,
-        tag: '🔴 明显异常/阳性',
+        tag: '明显异常/阳性',
         btnType: 'danger',
         result: `【${item}】\n关键理化指标显著超出参考阈值，见特征性病理改变改变与阳性指征，机体靶器官功能受累明显。`,
         conclusion: '关键指标显著异常，高度提示病理损害，需专科重点排查并跟进处置。'

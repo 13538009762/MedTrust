@@ -2,12 +2,12 @@
   <div class="page-container">
     <div class="page-header flex-between">
       <div>
-        <h2 class="page-title">🚨 紧急访问 (Break-Glass) 监管审核台</h2>
+        <h2 class="page-title">紧急访问 (Break-Glass) 监管审核台</h2>
         <p class="page-sub">监管人员为唯一的医疗合规审判者。审查急救原因、患者知情异议反馈，执行合规结案或阶梯式违规惩戒与复权治理</p>
       </div>
       <div class="header-actions">
         <el-button type="warning" plain @click="openGeneralLiftModal">
-          🔓 受限医生复权管理
+          受限医生复权管理
         </el-button>
       </div>
     </div>
@@ -26,7 +26,7 @@
         <el-table-column prop="patient_feedback" label="患者知情确认" width="130">
           <template #default="{ row }">
             <el-tag v-if="row.patient_feedback === 'CONFIRMED'" type="success" size="small">无异议</el-tag>
-            <el-tag v-else-if="row.patient_feedback === 'OBJECTED'" type="danger" size="small">⚠️ 提出异议</el-tag>
+            <el-tag v-else-if="row.patient_feedback === 'OBJECTED'" type="danger" size="small">提出异议</el-tag>
             <el-tag v-else type="info" size="small">等待确认</el-tag>
           </template>
         </el-table-column>
@@ -55,7 +55,7 @@
                 plain
                 @click="openLiftModal(row)"
               >
-                🔓 解除限制
+                解除限制
               </el-button>
             </div>
           </template>
@@ -104,7 +104,7 @@
     </el-dialog>
 
     <!-- 一键解除医生权限限制（复权审批）弹窗 -->
-    <el-dialog v-model="liftDialogVisible" title="🔓 解除医生权限限制（复权审批）" width="540px">
+    <el-dialog v-model="liftDialogVisible" title="解除医生权限限制（复权审批）" width="540px">
       <el-alert
         title="复权机制说明"
         type="info"

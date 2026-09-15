@@ -2,7 +2,7 @@
   <div class="page-container">
     <div class="page-header">
       <div>
-        <h2 class="page-title">📊 联盟链存证监控与监管大屏</h2>
+        <h2 class="page-title">联盟链存证监控与监管大屏</h2>
         <p class="page-sub">依据毕业设计技术指标：实时监控跨机构数据共享流转量、Fabric 区块高度、风险拦截统计与防篡改动态校验通过率</p>
       </div>
     </div>
@@ -125,7 +125,7 @@
         <el-card shadow="hover" class="chart-card">
           <template #header>
             <div class="chart-header-row">
-              <span class="chart-title">📈 全局数据流转量与安全风险拦截趋势 (Throughput & Interceptions)</span>
+              <span class="chart-title">全局数据流转量与安全风险拦截趋势 (Throughput & Interceptions)</span>
               <el-tag size="small" type="info">最近7天监控流水</el-tag>
             </div>
           </template>
@@ -136,7 +136,7 @@
         <el-card shadow="hover" class="chart-card">
           <template #header>
             <div class="chart-header-row">
-              <span class="chart-title">🛡️ 防篡改核验通过率</span>
+              <span class="chart-title">防篡改核验通过率</span>
               <el-tag size="small" :type="stats.tampered_count > 0 ? 'danger' : 'success'">
                 {{ stats.tampered_count > 0 ? '检测到篡改告警' : '全量真实完整' }}
               </el-tag>
@@ -152,7 +152,7 @@
       <el-col :span="12">
         <el-card shadow="hover" class="chart-card">
           <template #header>
-            <div class="chart-title">🏥 各医院医疗数据沉淀分布 (Hospital Nodes)</div>
+            <div class="chart-title">各医院医疗数据沉淀分布 (Hospital Nodes)</div>
           </template>
           <div ref="hospChartRef" class="echart-box-sm"></div>
         </el-card>
@@ -160,7 +160,7 @@
       <el-col :span="12">
         <el-card shadow="hover" class="chart-card">
           <template #header>
-            <div class="chart-title">⚖️ 跨院调阅动态风险评估分布 (Risk Engine)</div>
+            <div class="chart-title">跨院调阅动态风险评估分布 (Risk Engine)</div>
           </template>
           <div ref="riskChartRef" class="echart-box-sm"></div>
         </el-card>
@@ -172,7 +172,6 @@
       <template #header>
         <div class="chart-header-row stream-header-wrap">
           <div class="stream-title-box">
-            <span class="stream-icon">⚡</span>
             <span class="chart-title">全网实时安全事件与不可篡改审计流 (Real-Time Security Event Stream)</span>
             <span class="stream-live-badge">
               <span class="slb-dot"></span>
@@ -182,9 +181,9 @@
           <div class="stream-filter-box">
             <el-radio-group v-model="eventFilter" size="small">
               <el-radio-button label="ALL">全部事件 ({{ securityEvents.length }})</el-radio-button>
-              <el-radio-button label="HIGH">🚨 高危事件</el-radio-button>
-              <el-radio-button label="BREAK_GLASS">🚑 破窗调阅</el-radio-button>
-              <el-radio-button label="VERIFY">🛡️ 验真审计</el-radio-button>
+              <el-radio-button label="HIGH">高危事件</el-radio-button>
+              <el-radio-button label="BREAK_GLASS">破窗调阅</el-radio-button>
+              <el-radio-button label="VERIFY">验真审计</el-radio-button>
             </el-radio-group>
             <el-button size="small" type="primary" plain :icon="Refresh" :loading="loadingEvents" @click="fetchSecurityEvents">
               刷新流水
@@ -235,7 +234,7 @@
         <el-table-column label="Fabric 存证状态" width="125">
           <template #default>
             <el-tag size="small" type="success" effect="plain">
-              🛡️ 账本已固化
+              账本已固化
             </el-tag>
           </template>
         </el-table-column>

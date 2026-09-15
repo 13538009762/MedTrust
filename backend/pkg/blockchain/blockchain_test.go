@@ -1,9 +1,11 @@
 package blockchain
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMockLedgerService(t *testing.T) {
@@ -119,9 +121,10 @@ func TestFabricGatewayLive(t *testing.T) {
 		t.Errorf("Unexpected status: %+v", status)
 	}
 
-	// 存证真实上链测试
-	txID, height, err := gateway.CommitAsset("MEDICAL_RECORD", "TEST_REC_UNIT", map[string]interface{}{
-		"record_no":   "TEST_REC_UNIT",
+	// 存证真实上链测试 (使用动态唯一编号)
+	testNo := fmt.Sprintf("TEST_REC_%d", time.Now().UnixNano())
+	txID, height, err := gateway.CommitAsset("MEDICAL_RECORD", testNo, map[string]interface{}{
+		"record_no":   testNo,
 		"cid":         "QmUnitTestingCID",
 		"file_hash":   "hash123",
 		"hospital_id": "1",
@@ -133,5 +136,6 @@ func TestFabricGatewayLive(t *testing.T) {
 	if txID == "" || height == 0 {
 		t.Errorf("Invalid txID or height: txID=%s, height=%d", txID, height)
 	}
+	t.Logf("✅ 真实上链成功! TxID=%s, Height=%d", txID, height)
 }
 

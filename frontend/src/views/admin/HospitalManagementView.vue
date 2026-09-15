@@ -2,7 +2,7 @@
   <div class="page-container">
     <div class="page-header">
       <div>
-        <h2 class="page-title">🏥 联盟医院与科室字典维护</h2>
+        <h2 class="page-title">联盟医院与科室字典维护</h2>
         <p class="page-sub">管理多组织接入白名单、医院等级及下属临床科室字典</p>
       </div>
     </div>

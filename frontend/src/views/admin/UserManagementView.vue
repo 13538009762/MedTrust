@@ -3,28 +3,28 @@
     <!-- 顶部状态统计看板 -->
     <div class="stats-grid mb-4">
       <div class="stat-card blue">
-        <div class="stat-icon">👥</div>
+        <div class="stat-icon"><el-icon><User /></el-icon></div>
         <div class="stat-info">
           <div class="stat-value">{{ users.length }}</div>
           <div class="stat-label">全部注册用户</div>
         </div>
       </div>
       <div class="stat-card cyan">
-        <div class="stat-icon">👨‍⚕️</div>
+        <div class="stat-icon"><el-icon><FirstAidKit /></el-icon></div>
         <div class="stat-info">
           <div class="stat-value">{{ doctorCount }}</div>
           <div class="stat-label">临床执业医生</div>
         </div>
       </div>
       <div class="stat-card green">
-        <div class="stat-icon">🧑‍💼</div>
+        <div class="stat-icon"><el-icon><UserFilled /></el-icon></div>
         <div class="stat-info">
           <div class="stat-value">{{ patientCount }}</div>
           <div class="stat-label">就诊患者主体</div>
         </div>
       </div>
       <div class="stat-card purple">
-        <div class="stat-icon">🛡️</div>
+        <div class="stat-icon"><el-icon><Management /></el-icon></div>
         <div class="stat-info">
           <div class="stat-value">{{ supervisorCount + adminCount }}</div>
           <div class="stat-label">监管审计与管理员</div>
@@ -56,10 +56,10 @@
       <div class="toolbar-wrapper">
         <el-radio-group v-model="activeRoleTab" size="default" class="role-tabs-group">
           <el-radio-button value="ALL">全部人员 ({{ users.length }})</el-radio-button>
-          <el-radio-button value="doctor">👨‍⚕️ 医生群体 ({{ doctorCount }})</el-radio-button>
-          <el-radio-button value="patient">🧑‍💼 就诊患者 ({{ patientCount }})</el-radio-button>
-          <el-radio-button value="supervisor">🛡️ 监管审计员 ({{ supervisorCount }})</el-radio-button>
-          <el-radio-button value="admin">⚙️ 系统管理员 ({{ adminCount }})</el-radio-button>
+          <el-radio-button value="doctor">医生群体 ({{ doctorCount }})</el-radio-button>
+          <el-radio-button value="patient">就诊患者 ({{ patientCount }})</el-radio-button>
+          <el-radio-button value="supervisor">监管审计员 ({{ supervisorCount }})</el-radio-button>
+          <el-radio-button value="admin">系统管理员 ({{ adminCount }})</el-radio-button>
         </el-radio-group>
 
         <div class="filter-controls">
@@ -92,7 +92,7 @@
           <template #default="{ row }">
             <div class="user-cell">
               <div class="user-avatar-tag" :class="row.role">
-                {{ getRoleIcon(row.role) }}
+                {{ (row.real_name || row.username || '用').charAt(0) }}
               </div>
               <div class="user-name-col">
                 <span class="user-real-name font-bold">{{ row.real_name || row.username }}</span>
@@ -198,7 +198,7 @@
     <!-- 用户详细电子档案抽屉 (查看平台用户完整档案信息，不只是医生) -->
     <el-drawer
       v-model="drawerVisible"
-      title="👤 平台用户全景电子档案卡"
+      title="平台用户全景电子档案卡"
       size="540px"
       direction="rtl"
     >
@@ -206,7 +206,7 @@
         <!-- 头部身份卡 -->
         <div class="user-hero-box mb-4">
           <div class="hero-avatar" :class="selectedUser.role">
-            {{ getRoleIcon(selectedUser.role) }}
+            {{ (selectedUser.real_name || selectedUser.username || '用').charAt(0) }}
           </div>
           <div class="hero-details">
             <div class="hero-name-row">
@@ -249,7 +249,7 @@
           <div class="grid-item full">
             <span class="lbl">实名核验状态：</span>
             <el-tag type="success" size="small" effect="plain">
-              ✅ 公安部二代身份证/可信电子证照实名认证通过
+              公安部二代身份证/可信电子证照实名认证通过
             </el-tag>
           </div>
         </div>
@@ -384,10 +384,10 @@
           <el-col :span="12">
             <el-form-item label="开设角色类型" required>
               <el-select v-model="form.role" style="width: 100%;">
-                <el-option label="👨‍⚕️ 执业医生 (doctor)" value="doctor" />
-                <el-option label="🧑‍💼 就诊患者 (patient)" value="patient" />
-                <el-option label="🛡️ 监管审计员 (supervisor)" value="supervisor" />
-                <el-option label="⚙️ 系统管理员 (admin)" value="admin" />
+                <el-option label="执业医生 (doctor)" value="doctor" />
+                <el-option label="就诊患者 (patient)" value="patient" />
+                <el-option label="监管审计员 (supervisor)" value="supervisor" />
+                <el-option label="系统管理员 (admin)" value="admin" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -472,7 +472,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { Plus, User, Search, Refresh, View } from '@element-plus/icons-vue'
+import { Plus, User, Search, Refresh, View, FirstAidKit, UserFilled, Management } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import api from '../../api/client'
 
@@ -555,13 +555,6 @@ function formatRoleLabel(role: string) {
   if (role === 'supervisor') return '监管审计员'
   if (role === 'admin') return '系统管理员'
   return role
-}
-
-function getRoleIcon(role: string) {
-  if (role === 'doctor') return '👨‍⚕️'
-  if (role === 'patient') return '🧑‍💼'
-  if (role === 'supervisor') return '🛡️'
-  return '⚙️'
 }
 
 function getRoleTag(role: string) {

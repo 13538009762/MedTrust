@@ -70,7 +70,7 @@
 
               <!-- 快速填充演示栏 (按医疗机构分类，支持多院区医生与医技快速登录) -->
               <div class="demo-account-bar">
-                <div class="demo-title">⚡ 快速登录演示账号 (密码统一为 123456)</div>
+                <div class="demo-title">快速登录演示账号 (统一初始密码: 123456)</div>
 
                 <!-- 机构分类 Tab -->
                 <div class="demo-tabs">
@@ -78,22 +78,22 @@
                     type="button"
                     :class="['demo-tab-item', activeDemoHosp === 'HOSP_A' ? 'active' : '']"
                     @click="activeDemoHosp = 'HOSP_A'"
-                  >🏥 第一医院</button>
+                  >第一医院</button>
                   <button
                     type="button"
                     :class="['demo-tab-item', activeDemoHosp === 'HOSP_B' ? 'active' : '']"
                     @click="activeDemoHosp = 'HOSP_B'"
-                  >🏥 第二医院</button>
+                  >第二医院</button>
                   <button
                     type="button"
                     :class="['demo-tab-item', activeDemoHosp === 'HOSP_C' ? 'active' : '']"
                     @click="activeDemoHosp = 'HOSP_C'"
-                  >🏥 第三医院</button>
+                  >第三医院</button>
                   <button
                     type="button"
                     :class="['demo-tab-item', activeDemoHosp === 'OTHERS' ? 'active' : '']"
                     @click="activeDemoHosp = 'OTHERS'"
-                  >👥 患者/监管</button>
+                  >患者 / 监管</button>
                 </div>
 
                 <!-- 第一人民医院角色 -->
@@ -126,7 +126,7 @@
                 </div>
               </div>
 
-              <el-form class="login-form" @submit.prevent="handleLogin">
+              <form class="login-form" @submit.prevent="handleLogin">
                 <el-form-item>
                   <el-input
                     v-model="username"
@@ -143,7 +143,6 @@
                     placeholder="请输入密码 (预置 123456)"
                     :prefix-icon="Lock"
                     size="large"
-                    show-password
                   />
                 </el-form-item>
 
@@ -155,7 +154,7 @@
                 >
                   进 入 系 统
                 </el-button>
-              </el-form>
+              </form>
 
               <div class="register-footer">
                 <span>还没有健康档案账户？</span>
@@ -164,7 +163,7 @@
                 </el-link>
               </div>
               <div class="doctor-tip-footer">
-                <span>🩺 执业医生账号涉及临床资质核验，须由医院管理员录入开设</span>
+                <span>执业医生账号涉及临床资质核验，须由医院管理员录入开设</span>
               </div>
             </div>
 
@@ -461,7 +460,7 @@ async function handleRegister() {
 
     if (res.code === 200) {
       ElNotification({
-        title: '🎉 建档注册成功！',
+        title: '建档注册成功',
         message: `恭喜患者 ${res.data?.real_name}，您的健康档案编号为 ${res.data?.user_no}，请直接登录！`,
         type: 'success',
         duration: 5000

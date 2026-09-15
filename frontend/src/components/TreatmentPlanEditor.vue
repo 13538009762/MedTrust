@@ -4,12 +4,12 @@
     <div class="section-card disposal-section mb-3">
       <div class="section-header">
         <div class="section-title">
-          <span class="icon">🩺</span>
+          <el-icon class="icon text-blue-600"><FirstAidKit /></el-icon>
           <strong>综合处置 (General Management / Disposal)</strong>
           <span class="sub-tip">急救处置、生命体征监护、创面处理或无创对症干预</span>
         </div>
-        <el-button size="small" type="primary" plain @click="addDisposalRow">
-          ➕ 添加一行处置
+        <el-button size="small" type="primary" plain :icon="Plus" @click="addDisposalRow">
+          添加一行处置
         </el-button>
       </div>
 
@@ -47,12 +47,11 @@
           <el-button
             type="danger"
             link
+            :icon="Delete"
             class="del-btn"
             title="删除该行"
             @click="removeDisposalRow(index)"
-          >
-            🗑️
-          </el-button>
+          />
         </div>
       </div>
     </div>
@@ -61,12 +60,12 @@
     <div class="section-card orders-section mb-3">
       <div class="section-header">
         <div class="section-title">
-          <span class="icon">📋</span>
+          <el-icon class="icon text-amber-600"><Document /></el-icon>
           <strong>临床医嘱与生活指导 (Clinical Advice / Orders)</strong>
           <span class="sub-tip">饮食指导、自测指标、活动作息及复查门诊周期</span>
         </div>
-        <el-button size="small" type="primary" plain @click="addOrderRow">
-          ➕ 添加一行医嘱
+        <el-button size="small" type="primary" plain :icon="Plus" @click="addOrderRow">
+          添加一行医嘱
         </el-button>
       </div>
 
@@ -104,12 +103,11 @@
           <el-button
             type="danger"
             link
+            :icon="Delete"
             class="del-btn"
             title="删除该行"
             @click="removeOrderRow(index)"
-          >
-            🗑️
-          </el-button>
+          />
         </div>
       </div>
     </div>
@@ -118,12 +116,12 @@
     <div class="section-card rx-section mb-2">
       <div class="section-header">
         <div class="section-title">
-          <span class="icon">💊</span>
+          <el-icon class="icon text-emerald-600"><Tickets /></el-icon>
           <strong>处方用药方案 (Prescription / Medications)</strong>
           <span class="sub-tip">输入药品关键词（如“硝苯/氨氯/二甲双胍/阿司匹林/美托洛尔”）下方自动提示标准规格与用法</span>
         </div>
-        <el-button size="small" type="success" @click="addPrescriptionRow">
-          ➕ 添加一行药品
+        <el-button size="small" type="success" :icon="Plus" @click="addPrescriptionRow">
+          添加一行药品
         </el-button>
       </div>
 
@@ -181,12 +179,11 @@
           <el-button
             type="danger"
             link
+            :icon="Delete"
             class="del-btn"
             title="删除该药品"
             @click="removePrescriptionRow(index)"
-          >
-            🗑️
-          </el-button>
+          />
         </div>
       </div>
     </div>
@@ -194,12 +191,12 @@
     <!-- 底部实时整合预览折叠卡片 -->
     <div class="plan-summary-bar">
       <span class="summary-text">
-        📊 方案统计：已录入 <strong>{{ validCount.disposal }}</strong> 项综合处置、
+        方案统计：已录入 <strong>{{ validCount.disposal }}</strong> 项综合处置、
         <strong>{{ validCount.orders }}</strong> 项临床医嘱、
         <strong>{{ validCount.prescriptions }}</strong> 项处方用药
       </span>
-      <el-button size="small" type="info" link @click="showPreview = !showPreview">
-        {{ showPreview ? '收起整合预览' : '👁️ 查看拼接后的规范方案全文' }}
+      <el-button size="small" type="info" link :icon="View" @click="showPreview = !showPreview">
+        {{ showPreview ? '收起整合预览' : '查看拼接后的规范方案全文' }}
       </el-button>
     </div>
 
@@ -212,6 +209,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { Plus, Delete, View, FirstAidKit, Document, Tickets } from '@element-plus/icons-vue'
 
 const props = defineProps({
   modelValue: {

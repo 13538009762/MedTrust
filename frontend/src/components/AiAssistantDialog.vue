@@ -174,27 +174,29 @@ function scrollToBottom() {
 <style scoped>
 .ai-float-badge {
   position: fixed;
-  right: 28px;
-  bottom: 32px;
+  right: 24px;
+  bottom: 24px;
   z-index: 1999;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 20px;
-  background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
+  gap: 6px;
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #2563eb 0%, #059669 100%);
   color: white;
-  border-radius: 30px;
-  box-shadow: 0 10px 25px rgba(139, 92, 246, 0.35);
+  border-radius: 20px;
+  box-shadow: 0 4px 14px rgba(5, 150, 105, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.25);
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: all 0.25s ease;
 }
 .ai-float-badge:hover {
-  transform: translateY(-3px) scale(1.05);
-  box-shadow: 0 14px 30px rgba(139, 92, 246, 0.45);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(5, 150, 105, 0.35);
 }
 .badge-text {
-  font-weight: 700;
-  font-size: 15px;
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.3px;
 }
 .ai-chat-container {
   display: flex;

@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     v-model="visible"
-    title="🎓 MedTrust 毕业设计答辩演示向导 (8 大核心场景演练指南)"
+    title="MedTrust 毕业设计答辩演示向导 (8 大核心场景演练指南)"
     width="920px"
     top="4vh"
     class="defense-guide-modal"
@@ -47,7 +47,7 @@
 
         <div class="sc-speech-box">
           <div class="speech-header">
-            <span>🗣️ 答辩讲解词提示 (推荐表述):</span>
+            <span>答辩讲解词提示 (推荐表述):</span>
             <el-button link type="primary" size="small" @click="copySpeech(s.speech)">复制讲解词</el-button>
           </div>
           <p class="speech-content">{{ s.speech }}</p>
@@ -61,7 +61,7 @@
             :loading="switchingUser === s.username"
             @click="jumpToScenario(s)"
           >
-            🚀 登录为【{{ s.roleName }}】并立即跳转 ➔
+            登录为【{{ s.roleName }}】并立即跳转 ➔
           </el-button>
         </div>
       </div>
@@ -69,7 +69,7 @@
 
     <template #footer>
       <div class="modal-footer-content">
-        <span class="mf-tip">💡 提示：所有测试账号密码统一为 <code>123456</code>；点击跳转将自动完成会话切换，无需手动注销。</span>
+        <span class="mf-tip">提示：所有测试账号密码统一为 <code>123456</code>；点击跳转将自动完成会话切换，无需手动注销。</span>
         <el-button @click="visible = false">关闭向导</el-button>
       </div>
     </template>

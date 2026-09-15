@@ -53,14 +53,20 @@ deployChaincode() {
   echo ">>> [Chaincode] 开始打包并部署医疗智能合约 ${CC_NAME}..."
   
   setGlobalsOrg1
+  COMMITTED_SEQ=$(peer lifecycle chaincode querycommitted -C ${CHANNEL_NAME} --name ${CC_NAME} 2>/dev/null | grep -o 'Sequence: [0-9]*' | awk '{print $2}' || true)
+  if [ -n "$COMMITTED_SEQ" ]; then
+    CC_SEQUENCE=$((COMMITTED_SEQ + 1))
+    echo ">>> 检测到链上已有已提交版本 (Sequence: ${COMMITTED_SEQ})，自动升级至 Sequence: ${CC_SEQUENCE}..."
+  fi
+
   peer lifecycle chaincode package ${CC_NAME}.tar.gz --path /opt/gopath/src/github.com/chaincode --lang golang --label ${CC_NAME}_${CC_VERSION}
   
   echo ">>> 在 Org1 (Hospital A) 安装链码..."
-  peer lifecycle chaincode install ${CC_NAME}.tar.gz
+  peer lifecycle chaincode install ${CC_NAME}.tar.gz || true
   
   echo ">>> 在 Org2 (Hospital B) 安装链码..."
   setGlobalsOrg2
-  peer lifecycle chaincode install ${CC_NAME}.tar.gz
+  peer lifecycle chaincode install ${CC_NAME}.tar.gz || true
 
   PACKAGE_ID=$(peer lifecycle chaincode calculatepackageid ${CC_NAME}.tar.gz)
   echo ">>> 链码 Package ID: ${PACKAGE_ID}"

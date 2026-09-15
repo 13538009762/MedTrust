@@ -20,9 +20,18 @@ type User struct {
 	Status       string    `gorm:"size:20;default:'NORMAL'" json:"status"` // NORMAL, RESTRICTED, DISABLED
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
-	// 辅助关联展示字段
-	HospitalName   string `gorm:"-" json:"hospital_name,omitempty"`
-	DepartmentName string `gorm:"-" json:"department_name,omitempty"`
+	// 辅助关联展示与急诊抢救画像字段
+	HospitalName     string              `gorm:"-" json:"hospital_name,omitempty"`
+	DepartmentName   string              `gorm:"-" json:"department_name,omitempty"`
+	InfectionAlert   *InfectionRiskAlert `gorm:"-" json:"infection_alert,omitempty"`
+	Gender           string              `gorm:"-" json:"gender,omitempty"`
+	Age              int                 `gorm:"-" json:"age,omitempty"`
+	BloodType        string              `gorm:"-" json:"blood_type,omitempty"`
+	Allergies        string              `gorm:"-" json:"allergies,omitempty"`
+	EmergencyContact string              `gorm:"-" json:"emergency_contact,omitempty"`
+	EmergencyPhone   string              `gorm:"-" json:"emergency_phone,omitempty"`
+	ChronicDiseases  string              `gorm:"-" json:"chronic_diseases,omitempty"`
+	LatestVitalSigns string              `gorm:"-" json:"latest_vital_signs,omitempty"`
 }
 
 func (User) TableName() string {
@@ -106,7 +115,44 @@ type MedicalRecord struct {
 
 	// 跨院访问权限状态 (针对当前调用接口的医生上下文)
 	HasAccess  bool   `gorm:"-" json:"has_access"`
-	AccessType string `gorm:"-" json:"access_type,omitempty"` // OWNER, HOSPITAL, AUTHORIZED, BREAK_GLASS, UNAUTHORIZED
+	AccessType string `gorm:"-" json:"access_type,omitempty"` // OWNER, HOSPITAL, AUTHORIZED, BREAK_GLASS, UNAUTHORIZED, ALL_DOCTORS
+
+	// 患者端自主共享权限状态 (供患者查看与配置当前病历对所有医生/指定对象的可见性)
+	SharingScope         string `gorm:"-" json:"sharing_scope,omitempty"`         // ALL_DOCTORS (全体医生可见), HOSPITAL (指定医院), DOCTOR (指定医生), AUTHORIZED (指定授权), PRIVATE (私密受控)
+	SharingSummary       string `gorm:"-" json:"sharing_summary,omitempty"`       // 状态描述文本
+	ActiveAuthID         uint64 `gorm:"-" json:"active_auth_id,omitempty"`         // 当前生效的全体公开或针对性授权条目 ID
+	ActiveAuthTargetType string `gorm:"-" json:"active_auth_target_type,omitempty"` // ALL_DOCTORS, HOSPITAL, DOCTOR, PRIVATE
+	ActiveAuthTargetID   uint64 `gorm:"-" json:"active_auth_target_id,omitempty"`
+	ActiveAuthTargetName string `gorm:"-" json:"active_auth_target_name,omitempty"`
+
+	// 医护职业安全防范与传染病高危携带预警
+	InfectionAlert *InfectionRiskAlert `gorm:"-" json:"infection_alert,omitempty"`
+}
+
+// InfectionRiskAlert 医护职业安全高危传染病预警结构体
+type InfectionRiskAlert struct {
+	HasRisk        bool                   `json:"has_risk"`
+	RiskLevel      string                 `json:"risk_level"`      // CRITICAL (极高危), HIGH (高危), MEDIUM_HIGH (重点中高危), SAFE (安全)
+	Summary        string                 `json:"summary"`         // 简述
+	Diseases       []InfectionDiseaseInfo `json:"diseases"`        // 命中高危疾病明细
+	Precautions    []string               `json:"precautions"`     // 医务人员标准及专项防护指引
+	ProtectionGear []string               `json:"protection_gear"` // 必备个人防护装备 (PPE)
+	EmergencySteps []string               `json:"emergency_steps"` // 职业暴露发生后的紧急处置处置规程 (一挤二冲三消毒 / 2h内PEP)
+	DetectedFrom   []string               `json:"detected_from"`   // 检出来源病历号或检验报告摘要
+}
+
+// InfectionDiseaseInfo 单项传染病临床特征
+type InfectionDiseaseInfo struct {
+	Name           string `json:"name"`             // 艾滋病 (HIV/AIDS)
+	Category       string `json:"category"`         // 血液/体液传染病
+	Persistence    string `json:"persistence"`      // 必定终身携带 / 长期慢性携带
+	ThreatToDoctor string `json:"threat_to_doctor"` // 锐器针刺伤暴露、血液黏膜喷溅
+	Transmission   string `json:"transmission"`     // 血液、体液、锐器刺伤
+	RiskLevel      string `json:"risk_level"`       // CRITICAL, HIGH, MEDIUM_HIGH
+	MatchedKeyword string `json:"matched_keyword"`  // 命中的病历关键词
+	RecordNo       string `json:"record_no"`        // 来源就诊编号
+	HospitalName   string `json:"hospital_name"`    // 来源机构
+	RecordDate     string `json:"record_date"`      // 诊断/确诊时间
 }
 
 func (MedicalRecord) TableName() string {
@@ -181,7 +227,7 @@ type Authorization struct {
 	ID             uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
 	AuthNo         string    `gorm:"size:64;uniqueIndex" json:"auth_no"`
 	PatientID      uint64    `gorm:"index:idx_patient_target" json:"patient_id"`
-	AuthTargetType string    `gorm:"size:20;index:idx_patient_target" json:"auth_target_type"` // DOCTOR, HOSPITAL
+	AuthTargetType string    `gorm:"size:20;index:idx_patient_target" json:"auth_target_type"` // DOCTOR, HOSPITAL, ALL_DOCTORS
 	AuthTargetID   uint64    `gorm:"index:idx_patient_target" json:"auth_target_id"`
 	ScopeType      string    `gorm:"size:20" json:"scope_type"` // ALL, SINGLE
 	RecordID       uint64    `gorm:"default:0" json:"record_id"`

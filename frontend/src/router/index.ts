@@ -17,6 +17,7 @@ const router = createRouter({
         // 医生临床与医技工作台
         { path: '', redirect: '/doctor/records' },
         { path: 'doctor/records', name: 'doctor-records', component: () => import('../views/doctor/DoctorRecordsView.vue') },
+        { path: 'doctor/patient-search', name: 'doctor-patient-search', component: () => import('../views/doctor/PatientEmergencySearchView.vue') },
         { path: 'doctor/lab-center', name: 'doctor-lab-center', component: () => import('../views/doctor/LabCenterView.vue') },
         { path: 'doctor/cross-query', redirect: to => ({ path: '/doctor/query/all', query: to.query }) },
         { path: 'doctor/query', redirect: '/doctor/query/all' },

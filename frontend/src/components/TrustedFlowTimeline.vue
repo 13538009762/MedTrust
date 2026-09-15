@@ -49,7 +49,7 @@
         </div>
 
         <div class="step-footer">
-          <span class="sf-tech">🔒 {{ step.techSpec }}</span>
+          <span class="sf-tech">{{ step.techSpec }}</span>
         </div>
       </div>
     </div>
@@ -241,13 +241,13 @@ const steps = computed(() => {
       title: '动态闭环验真与防篡改审计',
       role: 'Supervisor 监管',
       status: isTampered ? 'WARNING' : 'COMPLETED',
-      statusText: isTampered ? '🚨 篡改拦截' : '🛡️ 100% 吻合',
+      statusText: isTampered ? '篡改拦截' : '100% 吻合',
       desc: isTampered
         ? '动态核验检测到数据库被非法修改，与 Fabric 链上固化指纹不匹配，系统即刻红标报警并阻断采信！'
         : '实时解密比对本地多维指纹与 Fabric 账本原始指纹，100% 一致，存证链闭环真实可信。',
       techSpec: '三阶段防篡改核验 (附件指纹 + 临床摘要 + 链上背书)',
       details: [
-        { label: '验真判定', val: isTampered ? '🚨 TAMPER_ALERT (哈希突变)' : '✅ VERIFIED (真实完整)' },
+        { label: '验真判定', val: isTampered ? 'TAMPER_ALERT (哈希突变)' : 'VERIFIED (真实完整)' },
         { label: '不可篡改', val: 'Fabric 账本不可逆，MySQL 篡改即刻显形' },
       ]
     },

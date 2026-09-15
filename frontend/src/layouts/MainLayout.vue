@@ -24,6 +24,10 @@
             <el-icon><FolderAdd /></el-icon>
             <span>就诊记录与初诊录入</span>
           </el-menu-item>
+          <el-menu-item index="/doctor/patient-search">
+            <el-icon><FirstAidKit /></el-icon>
+            <span>患者检索与急救调阅</span>
+          </el-menu-item>
           <el-menu-item index="/doctor/lab-center">
             <el-icon><Tickets /></el-icon>
             <span>医技检查中心</span>
@@ -136,7 +140,7 @@
             class="defense-guide-launch-btn"
             @click="defenseModalVisible = true"
           >
-            🎓 答辩演示向导
+            答辩演示向导
           </el-button>
 
           <!-- 区块链底层实时状态微件 -->
@@ -169,7 +173,7 @@
             effect="plain"
             class="status-warning-tag"
           >
-            ⚠️ 账号已被监管限制跨院访问
+            账号已被监管限制跨院访问
           </el-tag>
 
           <div class="user-profile clickable" @click="router.push('/personal')" title="点击查看并维护个人信息">
@@ -576,16 +580,16 @@ function onLogout() {
   transform: translate3d(0, -14px, 0);
 }
 .defense-guide-launch-btn {
-  background: linear-gradient(135deg, #1e3a8a 0%, #7c3aed 100%) !important;
+  background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%) !important;
   border: none !important;
   color: #ffffff !important;
-  font-weight: 700 !important;
+  font-weight: 600 !important;
   border-radius: 6px !important;
-  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.35) !important;
-  animation: pulseDefenseGlow 2.5s infinite ease-in-out;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25) !important;
+  transition: all 0.2s ease !important;
 }
-@keyframes pulseDefenseGlow {
-  0%, 100% { box-shadow: 0 2px 8px rgba(124, 58, 237, 0.35); }
-  50% { box-shadow: 0 4px 14px rgba(124, 58, 237, 0.65); }
+.defense-guide-launch-btn:hover {
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4) !important;
+  transform: translateY(-1px);
 }
 </style>

@@ -2,8 +2,8 @@
   <div class="page-container">
     <div class="page-header">
       <div>
-        <h2 class="page-title">🔑 患者自主知情授权与跨院审批中心</h2>
-        <p class="page-sub">由患者完全自主控制个人医疗数据共享，在线审批外院医生门诊知情申请，生效即刻锚定 Fabric 联盟链，随时一键撤销</p>
+        <h2 class="page-title">患者知情授权与跨院审批中心</h2>
+        <p class="page-sub">由患者自主控制个人医疗数据共享，在线审批外院医生门诊知情申请，生效即刻锚定 Fabric 联盟链，随时一键撤销</p>
       </div>
       <el-button type="primary" :icon="Plus" @click="dialogVisible = true">主动创建授权策略</el-button>
     </div>
@@ -11,7 +11,7 @@
     <!-- 0. 现场病历即时调阅专属密钥卡片 -->
     <div class="medical-key-banner-card mb-4">
       <div class="mkb-left">
-        <div class="mkb-icon-wrap">🔑</div>
+        <div class="mkb-icon-wrap"><el-icon><Key /></el-icon></div>
         <div>
           <div class="mkb-title-row">
             <span class="mkb-title">我的跨院病历现场调阅专属密钥</span>
@@ -46,7 +46,6 @@
       <template #header>
         <div class="card-header-flex">
           <div class="header-title">
-            <span class="header-icon">📬</span>
             <strong>待我知情审批的医生跨院调阅申请</strong>
             <el-badge v-if="pendingRequests.length > 0" :value="pendingRequests.length" class="pending-badge" type="danger" />
           </div>
@@ -72,14 +71,14 @@
             <div class="pi-body">
               <div class="pi-info-row">
                 <span class="lbl">申请医生：</span>
-                <span class="doc-highlight">👨‍⚕️ {{ item.doctor_name || '执业医生' }}</span>
+                <span class="doc-highlight">{{ item.doctor_name || '执业医生' }}</span>
                 <span class="hosp-tag">（{{ item.doctor_hospital_name || '外院机构' }} · {{ item.doctor_title || '主治医师' }}）</span>
               </div>
               <div class="pi-info-row record-row">
                 <span class="lbl">申请病历：</span>
                 <template v-if="item.scope_type === 'ALL'">
                   <div class="scope-all-box">
-                    <el-tag size="small" type="success" effect="dark">🌐 全部健康档案 (涵盖您在全网的所有既往就诊与检查)</el-tag>
+                    <el-tag size="small" type="success" effect="dark">全部健康档案 (涵盖您在全网的所有既往就诊与检查)</el-tag>
                     <el-button
                       type="primary"
                       link
@@ -87,7 +86,7 @@
                       class="ml-2"
                       @click="goToRecords"
                     >
-                      📑 前往「我的电子健康档案」查看全部记录
+                      前往「我的电子健康档案」查看全部记录
                     </el-button>
                   </div>
                 </template>
@@ -96,7 +95,7 @@
                     <div class="rec-code-line">
                       <code class="rec-code clickable-rec" @click="viewRecordDetail(item)">{{ item.record_no || '单份指定就诊病历' }}</code>
                       <el-tag v-if="item.record_hospital_name" size="small" type="primary" class="ml-2">
-                        🏥 {{ item.record_hospital_name }}
+                        {{ item.record_hospital_name }}
                       </el-tag>
                       <el-tag v-if="item.record_department" size="small" type="info" class="ml-1">
                         {{ item.record_department }}
@@ -117,7 +116,7 @@
                         :icon="View"
                         @click="viewRecordDetail(item)"
                       >
-                        👁️ 查看我对应的这份病历详情与红头 PDF
+                        查看我对应的这份病历详情与红头 PDF
                       </el-button>
                     </div>
                   </div>
@@ -128,11 +127,11 @@
                 <el-tag size="small" type="info">{{ item.days || 7 }} 天</el-tag>
               </div>
               <div class="purpose-box">
-                <span class="purpose-lbl">👨‍⚕️ 医生临床调阅目的说明：</span>
+                <span class="purpose-lbl">医生临床调阅目的说明：</span>
                 <p class="purpose-text">{{ item.purpose || '门诊专科联合随访评估与既往慢病复核，需调阅外院历史健康档案' }}</p>
               </div>
               <div class="pi-time">
-                🕒 申请发起时间：{{ item.created_at ? item.created_at.substring(0, 16).replace('T', ' ') : '' }}
+                申请发起时间：{{ item.created_at ? item.created_at.substring(0, 16).replace('T', ' ') : '' }}
               </div>
             </div>
             <div class="pi-actions">
@@ -141,7 +140,7 @@
                 :loading="processingId === item.id"
                 @click="approveConsent(item.id)"
               >
-                ✅ 同意授权 (立即释放权限并上链)
+                同意授权 (立即释放权限并上链)
               </el-button>
               <el-button
                 type="danger"
@@ -149,7 +148,7 @@
                 :loading="processingId === item.id"
                 @click="rejectConsent(item.id)"
               >
-                ❌ 拒绝调阅
+                拒绝调阅
               </el-button>
             </div>
           </div>
@@ -167,16 +166,22 @@
     <el-card shadow="hover" class="box-card">
       <template #header>
         <div class="card-header-flex">
-          <strong>📜 我已生效与历史授权策略存证 (Fabric 联盟链分布式账本)</strong>
+          <strong>我已生效与历史授权策略存证 (Fabric 联盟链分布式账本)</strong>
         </div>
       </template>
 
       <el-table :data="authorizations" v-loading="loading" stripe style="width: 100%">
         <el-table-column prop="auth_no" label="授权流水号" width="160" />
-        <el-table-column prop="auth_target_type" label="授权对象类型" width="120">
+        <el-table-column prop="auth_target_type" label="授权对象类型" width="130">
           <template #default="{ row }">
-            <el-tag size="small" :type="row.auth_target_type === 'DOCTOR' ? 'primary' : 'warning'">
-              {{ row.auth_target_type === 'DOCTOR' ? '👨‍⚕️ 执业医生' : '🏥 医院机构' }}
+            <el-tag v-if="row.auth_target_type === 'ALL_DOCTORS'" size="small" type="success" effect="dark">
+              全体执业医生
+            </el-tag>
+            <el-tag v-else-if="row.auth_target_type === 'DOCTOR'" size="small" type="primary">
+              执业医生
+            </el-tag>
+            <el-tag v-else size="small" type="warning">
+              医院机构
             </el-tag>
           </template>
         </el-table-column>
@@ -184,10 +189,10 @@
         <el-table-column prop="scope_type" label="授权范围与指定病历" min-width="190">
           <template #default="{ row }">
             <div v-if="row.scope_type === 'ALL'">
-              <el-tag size="small" type="success" effect="dark">🌐 全部健康档案</el-tag>
+              <el-tag size="small" type="success" effect="dark">全部健康档案</el-tag>
             </div>
             <div v-else class="single-auth-scope-cell">
-              <el-tag size="small" type="primary" effect="light">📑 指定单份病历</el-tag>
+              <el-tag size="small" type="primary" effect="light">指定单份病历</el-tag>
               <div v-if="row.record_no" class="mt-1" style="font-size: 11px; line-height: 1.3;">
                 <code class="mono bold text-emerald-800">{{ row.record_no }}</code>
                 <div style="color: #64748b;">{{ row.record_hospital_name ? row.record_hospital_name + ' · ' : '' }}{{ row.record_diagnosis || '' }}</div>
@@ -232,17 +237,26 @@
     </el-card>
 
     <!-- 新增数据访问授权策略弹窗 (增强级联筛选与单份指定病历选择) -->
-    <el-dialog v-model="dialogVisible" title="🔑 新增数据访问授权策略" width="620px" :close-on-click-modal="false" @open="initDialogData">
+    <el-dialog v-model="dialogVisible" title="新增数据访问授权策略" width="620px" :close-on-click-modal="false" @open="initDialogData">
       <el-form :model="form" label-width="110px">
         <el-form-item label="授权目标类型" required>
           <el-radio-group v-model="form.auth_target_type" size="default" @change="onTargetTypeChange">
-            <el-radio-button value="DOCTOR">👨‍⚕️ 指定执业医生 (精确至个人)</el-radio-button>
-            <el-radio-button value="HOSPITAL">🏥 指定医院机构 (全院科室)</el-radio-button>
+            <el-radio-button value="ALL_DOCTORS">让所有医生都可见 (全联盟公开)</el-radio-button>
+            <el-radio-button value="DOCTOR">指定执业医生 (精确至个人)</el-radio-button>
+            <el-radio-button value="HOSPITAL">指定医院机构 (全院科室)</el-radio-button>
           </el-radio-group>
         </el-form-item>
 
-        <!-- 级联选择 1: 筛选医院 -->
-        <el-form-item label="目标医疗机构" required>
+        <!-- 全联盟医生开放调阅说明提示 -->
+        <div v-if="form.auth_target_type === 'ALL_DOCTORS'" class="all-doctors-info-box mb-3">
+          <div class="adi-title">全联盟医生开放调阅策略说明</div>
+          <div class="adi-desc">
+            此策略将向所有入驻联盟链的医疗机构认证执业医生开放直接调阅。外院医生在接诊随访、跨院转诊或应急救治时，无需等待发起审批即可直接查阅，方便异地就医。您可随时在此界面撤销该授权。
+          </div>
+        </div>
+
+        <!-- 级联选择 1: 筛选医院 (当指定医生或医院时显示) -->
+        <el-form-item v-if="form.auth_target_type !== 'ALL_DOCTORS'" label="目标医疗机构" required>
           <el-select
             v-model="selectedHospitalId"
             placeholder="请选择医疗机构"
@@ -269,17 +283,17 @@
             <el-option
               v-for="doc in filteredDoctors"
               :key="doc.id"
-              :label="'👨‍⚕️ ' + doc.real_name + ' (' + (doc.department_name || '科室') + ' · ' + (doc.title || '主治医师') + ')'"
+              :label="doc.real_name + ' (' + (doc.department_name || '科室') + ' · ' + (doc.title || '主治医师') + ')'"
               :value="doc.id"
             >
               <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-                <span>👨‍⚕️ <strong>{{ doc.real_name }}</strong> <small style="color: #64748b;">({{ doc.title || '主治医师' }})</small></span>
+                <span><strong>{{ doc.real_name }}</strong> <small style="color: #64748b;">({{ doc.title || '主治医师' }})</small></span>
                 <el-tag size="small" type="info">{{ doc.department_name || '综合门诊' }}</el-tag>
               </div>
             </el-option>
           </el-select>
           <div v-if="filteredDoctors.length === 0 && selectedHospitalId" class="text-xs text-amber-600 mt-1">
-            ⚠️ 当前选定医院暂无可指派的执业医生
+            当前选定医院暂无可指派的执业医生
           </div>
         </el-form-item>
 
@@ -288,8 +302,8 @@
         <!-- 授权范围 -->
         <el-form-item label="授权数据范围" required>
           <el-radio-group v-model="form.scope_type" size="default" @change="onScopeTypeChange">
-            <el-radio value="ALL">🌐 全部健康档案 (涵盖全网所有就诊记录)</el-radio>
-            <el-radio value="SINGLE">📑 指定单份就诊病历 (最小必要原则，推荐)</el-radio>
+            <el-radio value="ALL">全部健康档案 (涵盖全网所有就诊记录)</el-radio>
+            <el-radio value="SINGLE">指定单份就诊病历 (最小必要原则，推荐)</el-radio>
           </el-radio-group>
         </el-form-item>
 
@@ -322,9 +336,9 @@
           <!-- 选定病历后的卡片概览与红头查看 -->
           <div v-if="selectedRecordInfo" class="selected-record-preview-card mt-2">
             <div class="srp-header">
-              <span class="srp-title">📋 选定病历摘要</span>
+              <span class="srp-title">选定病历摘要</span>
               <el-button type="primary" link size="small" :icon="View" @click="openSelectedRecordDetail">
-                👁️ 预览完整病历
+                预览完整病历
               </el-button>
             </div>
             <div class="srp-grid">
@@ -340,7 +354,7 @@
             </div>
           </div>
           <div v-else-if="myRecordsList.length === 0" class="text-xs text-amber-600 mt-1">
-            ⚠️ 您当前暂无已归档的历史就诊病历
+            您当前暂无已归档的历史就诊病历
           </div>
         </el-form-item>
 
@@ -368,7 +382,7 @@
           :disabled="!isFormValid"
           @click="submitCreate"
         >
-          🔐 签署并存证上链 (Hyperledger Fabric)
+          签署并存证上链 (Hyperledger Fabric)
         </el-button>
       </template>
     </el-dialog>
@@ -376,7 +390,7 @@
     <!-- 弹窗一：查看申请对应的指定病历详情 -->
     <el-dialog
       v-model="recordDetailVisible"
-      title="📋 申请调阅的目标就诊病历详情 (核实无误后再决定授权)"
+      title="申请调阅的目标就诊病历详情 (核实无误后再决定授权)"
       width="820px"
       top="4vh"
     >
@@ -394,7 +408,7 @@
         <div v-else class="tamper-box safe mb-3">
           <span>
             <el-icon><CircleCheckFilled /></el-icon>
-            🛡️ <strong>区块链防篡改核验通过：</strong>该病历数据指纹与 Hyperledger Fabric 联盟链存证 100% 严格一致，数据真实完整。
+            <strong>区块链防篡改核验通过：</strong>该病历数据指纹与 Hyperledger Fabric 联盟链存证 100% 严格一致，数据真实完整。
           </span>
         </div>
 
@@ -449,15 +463,15 @@
         <div class="archive-files-section mt-3">
           <div class="empty-flex-row" style="background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center;">
             <div class="empty-text">
-              <span class="font-medium text-slate-700">📄 国家规范红头临床就诊病历单 (PDF 存证)</span>
+              <span class="font-medium text-slate-700">国家规范红头临床就诊病历单 (PDF 存证)</span>
               <div class="text-xs text-gray-500">包含完整 SOAP 记录、医技报告与医疗机构区块链防伪公章 (存证大小: {{ formatFileSize(viewingRecord.files?.[0]?.file_size) }})</div>
             </div>
             <div class="btn-grp" style="display: flex; gap: 8px;">
               <el-button type="primary" size="small" :icon="View" @click="openPdfPreview(viewingRecord)">
-                👁️ 在线查阅红头 PDF 病历
+                在线查阅红头 PDF 病历
               </el-button>
               <el-button type="success" size="small" plain :icon="Download" @click="downloadRecordFile(viewingRecord.id)">
-                📥 下载解密凭据
+                下载解密凭据
               </el-button>
             </div>
           </div>
@@ -471,7 +485,7 @@
       <template #footer>
         <el-button @click="recordDetailVisible = false">关闭</el-button>
         <el-button type="primary" :icon="View" @click="openPdfPreview(viewingRecord)">
-          👁️ 查看标准红头 PDF
+          查看标准红头 PDF
         </el-button>
       </template>
     </el-dialog>
@@ -479,7 +493,7 @@
     <!-- 弹窗二：PDF 电子病历规范预览弹窗 -->
     <el-dialog
       v-model="pdfPreviewVisible"
-      title="📄 临床就诊电子病历归档凭证 (PDF 规范视图)"
+      title="临床就诊电子病历归档凭证 (PDF 规范视图)"
       width="880px"
       top="3vh"
       :close-on-click-modal="false"
@@ -489,15 +503,15 @@
         <!-- 打印与工具栏 -->
         <div class="emr-action-bar no-print">
           <div class="emr-tip-tag">
-            <el-tag type="success" effect="dark">✅ 密文解密验证通过</el-tag>
+            <el-tag type="success" effect="dark">密文解密验证通过</el-tag>
             <el-tag type="info" class="ml-2">国家卫健委《电子病历应用规范》甲级存证标准</el-tag>
           </div>
           <div class="emr-btns">
             <el-button type="primary" :icon="Printer" @click="printPdfSheet">
-              🖨️ 打印 / 另存为 PDF 文件
+              打印 / 另存为 PDF 文件
             </el-button>
             <el-button type="success" plain :icon="Download" @click="downloadRecordFile(previewingRecord.id)">
-              📥 下载原始归档凭证
+              下载原始归档凭证
             </el-button>
           </div>
         </div>
@@ -559,7 +573,7 @@
               <div class="soap-row"><strong>● 基础生命体征：</strong><span class="vitals-highlight">{{ previewingRecord.vital_signs || '生命体征平稳' }}</span></div>
               <div class="soap-row"><strong>● 辅助检查说明：</strong>{{ previewingRecord.need_exam ? (previewingRecord.exam_items || '已开具辅助检查') : '经治医生研判体征典型明确，未开具侵入性检验检查' }}</div>
               <div v-if="previewingRecord.exam_result" class="soap-exam-result-box">
-                <div class="soap-exam-head">🔬 医技科室回传检查报告明细：</div>
+                <div class="soap-exam-head">医技科室回传检查报告明细：</div>
                 <pre class="soap-exam-content">{{ previewingRecord.exam_result }}</pre>
                 <div v-if="previewingRecord.exam_doctor" class="soap-exam-foot">
                   出具技师/医生：{{ previewingRecord.exam_doctor }} | 时间：{{ previewingRecord.exam_time }}
@@ -597,7 +611,7 @@
               <div v-if="previewingRecord.files && previewingRecord.files.length">
                 <strong>原始数据 SHA-256 指纹：</strong><code>{{ previewingRecord.files[0].file_hash }}</code>
               </div>
-              <div class="text-xs text-emerald-700 mt-1">🛡️ 本病历经 Hyperledger Fabric 存证，数字签名抗抵赖、防篡改</div>
+              <div class="text-xs text-emerald-700 mt-1">本病历经 Hyperledger Fabric 存证，数字签名抗抵赖、防篡改</div>
             </div>
 
             <div class="footer-seal-area">
@@ -625,7 +639,7 @@
 
     <!-- 4. 修改跨院病历调阅专属密钥弹窗 -->
     <el-dialog 
-      title="🔑 修改跨院病历调阅专属密钥" 
+      title="修改跨院病历调阅专属密钥" 
       v-model="medicalKeyVisible" 
       width="480px"
       :close-on-click-modal="false"
@@ -768,7 +782,7 @@ const loadingDoctors = ref(false)
 const loadingMyRecords = ref(false)
 
 const form = ref({
-  auth_target_type: 'DOCTOR' as 'DOCTOR' | 'HOSPITAL',
+  auth_target_type: 'ALL_DOCTORS' as 'DOCTOR' | 'HOSPITAL' | 'ALL_DOCTORS',
   auth_target_id: undefined as number | undefined,
   scope_type: 'ALL' as 'ALL' | 'SINGLE',
   record_id: undefined as number | undefined,
@@ -787,6 +801,10 @@ const selectedRecordInfo = computed(() => {
 
 const isFormValid = computed(() => {
   if (!form.value.auth_target_type) return false
+  if (form.value.auth_target_type === 'ALL_DOCTORS') {
+    if (form.value.scope_type === 'SINGLE' && !form.value.record_id) return false
+    return true
+  }
   if (form.value.auth_target_type === 'DOCTOR' && !form.value.auth_target_id) return false
   if (form.value.auth_target_type === 'HOSPITAL' && !selectedHospitalId.value) return false
   if (form.value.scope_type === 'SINGLE' && !form.value.record_id) return false
@@ -794,7 +812,9 @@ const isFormValid = computed(() => {
 })
 
 function onTargetTypeChange(val: string) {
-  if (val === 'HOSPITAL') {
+  if (val === 'ALL_DOCTORS') {
+    form.value.auth_target_id = 0
+  } else if (val === 'HOSPITAL') {
     form.value.auth_target_id = selectedHospitalId.value
   } else {
     // DOCTOR
@@ -925,7 +945,7 @@ async function approveConsent(id: number) {
     const res: any = await api.post(`/access/requests/${id}/approve`)
     if (res.code === 200) {
       ElNotification({
-        title: '✅ 授权核准成功',
+        title: '授权核准成功',
         message: '已向经治医生释放跨院调阅权限，授权策略已永久锚定至 Fabric 联盟链！该医生现在可直接查看病历。',
         type: 'success',
         duration: 6000
@@ -961,11 +981,16 @@ async function submitCreate() {
     return
   }
 
-  const targetId = form.value.auth_target_type === 'HOSPITAL' 
-    ? selectedHospitalId.value 
-    : form.value.auth_target_id
+  let targetId = 0
+  if (form.value.auth_target_type === 'HOSPITAL') {
+    targetId = selectedHospitalId.value || 0
+  } else if (form.value.auth_target_type === 'DOCTOR') {
+    targetId = form.value.auth_target_id || 0
+  } else {
+    targetId = 0
+  }
 
-  if (!targetId) {
+  if (form.value.auth_target_type !== 'ALL_DOCTORS' && !targetId) {
     ElMessage.warning('请选择被授权的医疗机构或执业医生')
     return
   }
@@ -989,9 +1014,12 @@ async function submitCreate() {
 
     const res: any = await api.post('/authorizations', payload)
     if (res.code === 200) {
+      const targetText = form.value.auth_target_type === 'ALL_DOCTORS'
+        ? '全联盟全体执业医生 (全网公开)'
+        : (form.value.auth_target_type === 'DOCTOR' ? '指定医生' : '指定医院机构')
       ElNotification({
-        title: '🔐 授权策略建立成功',
-        message: `已向【${form.value.auth_target_type === 'DOCTOR' ? '指定医生' : '指定医院机构'}】签发智能合约知情授权凭证，Fabric TxID: ${res.data?.fabric_tx_id?.substring(0, 18)}...`,
+        title: '授权策略建立成功',
+        message: `已向【${targetText}】签发智能合约知情授权凭证，Fabric TxID: ${res.data?.fabric_tx_id?.substring(0, 18)}...`,
         type: 'success',
         duration: 6000
       })
@@ -1685,5 +1713,23 @@ function formatTime(t?: string) {
   .no-print {
     display: none !important;
   }
+}
+
+.all-doctors-info-box {
+  background: linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%);
+  border: 1.5px solid #10b981;
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+.adi-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: #065f46;
+  margin-bottom: 4px;
+}
+.adi-desc {
+  font-size: 12px;
+  color: #047857;
+  line-height: 1.5;
 }
 </style>

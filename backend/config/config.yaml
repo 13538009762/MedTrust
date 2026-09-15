@@ -13,18 +13,18 @@ ipfs:
 
 # 区块链存证与账本服务 (双模设计: 具备完整 Fabric 2.5 链码与 gRPC 网关，亦具备单机离线容灾引擎)
 blockchain:
-  mode: "mock" # "fabric" 或 "mock"，支持环境变量 BLOCKCHAIN_MODE 覆盖 (最高优先级)
+  mode: "fabric" # "fabric" 或 "mock"，支持环境变量 BLOCKCHAIN_MODE 覆盖 (最高优先级)
   channel_id: "medchannel"
   chaincode_id: "medical"
   ledger_dir: "./data/fabric_ledger"
   fabric:
-    enabled: false
+    enabled: true
     peer_endpoint: "127.0.0.1:7051"
     gateway_peer: "peer0.org1.example.com"
     msp_id: "Org1MSP"
     tls_cert_path: "./fabric_crypto/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/tls/ca.crt"
-    cert_path: "./fabric_crypto/peerOrganizations/org1.example.com/users/User1@org1.example.com/msp/signcerts/cert.pem"
-    key_path: "./fabric_crypto/peerOrganizations/org1.example.com/users/User1@org1.example.com/msp/keystore"
+    cert_path: "./fabric_crypto/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp/signcerts/Admin@org1.example.com-cert.pem"
+    key_path: "./fabric_crypto/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp/keystore"
 
 
 

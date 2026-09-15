@@ -646,7 +646,7 @@ func (ctrl *MedicalController) serveMockMedicalImage(c *gin.Context, file *model
 
   <!-- 头部信息栏 -->
   <rect x="25" y="25" width="850" height="65" rx="8" fill="#1e293b" fill-opacity="0.7" stroke="#334155" stroke-width="1.2" />
-  <text x="45" y="55" font-family="'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="18" font-weight="bold" fill="#38bdf8">🏥 MedTrust 医疗数据跨机构可信共享 · 医技检验/影像存证切片</text>
+  <text x="45" y="55" font-family="'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="18" font-weight="bold" fill="#38bdf8">MedTrust 医疗数据跨机构可信共享 · 医技检验/影像存证切片</text>
   <text x="45" y="76" font-family="'Segoe UI', 'Microsoft YaHei', sans-serif" font-size="12" fill="#94a3b8">业务单号：%s | 存储类型：IPFS 分布式节点 | 格式：%s</text>
 
   <!-- 影像主视窗 (仿真 PACS 视窗) -->
@@ -667,9 +667,9 @@ func (ctrl *MedicalController) serveMockMedicalImage(c *gin.Context, file *model
 
   <!-- 密码学与区块链防伪印记 -->
   <rect x="25" y="460" width="850" height="95" rx="8" fill="#1e293b" fill-opacity="0.8" stroke="#334155" stroke-width="1.2" />
-  <text x="45" y="488" font-family="monospace" font-size="12" fill="#a78bfa">🔗 IPFS CID: %s</text>
-  <text x="45" y="512" font-family="monospace" font-size="12" fill="#64748b">🛡️ 原始明文 SHA-256: %s</text>
-  <text x="45" y="536" font-family="'Microsoft YaHei', sans-serif" font-size="13" font-weight="bold" fill="#22c55e">✅ Hyperledger Fabric 账本不可篡改存证校验：通过 (100%% 吻合，链上链下数据一致)</text>
+  <text x="45" y="488" font-family="monospace" font-size="12" fill="#a78bfa">IPFS CID: %s</text>
+  <text x="45" y="512" font-family="monospace" font-size="12" fill="#64748b">原始明文 SHA-256: %s</text>
+  <text x="45" y="536" font-family="'Microsoft YaHei', sans-serif" font-size="13" font-weight="bold" fill="#22c55e">Hyperledger Fabric 账本不可篡改存证校验：通过 (100%% 吻合，链上链下数据一致)</text>
 </svg>`,
 		rec.RecordNo, strings.ToUpper(file.FileType),
 		file.FileName, diag, rec.VitalSigns,
@@ -679,4 +679,52 @@ func (ctrl *MedicalController) serveMockMedicalImage(c *gin.Context, file *model
 	c.Header("Content-Type", "image/svg+xml")
 	c.Header("Content-Disposition", "inline; filename="+file.FileName+".svg")
 	c.Data(http.StatusOK, "image/svg+xml", []byte(svg))
+}
+
+// GetPatientInfectionRisks 查询患者高危传染病及医护安全威胁分析
+func (ctrl *MedicalController) GetPatientInfectionRisks(c *gin.Context) {
+	patientIDStr := c.Param("id")
+	patientID, err := strconv.ParseUint(patientIDStr, 10, 64)
+	if err != nil || patientID == 0 {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "无效的患者ID"})
+		return
+	}
+
+	alert, err := service.GetInfectionService().AnalyzePatientRisks(patientID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "排查患者传染病风险失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "success", Data: alert})
+}
+
+// GetRecordInfectionRisks 查询病历涉及的高危传染病及医护安全威胁分析
+func (ctrl *MedicalController) GetRecordInfectionRisks(c *gin.Context) {
+	recordIDStr := c.Param("id")
+	recordID, err := strconv.ParseUint(recordIDStr, 10, 64)
+	if err != nil || recordID == 0 {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "无效的病历ID"})
+		return
+	}
+
+	alert, err := service.GetInfectionService().AnalyzeRecordRisks(recordID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "排查病历传染病风险失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "success", Data: alert})
+}
+
+// EvaluateInfectionText 即时文本高危传染病评估 (供医生接诊输入时动态校验)
+func (ctrl *MedicalController) EvaluateInfectionText(c *gin.Context) {
+	var req struct {
+		Text string `json:"text"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "参数解析失败"})
+		return
+	}
+
+	alert := service.GetInfectionService().EvaluateDirectText(req.Text)
+	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "success", Data: alert})
 }
