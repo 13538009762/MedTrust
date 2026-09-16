@@ -85,12 +85,50 @@ func cryptoRandInt(max int) int {
 }
 
 func (s *AuthService) Login(username, password string) (string, *model.User, error) {
+	return s.LoginWithContext(username, password, "127.0.0.1", "Internal")
+}
+
+func (s *AuthService) LoginWithContext(username, password, clientIP, userAgent string) (string, *model.User, error) {
+	if clientIP == "" {
+		clientIP = "127.0.0.1"
+	}
+	if userAgent == "" {
+		userAgent = "Unknown"
+	}
+
 	var u model.User
 	if err := repository.DB.Where("username = ?", username).First(&u).Error; err != nil {
+		DefaultAuditService.LogDetailed(AuditEntry{
+			UserID:        0,
+			OperationType: "LOGIN_FAILED",
+			TargetType:    "USER",
+			TargetID:      username,
+			Result:        "FAILED",
+			RiskLevel:     "MEDIUM",
+			RiskScore:     30,
+			Source:        "WEB",
+			Reason:        "用户名或密码错误",
+			IPAddress:     clientIP,
+			UserAgent:     userAgent,
+		})
 		return "", nil, errors.New("用户名或密码错误")
 	}
 
 	if u.Status == "DISABLED" {
+		DefaultAuditService.LogDetailed(AuditEntry{
+			UserID:        u.ID,
+			OperationType: "LOGIN_BLOCKED",
+			TargetType:    "USER",
+			TargetID:      u.UserNo,
+			HospitalID:    u.HospitalID,
+			Result:        "INTERCEPTED",
+			RiskLevel:     "HIGH",
+			RiskScore:     80,
+			Source:        "WEB",
+			Reason:        "停用账号尝试登录拦截",
+			IPAddress:     clientIP,
+			UserAgent:     userAgent,
+		})
 		return "", nil, errors.New("该账号已被系统停用，请联系管理员")
 	}
 
@@ -98,6 +136,20 @@ func (s *AuthService) Login(username, password string) (string, *model.User, err
 	now := time.Now()
 	if u.LockedUntil != nil && u.LockedUntil.After(now) {
 		remaining := int(u.LockedUntil.Sub(now).Minutes()) + 1
+		DefaultAuditService.LogDetailed(AuditEntry{
+			UserID:        u.ID,
+			OperationType: "LOGIN_LOCKED_ATTEMPT",
+			TargetType:    "USER",
+			TargetID:      u.UserNo,
+			HospitalID:    u.HospitalID,
+			Result:        "INTERCEPTED",
+			RiskLevel:     "HIGH",
+			RiskScore:     70,
+			Source:        "WEB",
+			Reason:        fmt.Sprintf("锁定中账号尝试登录（剩余 %d 分钟）", remaining),
+			IPAddress:     clientIP,
+			UserAgent:     userAgent,
+		})
 		return "", nil, fmt.Errorf("该账号密码错误次数过多，已被临时锁定保护，请在 %d 分钟后再试", remaining)
 	}
 
@@ -110,16 +162,42 @@ func (s *AuthService) Login(username, password string) (string, *model.User, err
 		if newFailed >= 5 {
 			lockTime := now.Add(15 * time.Minute)
 			updates["locked_until"] = lockTime
-			DefaultAuditService.Log(u.ID, "LOGIN_LOCKED", "USER", u.UserNo, u.HospitalID, "INTERCEPTED", "HIGH", "127.0.0.1")
+			DefaultAuditService.LogDetailed(AuditEntry{
+				UserID:        u.ID,
+				OperationType: "LOGIN_LOCKED",
+				TargetType:    "USER",
+				TargetID:      u.UserNo,
+				HospitalID:    u.HospitalID,
+				Result:        "INTERCEPTED",
+				RiskLevel:     "HIGH",
+				RiskScore:     90,
+				Source:        "WEB",
+				Reason:        "连续密码错误达 5 次触发自动锁定 15 分钟",
+				IPAddress:     clientIP,
+				UserAgent:     userAgent,
+			})
 		} else {
-			DefaultAuditService.Log(u.ID, "LOGIN_FAILED", "USER", u.UserNo, u.HospitalID, "FAILED", "MEDIUM", "127.0.0.1")
+			DefaultAuditService.LogDetailed(AuditEntry{
+				UserID:        u.ID,
+				OperationType: "LOGIN_FAILED",
+				TargetType:    "USER",
+				TargetID:      u.UserNo,
+				HospitalID:    u.HospitalID,
+				Result:        "FAILED",
+				RiskLevel:     "MEDIUM",
+				RiskScore:     30 + newFailed*10,
+				Source:        "WEB",
+				Reason:        fmt.Sprintf("密码错误第 %d 次", newFailed),
+				IPAddress:     clientIP,
+				UserAgent:     userAgent,
+			})
 		}
 		_ = repository.DB.Model(&model.User{}).Where("id = ?", u.ID).Updates(updates)
 
 		if newFailed >= 5 {
 			return "", nil, errors.New("连续登录失败已达 5 次，该账号已被临时锁定 15 分钟")
 		}
-		return "", nil, fmt.Errorf("用户名或密码错误（已连续失败 %d 次，达到 5 次将临时锁定）", newFailed)
+		return "", nil, errors.New("用户名或密码错误") // 统一错误信息，不泄露连续失败次数，防范用户名探测枚举
 	}
 
 	// 登录成功，重置失败计数与锁定状态
@@ -164,7 +242,20 @@ func (s *AuthService) Login(username, password string) (string, *model.User, err
 		return "", nil, err
 	}
 
-	DefaultAuditService.Log(u.ID, "LOGIN", "USER", u.UserNo, u.HospitalID, "SUCCESS", "LOW", "127.0.0.1")
+	DefaultAuditService.LogDetailed(AuditEntry{
+		UserID:        u.ID,
+		OperationType: "LOGIN",
+		TargetType:    "USER",
+		TargetID:      u.UserNo,
+		HospitalID:    u.HospitalID,
+		Result:        "SUCCESS",
+		RiskLevel:     "LOW",
+		RiskScore:     0,
+		Source:        "WEB",
+		Reason:        "身份密码鉴权成功通过",
+		IPAddress:     clientIP,
+		UserAgent:     userAgent,
+	})
 	return token, &u, nil
 }
 
@@ -189,8 +280,17 @@ func (s *AuthService) GetProfile(userID uint64) (*model.User, error) {
 	return &u, nil
 }
 
-// RegisterPatient 患者自主注册健康档案账号（严格限制角色为 patient）
 func (s *AuthService) RegisterPatient(username, password, realName, idCard, phone string) (*model.User, error) {
+	return s.RegisterPatientWithContext(username, password, realName, idCard, phone, "127.0.0.1", "Internal")
+}
+
+func (s *AuthService) RegisterPatientWithContext(username, password, realName, idCard, phone, clientIP, userAgent string) (*model.User, error) {
+	if clientIP == "" {
+		clientIP = "127.0.0.1"
+	}
+	if userAgent == "" {
+		userAgent = "Unknown"
+	}
 	if len(username) < 3 {
 		return nil, errors.New("登录账号名长度至少为 3 个字符")
 	}
@@ -201,14 +301,12 @@ func (s *AuthService) RegisterPatient(username, password, realName, idCard, phon
 		return nil, errors.New("请填写就诊人真实姓名")
 	}
 
-	// 1. 检查用户名唯一性
 	var count int64
 	repository.DB.Model(&model.User{}).Where("username = ?", username).Count(&count)
 	if count > 0 {
 		return nil, errors.New("该登录账号名已被占用，请更换其他用户名")
 	}
 
-	// 2. 检查身份证号唯一性（防重复建档）
 	if idCard != "" {
 		repository.DB.Model(&model.User{}).Where("id_card = ?", idCard).Count(&count)
 		if count > 0 {
@@ -216,13 +314,11 @@ func (s *AuthService) RegisterPatient(username, password, realName, idCard, phon
 		}
 	}
 
-	// 3. 密码 bcrypt 加密
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, err
 	}
 
-	// 4. 生成患者唯一业务编号
 	randBytes := make([]byte, 3)
 	_, _ = rand.Read(randBytes)
 	userNo := fmt.Sprintf("PAT_%s%s", time.Now().Format("200601"), hex.EncodeToString(randBytes))
@@ -232,7 +328,7 @@ func (s *AuthService) RegisterPatient(username, password, realName, idCard, phon
 		Username:     username,
 		PasswordHash: string(hash),
 		RealName:     realName,
-		Role:         "patient", // 强制限定为患者，杜绝任何外部越权自主注册医生或监管员
+		Role:         "patient",
 		Phone:        phone,
 		IDCard:       idCard,
 		Status:       "NORMAL",
@@ -244,12 +340,34 @@ func (s *AuthService) RegisterPatient(username, password, realName, idCard, phon
 		return nil, err
 	}
 
-	DefaultAuditService.Log(user.ID, "REGISTER", "USER", user.UserNo, 0, "SUCCESS", "LOW", "127.0.0.1")
+	DefaultAuditService.LogDetailed(AuditEntry{
+		UserID:        user.ID,
+		OperationType: "REGISTER",
+		TargetType:    "USER",
+		TargetID:      user.UserNo,
+		Result:        "SUCCESS",
+		RiskLevel:     "LOW",
+		Source:        "WEB",
+		Reason:        "新患者账户建档注册",
+		IPAddress:     clientIP,
+		UserAgent:     userAgent,
+	})
 	return &user, nil
 }
 
 // UpdateProfile 修改个人基本信息（真实姓名、手机号、身份证号、职称）
 func (s *AuthService) UpdateProfile(userID uint64, realName, phone, idCard, title string) (*model.User, error) {
+	return s.UpdateProfileWithContext(userID, realName, phone, idCard, title, "127.0.0.1", "Internal")
+}
+
+func (s *AuthService) UpdateProfileWithContext(userID uint64, realName, phone, idCard, title, clientIP, userAgent string) (*model.User, error) {
+	if clientIP == "" {
+		clientIP = "127.0.0.1"
+	}
+	if userAgent == "" {
+		userAgent = "Unknown"
+	}
+
 	var u model.User
 	if err := repository.DB.First(&u, userID).Error; err != nil {
 		return nil, errors.New("用户不存在")
@@ -296,12 +414,35 @@ func (s *AuthService) UpdateProfile(userID uint64, realName, phone, idCard, titl
 		u.DepartmentName = dept.Name
 	}
 
-	DefaultAuditService.Log(u.ID, "UPDATE", "USER", u.UserNo, u.HospitalID, "SUCCESS", "LOW", "127.0.0.1")
+	DefaultAuditService.LogDetailed(AuditEntry{
+		UserID:        u.ID,
+		OperationType: "UPDATE",
+		TargetType:    "USER",
+		TargetID:      u.UserNo,
+		HospitalID:    u.HospitalID,
+		Result:        "SUCCESS",
+		RiskLevel:     "LOW",
+		Source:        "WEB",
+		Reason:        "个人信息资料更新",
+		IPAddress:     clientIP,
+		UserAgent:     userAgent,
+	})
 	return &u, nil
 }
 
 // ChangePassword 用户自主修改登录密码
 func (s *AuthService) ChangePassword(userID uint64, oldPassword, newPassword string) error {
+	return s.ChangePasswordWithContext(userID, oldPassword, newPassword, "127.0.0.1", "Internal")
+}
+
+func (s *AuthService) ChangePasswordWithContext(userID uint64, oldPassword, newPassword, clientIP, userAgent string) error {
+	if clientIP == "" {
+		clientIP = "127.0.0.1"
+	}
+	if userAgent == "" {
+		userAgent = "Unknown"
+	}
+
 	if len(newPassword) < 6 {
 		return errors.New("新密码长度不能少于 6 位")
 	}
@@ -313,6 +454,20 @@ func (s *AuthService) ChangePassword(userID uint64, oldPassword, newPassword str
 
 	// 严格校验原密码（坚决杜绝任何明文固定密码绕过漏洞）
 	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(oldPassword)); err != nil {
+		DefaultAuditService.LogDetailed(AuditEntry{
+			UserID:        u.ID,
+			OperationType: "UPDATE_PWD_FAILED",
+			TargetType:    "USER",
+			TargetID:      u.UserNo,
+			HospitalID:    u.HospitalID,
+			Result:        "INTERCEPTED",
+			RiskLevel:     "HIGH",
+			RiskScore:     50,
+			Source:        "WEB",
+			Reason:        "修改密码原密码校验失败",
+			IPAddress:     clientIP,
+			UserAgent:     userAgent,
+		})
 		return errors.New("原登录密码校验错误，请输入正确的当前密码")
 	}
 
@@ -329,12 +484,35 @@ func (s *AuthService) ChangePassword(userID uint64, oldPassword, newPassword str
 		return err
 	}
 
-	DefaultAuditService.Log(u.ID, "UPDATE_PWD", "USER", u.UserNo, u.HospitalID, "SUCCESS", "LOW", "127.0.0.1")
+	DefaultAuditService.LogDetailed(AuditEntry{
+		UserID:        u.ID,
+		OperationType: "UPDATE_PWD",
+		TargetType:    "USER",
+		TargetID:      u.UserNo,
+		HospitalID:    u.HospitalID,
+		Result:        "SUCCESS",
+		RiskLevel:     "LOW",
+		Source:        "WEB",
+		Reason:        "用户自主更新登录密码",
+		IPAddress:     clientIP,
+		UserAgent:     userAgent,
+	})
 	return nil
 }
 
 // UpdateMedicalKey 用户/患者修改跨院病历调阅专属密钥（用于现场调阅即时授权解锁）
 func (s *AuthService) UpdateMedicalKey(userID uint64, oldKey, newKey string) error {
+	return s.UpdateMedicalKeyWithContext(userID, oldKey, newKey, "127.0.0.1", "Internal")
+}
+
+func (s *AuthService) UpdateMedicalKeyWithContext(userID uint64, oldKey, newKey, clientIP, userAgent string) error {
+	if clientIP == "" {
+		clientIP = "127.0.0.1"
+	}
+	if userAgent == "" {
+		userAgent = "Unknown"
+	}
+
 	newKey = strings.TrimSpace(newKey)
 	if len(newKey) < 6 {
 		return errors.New("新调阅密钥长度至少为 6 位字符（建议 6 位数字或安全口令）")
@@ -348,6 +526,20 @@ func (s *AuthService) UpdateMedicalKey(userID uint64, oldKey, newKey string) err
 	// 若已存在调阅密钥或哈希，强制校验原密钥
 	if u.MedicalKeyHash != "" || u.MedicalKey != "" {
 		if !VerifyMedicalKey(oldKey, u.UserNo, u.MedicalKeyHash, u.MedicalKey) {
+			DefaultAuditService.LogDetailed(AuditEntry{
+				UserID:        u.ID,
+				OperationType: "UPDATE_MED_KEY_FAILED",
+				TargetType:    "USER",
+				TargetID:      u.UserNo,
+				HospitalID:    u.HospitalID,
+				Result:        "INTERCEPTED",
+				RiskLevel:     "HIGH",
+				RiskScore:     60,
+				Source:        "WEB",
+				Reason:        "原调阅密钥校验错误",
+				IPAddress:     clientIP,
+				UserAgent:     userAgent,
+			})
 			return errors.New("原调阅密钥校验错误，请输入正确的当前密钥")
 		}
 	}
@@ -362,7 +554,20 @@ func (s *AuthService) UpdateMedicalKey(userID uint64, oldKey, newKey string) err
 		return err
 	}
 
-	DefaultAuditService.Log(u.ID, "UPDATE_MED_KEY", "USER", u.UserNo, u.HospitalID, "SUCCESS", "LOW", "127.0.0.1")
+	DefaultAuditService.LogDetailed(AuditEntry{
+		UserID:        u.ID,
+		OperationType: "UPDATE_MED_KEY",
+		TargetType:    "USER",
+		TargetID:      u.UserNo,
+		HospitalID:    u.HospitalID,
+		Result:        "SUCCESS",
+		RiskLevel:     "LOW",
+		RiskScore:     10,
+		Source:        "WEB",
+		Reason:        "调阅密钥已加盐更新，旧明文已清空",
+		IPAddress:     clientIP,
+		UserAgent:     userAgent,
+	})
 	return nil
 }
 

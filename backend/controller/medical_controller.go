@@ -95,6 +95,7 @@ func (ctrl *MedicalController) Upload(c *gin.Context) {
 		ExamResult:       examResult,
 		ExamDoctor:       examDoctor,
 		ExamTime:         examTime,
+		ClientIP:         c.ClientIP(),
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: err.Error()})

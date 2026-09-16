@@ -3,6 +3,7 @@ package controller
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -372,6 +373,7 @@ func (ctrl *AccessController) EmergencyBatchAccess(c *gin.Context) {
 			req.EmergencyReason,
 			req.Description,
 			req.DoctorConfirmed,
+			c.ClientIP(),
 		)
 		if err == nil && ev != nil {
 			events = append(events, *ev)
@@ -543,7 +545,7 @@ func (ctrl *AccessController) BreakGlass(c *gin.Context) {
 	}
 
 	// 生成事件单并上链
-	event, err := service.DefaultEmergencyService.SubmitEmergencyAccess(doctorID, req.RecordID, req.EmergencyReason, req.Description, req.DoctorConfirmed)
+	event, err := service.DefaultEmergencyService.SubmitEmergencyAccess(doctorID, req.RecordID, req.EmergencyReason, req.Description, req.DoctorConfirmed, c.ClientIP())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: err.Error()})
 		return
@@ -576,7 +578,7 @@ func (ctrl *AccessController) PatientFeedback(c *gin.Context) {
 		return
 	}
 
-	if err := service.DefaultEmergencyService.SubmitPatientFeedback(patientID, req.EventNo, req.Feedback, req.Comment); err != nil {
+	if err := service.DefaultEmergencyService.SubmitPatientFeedback(patientID, req.EventNo, req.Feedback, req.Comment, c.ClientIP()); err != nil {
 		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: err.Error()})
 		return
 	}
@@ -717,17 +719,64 @@ func (ctrl *AccessController) RevokeAuthorization(c *gin.Context) {
 		return
 	}
 
-	auth.Status = "REVOKED"
+	// 幂等性检查：若已经处于撤销终态，直接返回成功，避免重复写入与状态污染
+	if auth.Status == "REVOKED" {
+		c.JSON(http.StatusOK, model.Response{Code: 200, Message: "授权先前已完成撤回与链上存证，无需重复撤销", Data: auth})
+		return
+	}
+
+	// 状态机流转 1: 标记为 REVOKE_PENDING
+	auth.Status = "REVOKE_PENDING"
+	auth.RevokeError = ""
+	auth.OperatorID = patientID
+	auth.UpdatedAt = time.Now()
 	repository.DB.Save(&auth)
 
-	_, _, _ = blockchain.DefaultService.CommitAsset("REVOKE_AUTH", auth.AuthNo, map[string]interface{}{
-		"auth_no":   auth.AuthNo,
-		"status":    "REVOKED",
-		"timestamp": time.Now().Format(time.RFC3339),
+	// 状态机流转 2: 提交 Fabric 区块链撤销存证 (Fabric 为 nil 必须明确失败，严禁假成功)
+	if blockchain.DefaultService == nil {
+		auth.Status = "REVOKE_FAILED"
+		auth.RevokeError = "区块链存证服务未初始化，禁止假成功撤回"
+		auth.UpdatedAt = time.Now()
+		repository.DB.Save(&auth)
+		service.DefaultAuditService.Log(patientID, "REVOKE", "AUTH", auth.AuthNo, 0, "FAILED", "HIGH", c.ClientIP())
+		c.JSON(http.StatusServiceUnavailable, model.Response{
+			Code:    503,
+			Message: "区块链存证服务不可用，授权撤回中断（状态已安全保留为 REVOKE_FAILED，支持后续重试补偿）",
+			Data:    auth,
+		})
+		return
+	}
+
+	txID, _, err := blockchain.DefaultService.CommitAsset("REVOKE_AUTH", auth.AuthNo, map[string]interface{}{
+		"auth_no":    auth.AuthNo,
+		"patient_id": patientID,
+		"status":     "REVOKED",
+		"timestamp":  time.Now().Format(time.RFC3339),
 	})
+	if err != nil {
+		auth.Status = "REVOKE_FAILED"
+		auth.RevokeError = fmt.Sprintf("区块链撤销交易提交失败: %v", err)
+		auth.UpdatedAt = time.Now()
+		repository.DB.Save(&auth)
+		service.DefaultAuditService.Log(patientID, "REVOKE", "AUTH", auth.AuthNo, 0, "FAILED", "HIGH", c.ClientIP())
+		c.JSON(http.StatusInternalServerError, model.Response{
+			Code:    500,
+			Message: fmt.Sprintf("链上撤销存证失败: %v（已置为 REVOKE_FAILED，支持后续重试补偿）", err),
+			Data:    auth,
+		})
+		return
+	}
+
+	// 状态机流转 3: 链上确权成功，持久化 DB 终态
+	auth.Status = "REVOKED"
+	auth.RevokeTxID = txID
+	auth.RevokeError = ""
+	auth.OperatorID = patientID
+	auth.UpdatedAt = time.Now()
+	repository.DB.Save(&auth)
 
 	service.DefaultAuditService.Log(patientID, "REVOKE", "AUTH", auth.AuthNo, 0, "SUCCESS", "LOW", c.ClientIP())
-	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "授权已撤回上链"})
+	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "授权已成功撤回并完成联盟链确权存证", Data: auth})
 }
 
 type RevokeItemDetail struct {
@@ -770,12 +819,18 @@ func (ctrl *AccessController) RevokeAllAuthorizations(c *gin.Context) {
 
 	for _, a := range activeAuths {
 		// 阶段 1: 标记为 REVOKE_PENDING
-		repository.DB.Model(&model.Authorization{}).Where("id = ?", a.ID).Update("status", "REVOKE_PENDING")
+		repository.DB.Model(&model.Authorization{}).Where("id = ?", a.ID).Updates(map[string]interface{}{
+			"status":      "REVOKE_PENDING",
+			"operator_id": patientID,
+			"updated_at":  time.Now(),
+		})
 
-		// 阶段 2: 提交 Fabric 区块链撤销存证
+		// 阶段 2: 提交 Fabric 区块链撤销存证 (严格判断 service 是否存在，禁止假成功)
 		var txID string
 		var err error
-		if blockchain.DefaultService != nil {
+		if blockchain.DefaultService == nil {
+			err = errors.New("区块链存证服务未就绪，禁止假成功撤回")
+		} else {
 			txID, _, err = blockchain.DefaultService.CommitAsset("REVOKE_AUTH", a.AuthNo, map[string]interface{}{
 				"auth_no":    a.AuthNo,
 				"patient_id": patientID,
@@ -790,6 +845,8 @@ func (ctrl *AccessController) RevokeAllAuthorizations(c *gin.Context) {
 			repository.DB.Model(&model.Authorization{}).Where("id = ?", a.ID).Updates(map[string]interface{}{
 				"status":       "REVOKE_FAILED",
 				"revoke_error": errMsg,
+				"operator_id":  patientID,
+				"updated_at":   time.Now(),
 			})
 			details = append(details, RevokeItemDetail{
 				AuthID: a.ID,
@@ -804,6 +861,8 @@ func (ctrl *AccessController) RevokeAllAuthorizations(c *gin.Context) {
 				"status":       "REVOKED",
 				"revoke_tx_id": txID,
 				"revoke_error": "",
+				"operator_id":  patientID,
+				"updated_at":   time.Now(),
 			})
 			details = append(details, RevokeItemDetail{
 				AuthID:     a.ID,
@@ -847,6 +906,160 @@ func (ctrl *AccessController) RevokeAllAuthorizations(c *gin.Context) {
 		Code:    200,
 		Message: msg,
 		Data:    resultDTO,
+	})
+}
+
+// RetryRevokeAuthorization 单笔重试处于异常撤销状态（REVOKE_FAILED / REVOKE_PENDING）的授权
+func (ctrl *AccessController) RetryRevokeAuthorization(c *gin.Context) {
+	patientID := c.GetUint64("user_id")
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+
+	var auth model.Authorization
+	if err := repository.DB.Where("id = ? AND patient_id = ?", id, patientID).First(&auth).Error; err != nil {
+		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "未找到该授权条目"})
+		return
+	}
+
+	if auth.Status == "REVOKED" {
+		c.JSON(http.StatusOK, model.Response{Code: 200, Message: "该授权先前已成功完成链上撤销，无需重试", Data: auth})
+		return
+	}
+
+	// 状态机流转 1: 标记为 REVOKE_PENDING
+	auth.Status = "REVOKE_PENDING"
+	auth.OperatorID = patientID
+	auth.UpdatedAt = time.Now()
+	repository.DB.Save(&auth)
+
+	if blockchain.DefaultService == nil {
+		auth.Status = "REVOKE_FAILED"
+		auth.RevokeError = "区块链存证服务未就绪，重试中断"
+		auth.UpdatedAt = time.Now()
+		repository.DB.Save(&auth)
+		c.JSON(http.StatusServiceUnavailable, model.Response{Code: 503, Message: "区块链存证服务未连接，重试失败", Data: auth})
+		return
+	}
+
+	txID, _, err := blockchain.DefaultService.CommitAsset("REVOKE_AUTH", auth.AuthNo, map[string]interface{}{
+		"auth_no":    auth.AuthNo,
+		"patient_id": patientID,
+		"status":     "REVOKED",
+		"timestamp":  time.Now().Format(time.RFC3339),
+	})
+	if err != nil {
+		auth.Status = "REVOKE_FAILED"
+		auth.RevokeError = fmt.Sprintf("重试提交区块链撤销失败: %v", err)
+		auth.UpdatedAt = time.Now()
+		repository.DB.Save(&auth)
+		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: auth.RevokeError, Data: auth})
+		return
+	}
+
+	auth.Status = "REVOKED"
+	auth.RevokeTxID = txID
+	auth.RevokeError = ""
+	auth.UpdatedAt = time.Now()
+	repository.DB.Save(&auth)
+
+	service.DefaultAuditService.Log(patientID, "RETRY_REVOKE", "AUTH", auth.AuthNo, 0, "SUCCESS", "LOW", c.ClientIP())
+	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "授权条目已成功重试并完成联盟链确权撤销", Data: auth})
+}
+
+// RetryFailedRevocations 批量重试名下所有处于 REVOKE_FAILED / REVOKE_PENDING 的授权条目
+func (ctrl *AccessController) RetryFailedRevocations(c *gin.Context) {
+	patientID := c.GetUint64("user_id")
+	clientIP := c.ClientIP()
+	userAgent := c.Request.UserAgent()
+
+	var failedAuths []model.Authorization
+	repository.DB.Where("patient_id = ? AND status IN ('REVOKE_FAILED', 'REVOKE_PENDING')", patientID).Find(&failedAuths)
+
+	total := len(failedAuths)
+	if total == 0 {
+		c.JSON(http.StatusOK, model.Response{Code: 200, Message: "当前名下没有需要重试的失败撤回条目", Data: RevokeAllResultDTO{Total: 0}})
+		return
+	}
+
+	revokedCount := 0
+	failedCount := 0
+	details := make([]RevokeItemDetail, 0, total)
+
+	for _, a := range failedAuths {
+		repository.DB.Model(&model.Authorization{}).Where("id = ?", a.ID).Updates(map[string]interface{}{
+			"status":      "REVOKE_PENDING",
+			"operator_id": patientID,
+			"updated_at":  time.Now(),
+		})
+
+		var txID string
+		var err error
+		if blockchain.DefaultService == nil {
+			err = errors.New("区块链存证服务未就绪，重试中断")
+		} else {
+			txID, _, err = blockchain.DefaultService.CommitAsset("REVOKE_AUTH", a.AuthNo, map[string]interface{}{
+				"auth_no":    a.AuthNo,
+				"patient_id": patientID,
+				"status":     "REVOKED",
+				"timestamp":  time.Now().Format(time.RFC3339),
+			})
+		}
+
+		if err != nil {
+			failedCount++
+			errMsg := fmt.Sprintf("重试区块链撤销存证失败: %v", err)
+			repository.DB.Model(&model.Authorization{}).Where("id = ?", a.ID).Updates(map[string]interface{}{
+				"status":       "REVOKE_FAILED",
+				"revoke_error": errMsg,
+				"operator_id":  patientID,
+				"updated_at":   time.Now(),
+			})
+			details = append(details, RevokeItemDetail{
+				AuthID: a.ID,
+				AuthNo: a.AuthNo,
+				Status: "REVOKE_FAILED",
+				Error:  errMsg,
+			})
+		} else {
+			revokedCount++
+			repository.DB.Model(&model.Authorization{}).Where("id = ?", a.ID).Updates(map[string]interface{}{
+				"status":       "REVOKED",
+				"revoke_tx_id": txID,
+				"revoke_error": "",
+				"operator_id":  patientID,
+				"updated_at":   time.Now(),
+			})
+			details = append(details, RevokeItemDetail{
+				AuthID:     a.ID,
+				AuthNo:     a.AuthNo,
+				Status:     "COMPLETED",
+				FabricTxID: txID,
+			})
+		}
+	}
+
+	service.DefaultAuditService.LogDetailed(service.AuditEntry{
+		UserID:        patientID,
+		OperationType: "RETRY_ALL_FAILED_AUTH",
+		TargetType:    "AUTHORIZATION",
+		TargetID:      fmt.Sprintf("SUCCESS_%d_FAIL_%d", revokedCount, failedCount),
+		HospitalID:    0,
+		Result:        "COMPLETED",
+		RiskLevel:     "LOW",
+		Source:        "WEB",
+		Reason:        fmt.Sprintf("重试补偿撤销名下失败授权: 成功 %d / 仍失败 %d", revokedCount, failedCount),
+		IPAddress:     clientIP,
+		UserAgent:     userAgent,
+	})
+
+	c.JSON(http.StatusOK, model.Response{
+		Code:    200,
+		Message: fmt.Sprintf("重试对账完成：成功确权撤回 %d 份，仍失败 %d 份", revokedCount, failedCount),
+		Data: RevokeAllResultDTO{
+			Total:        total,
+			RevokedCount: revokedCount,
+			FailedCount:  failedCount,
+			Details:      details,
+		},
 	})
 }
 

@@ -26,10 +26,10 @@ func (ctrl *SystemController) ListUsers(c *gin.Context) {
 	repository.DB.Order("id asc").Find(&users)
 
 	for i := range users {
+		users[i].HasMedicalKey = (users[i].MedicalKeyHash != "" || users[i].MedicalKey != "")
 		users[i].PasswordHash = ""
 		users[i].MedicalKey = ""
 		users[i].MedicalKeyHash = ""
-		users[i].HasMedicalKey = (users[i].MedicalKeyHash != "" || users[i].MedicalKey != "")
 
 		if users[i].HospitalID > 0 {
 			var hosp model.Hospital
@@ -155,6 +155,10 @@ func (ctrl *SystemController) CreateUser(c *gin.Context) {
 	}
 
 	service.DefaultAuditService.Log(c.GetUint64("user_id"), "CREATE_USER", "USER", u.UserNo, u.HospitalID, "SUCCESS", "LOW", c.ClientIP())
+
+	u.PasswordHash = ""
+	u.MedicalKey = ""
+	u.MedicalKeyHash = ""
 
 	respData := gin.H{
 		"user": u,

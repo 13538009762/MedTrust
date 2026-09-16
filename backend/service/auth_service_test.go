@@ -1,6 +1,8 @@
 package service_test
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -137,3 +139,137 @@ func TestAuthService_FailedLoginLockoutFlow(t *testing.T) {
 		t.Fatalf("登录成功后失败次数应重置为 0，实际为: %d", uCheck.FailedLoginCount)
 	}
 }
+
+// TestAuthService_PreventUsernameEnumeration 验证账号枚举漏洞防御：
+// 不存在的用户名与存在的用户名输错密码，返回完全一致的通用报错信息，杜绝侧信道泄露用户账号存在性
+func TestAuthService_PreventUsernameEnumeration(t *testing.T) {
+	_, _ = config.LoadConfig("../config/config.yaml")
+	_, _ = repository.InitDB()
+	authSvc := service.DefaultAuthService
+
+	// 1. 针对完全不存在的用户名尝试登录
+	_, _, errNotExist := authSvc.Login("NON_EXISTENT_USER_XYZ_9999", "RandomPassword123")
+	if errNotExist == nil {
+		t.Fatalf("不存在的用户应登录失败")
+	}
+
+	// 2. 针对已存在的用户输错密码尝试登录
+	testUserNo := "DOC_ENUM_TEST"
+	hash, _ := bcrypt.GenerateFromPassword([]byte("ValidPassword123"), bcrypt.DefaultCost)
+	testUser := model.User{
+		UserNo:       testUserNo,
+		Username:     testUserNo,
+		PasswordHash: string(hash),
+		Role:         "doctor",
+		Status:       "NORMAL",
+		CreatedAt:    time.Now(),
+	}
+	repository.DB.Where("user_no = ?", testUserNo).Delete(&model.User{})
+	repository.DB.Create(&testUser)
+	defer repository.DB.Delete(&testUser)
+
+	_, _, errWrongPass := authSvc.Login(testUserNo, "DefinitelyWrongPassword")
+	if errWrongPass == nil {
+		t.Fatalf("错误密码应登录失败")
+	}
+
+	// 3. 严格断言二者错误信息完全一致，统一为 "用户名或密码错误"
+	if errNotExist.Error() != "用户名或密码错误" {
+		t.Fatalf("不存在用户的错误信息暴露细节: %s, 期望为: 用户名或密码错误", errNotExist.Error())
+	}
+	if errWrongPass.Error() != "用户名或密码错误" {
+		t.Fatalf("错误密码的错误信息暴露细节: %s, 期望为: 用户名或密码错误", errWrongPass.Error())
+	}
+	if errNotExist.Error() != errWrongPass.Error() {
+		t.Fatalf("用户名存在与不存在的报错信息不一致，存在用户名枚举风险: %q vs %q", errNotExist.Error(), errWrongPass.Error())
+	}
+}
+
+// TestAuthService_UpdateMedicalKey_Security 验证医疗密钥修改安全性：
+// 1. 旧密钥校验必须通过
+// 2. 新密钥哈希加密存储
+// 3. 原明文密钥字段严格置空
+// 4. 接口返回的 User 结构体严格剔除明文密钥
+func TestAuthService_UpdateMedicalKey_Security(t *testing.T) {
+	_, _ = config.LoadConfig("../config/config.yaml")
+	_, _ = repository.InitDB()
+	authSvc := service.DefaultAuthService
+
+	userNo := "DOC_MEDKEY_TEST"
+	oldKey := "OldMedicalSecret2026!"
+	newKey := "NewMedicalSecret2026!"
+	initialHash := service.HashMedicalKey(oldKey, userNo)
+
+	user := model.User{
+		UserNo:         userNo,
+		Username:       userNo,
+		Role:           "doctor",
+		Status:         "NORMAL",
+		MedicalKeyHash: initialHash,
+		MedicalKey:     "LegacyLeakedPlaintextKey", // 模拟历史残留明文
+		CreatedAt:      time.Now(),
+	}
+	repository.DB.Where("user_no = ?", userNo).Delete(&model.User{})
+	repository.DB.Create(&user)
+	defer repository.DB.Delete(&user)
+
+	// 1. 错误旧密钥测试
+	err := authSvc.UpdateMedicalKeyWithContext(user.ID, "WrongOldKey", newKey, "192.168.1.100", "Mozilla/5.0")
+	if err == nil {
+		t.Fatalf("旧医疗密钥错误时预期被拒绝，但成功执行")
+	}
+
+	// 2. 正确旧密钥修改
+	err = authSvc.UpdateMedicalKeyWithContext(user.ID, oldKey, newKey, "192.168.1.100", "Mozilla/5.0")
+	if err != nil {
+		t.Fatalf("修改医疗密钥失败: %v", err)
+	}
+
+	// 4. 验证数据库中明文彻底抹除且哈希正确
+	var dbUser model.User
+	repository.DB.First(&dbUser, user.ID)
+	if dbUser.MedicalKey != "" {
+		t.Fatalf("数据库中的明文 medical_key 未被置空: %s", dbUser.MedicalKey)
+	}
+	if !service.VerifyMedicalKey(newKey, userNo, dbUser.MedicalKeyHash, "") {
+		t.Fatalf("新密钥哈希校验失败")
+	}
+}
+
+// TestAuthService_SensitiveFieldsJsonIgnored 验证所有敏感凭证字段在 JSON 序列化中均被 `json:"-"` 屏蔽
+func TestAuthService_SensitiveFieldsJsonIgnored(t *testing.T) {
+	u := model.User{
+		ID:               1001,
+		UserNo:           "DOC_TEST_JSON",
+		Username:         "doctest",
+		PasswordHash:     "$2a$10$abcdefghijklmnopqrstuvwxyz123456",
+		MedicalKey:       "SUPER_SECRET_PLAINTEXT_KEY",
+		MedicalKeyHash:   "SALTED_HASH_987654321",
+		FailedLoginCount: 3,
+		RealName:         "张三医生",
+		Role:             "doctor",
+	}
+
+	data, err := json.Marshal(u)
+	if err != nil {
+		t.Fatalf("json.Marshal failed: %v", err)
+	}
+	jsonStr := string(data)
+
+	// 严格断言关键敏感字段绝未出现在 JSON 输出中
+	forbiddenSubstrings := []string{
+		"\"password_hash\":",
+		"\"medical_key\":",
+		"\"medical_key_hash\":",
+		"\"failed_login_count\":",
+		"SUPER_SECRET_PLAINTEXT_KEY",
+		"SALTED_HASH_987654321",
+	}
+
+	for _, sub := range forbiddenSubstrings {
+		if strings.Contains(jsonStr, sub) {
+			t.Fatalf("User JSON 序列化泄露敏感字段或内容 %q: %s", sub, jsonStr)
+		}
+	}
+}
+

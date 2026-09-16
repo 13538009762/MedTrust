@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"medtrust-backend/model"
@@ -151,8 +152,29 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "未提供有效的调用者身份凭证"}, nil
 	}
 
+	// 动作 Action 白名单强校验
+	action := strings.ToUpper(strings.TrimSpace(req.Action))
+	if action == "" {
+		action = "VIEW"
+	}
+	validActions := map[string]bool{
+		"VIEW":     true,
+		"READ":     true,
+		"DOWNLOAD": true,
+		"EXAM":     true,
+		"AUDIT":    true,
+	}
+	if !validActions[action] {
+		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: fmt.Sprintf("非法请求动作(%s)，不在安全白名单内", req.Action)}, nil
+	}
+
 	if err := repository.DB.First(&user, req.UserID).Error; err != nil {
 		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "未找到调用者身份信息"}, nil
+	}
+
+	// 校验请求声明角色与用户真实角色一致性，防范客户端角色伪造
+	if req.Role != "" && !strings.EqualFold(req.Role, user.Role) {
+		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "角色伪造拦截：请求声明角色与令牌认证角色不一致"}, nil
 	}
 
 	if user.Status == "DISABLED" {
@@ -183,8 +205,8 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 
 	// 2. 管理员与监管人员治理边界隔离策略
 	if user.Role == "admin" {
-		if req.Action == "DOWNLOAD" || (req.Action == "VIEW" && req.RecordID > 0) {
-			return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "系统管理权限与临床数据查阅分离：禁止直接调阅或下载患者临床隐私明文"}, nil
+		if req.RecordID > 0 || action == "VIEW" || action == "READ" || action == "DOWNLOAD" {
+			return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "系统管理权限与临床数据查阅分离：禁止系统管理员直接调阅或下载患者临床隐私明文"}, nil
 		}
 		return &AccessDecision{
 			Allowed:        true,
@@ -195,7 +217,7 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 	}
 
 	if user.Role == "supervisor" {
-		if req.Action == "DOWNLOAD" {
+		if action == "DOWNLOAD" {
 			return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "监管合规权限控制：监管人员禁止下载临床原始诊疗附件"}, nil
 		}
 		// 监管员调阅详情由上层执行脱敏屏蔽
@@ -222,6 +244,11 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 
 	if err := repository.DB.First(&record, req.RecordID).Error; err != nil {
 		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "目标医疗记录不存在"}, nil
+	}
+
+	// IDOR 校验：若请求同时声明了目标 patient_id，必须与病历记录所归属患者严格一致
+	if req.PatientID > 0 && record.PatientID != req.PatientID {
+		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "数据一致性拦截(IDOR)：病历所属患者与请求患者身份不符"}, nil
 	}
 
 	// 规则 1: 经治医生对本人开具的病历直接享有调阅放行权限

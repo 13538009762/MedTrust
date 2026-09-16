@@ -48,7 +48,12 @@ var DefaultVerificationService = &VerificationService{
 }
 
 // Verify 执行动态闭环验真：从 IPFS 拉取密文解密，重算临床与明文哈希，自动比对 Fabric 账本原始指纹
-func (s *VerificationService) Verify(recordID uint64) (*VerificationResult, error) {
+func (s *VerificationService) Verify(recordID uint64, clientIP ...string) (*VerificationResult, error) {
+	ip := "127.0.0.1"
+	if len(clientIP) > 0 && clientIP[0] != "" {
+		ip = clientIP[0]
+	}
+
 	var record model.MedicalRecord
 	if err := repository.DB.Preload("Files").First(&record, recordID).Error; err != nil {
 		return nil, fmt.Errorf("病历不存在: %w", err)
@@ -147,7 +152,7 @@ func (s *VerificationService) Verify(recordID uint64) (*VerificationResult, erro
 			return "LOW"
 		}
 		return "HIGH"
-	}(), "127.0.0.1")
+	}(), ip)
 
 	return &VerificationResult{
 		RecordID:       record.ID,
@@ -165,7 +170,12 @@ func (s *VerificationService) Verify(recordID uint64) (*VerificationResult, erro
 }
 
 // SimulateTamper 模拟真实数据库恶意篡改演练 (答辩核心演示亮点)
-func (s *VerificationService) SimulateTamper(recordID uint64) (*VerificationResult, error) {
+func (s *VerificationService) SimulateTamper(recordID uint64, clientIP ...string) (*VerificationResult, error) {
+	ip := "127.0.0.1"
+	if len(clientIP) > 0 && clientIP[0] != "" {
+		ip = clientIP[0]
+	}
+
 	var record model.MedicalRecord
 	if err := repository.DB.First(&record, recordID).Error; err != nil {
 		return nil, fmt.Errorf("病历不存在: %w", err)
@@ -186,14 +196,19 @@ func (s *VerificationService) SimulateTamper(recordID uint64) (*VerificationResu
 	record.TreatmentPlan = "【非法篡改医嘱】立即停用原方案，改用大剂量高糖输注 (篡改指纹)"
 	repository.DB.Save(&record)
 
-	DefaultAuditService.Log(0, "TAMPER_ATTACK", "RECORD", record.RecordNo, record.HospitalID, "INTERCEPTED", "HIGH", "127.0.0.1")
+	DefaultAuditService.Log(0, "TAMPER_ATTACK", "RECORD", record.RecordNo, record.HospitalID, "INTERCEPTED", "HIGH", ip)
 
 	// 触发即时比对核验，立即产生红标高危警报
-	return s.Verify(recordID)
+	return s.Verify(recordID, ip)
 }
 
 // RestoreTamperedRecord 一键恢复病历真实数据并重新核验通过
-func (s *VerificationService) RestoreTamperedRecord(recordID uint64) (*VerificationResult, error) {
+func (s *VerificationService) RestoreTamperedRecord(recordID uint64, clientIP ...string) (*VerificationResult, error) {
+	ip := "127.0.0.1"
+	if len(clientIP) > 0 && clientIP[0] != "" {
+		ip = clientIP[0]
+	}
+
 	var record model.MedicalRecord
 	if err := repository.DB.First(&record, recordID).Error; err != nil {
 		return nil, fmt.Errorf("病历不存在: %w", err)
@@ -213,7 +228,7 @@ func (s *VerificationService) RestoreTamperedRecord(recordID uint64) (*Verificat
 	s.mu.Unlock()
 
 	repository.DB.Save(&record)
-	DefaultAuditService.Log(0, "TAMPER_RESTORE", "RECORD", record.RecordNo, record.HospitalID, "SUCCESS", "LOW", "127.0.0.1")
+	DefaultAuditService.Log(0, "TAMPER_RESTORE", "RECORD", record.RecordNo, record.HospitalID, "SUCCESS", "LOW", ip)
 
-	return s.Verify(recordID)
+	return s.Verify(recordID, ip)
 }

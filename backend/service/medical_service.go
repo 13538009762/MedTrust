@@ -63,6 +63,7 @@ type UploadRecordParams struct {
 	ExamResult       string
 	ExamDoctor       string
 	ExamTime         string
+	ClientIP         string
 }
 
 // UploadRecord 录入就诊事件并在本地完成 AES-256-GCM 加密，存入 IPFS，上链锚定存证
@@ -205,7 +206,11 @@ func (s *MedicalService) UploadRecord(p UploadRecordParams) (*model.MedicalRecor
 	}
 	record.Files = []model.MedicalFile{fileRecord}
 	// 严格遵循链下密文存储规范，服务端本地磁盘零明文落地，数据均以 AES-256-GCM 密文托管于 IPFS
-	DefaultAuditService.Log(p.DoctorID, "UPLOAD", "RECORD", recordNo, doc.HospitalID, "SUCCESS", "LOW", "127.0.0.1")
+	uploadIP := p.ClientIP
+	if uploadIP == "" {
+		uploadIP = "127.0.0.1"
+	}
+	DefaultAuditService.Log(p.DoctorID, "UPLOAD", "RECORD", recordNo, doc.HospitalID, "SUCCESS", "LOW", uploadIP)
 	return &record, nil
 }
 

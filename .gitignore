@@ -65,3 +65,5 @@ deploy/fabric/medchannel.block
 priv_sk
 vendor/
 chaincode/vendor/
+backend/pkg/pdf/sample_attestation.pdf
+

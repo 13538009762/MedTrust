@@ -220,7 +220,11 @@ func (s *ConsistencyService) CreateRecordWithConsistency(p UploadRecordParams, i
 			"sync_status": SyncStatusCompleted,
 			"sync_error":  "",
 		})
-		DefaultAuditService.Log(p.DoctorID, "UPLOAD", "RECORD", recordNo, doc.HospitalID, "SUCCESS", "LOW", "127.0.0.1")
+		uploadIP := p.ClientIP
+		if uploadIP == "" {
+			uploadIP = "127.0.0.1"
+		}
+		DefaultAuditService.Log(p.DoctorID, "UPLOAD", "RECORD", recordNo, doc.HospitalID, "SUCCESS", "LOW", uploadIP)
 	}
 
 	return &record, nil

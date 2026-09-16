@@ -75,6 +75,8 @@ func SetupRouter() *gin.Engine {
 			authGroup.GET("/authorizations", controller.DefaultAccessController.ListAuthorizations)
 			authGroup.DELETE("/authorizations/revoke-all", middleware.RequireRoles("patient"), controller.DefaultAccessController.RevokeAllAuthorizations)
 			authGroup.DELETE("/authorizations/:id", middleware.RequireRoles("patient"), controller.DefaultAccessController.RevokeAuthorization)
+			authGroup.POST("/authorizations/:id/retry-revoke", middleware.RequireRoles("patient"), controller.DefaultAccessController.RetryRevokeAuthorization)
+			authGroup.POST("/authorizations/retry-failed-revokes", middleware.RequireRoles("patient"), controller.DefaultAccessController.RetryFailedRevocations)
 			authGroup.POST("/medical-records/:id/access-policy", middleware.RequireRoles("patient"), controller.DefaultAccessController.SetRecordAccessPolicy)
 			authGroup.POST("/medical-records/batch-access-policy", middleware.RequireRoles("patient"), controller.DefaultAccessController.BatchSetAccessPolicy)
 

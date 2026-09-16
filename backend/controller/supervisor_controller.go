@@ -170,7 +170,7 @@ func (ctrl *SupervisorController) AuditEmergencyEvent(c *gin.Context) {
 		return
 	}
 
-	if err := service.DefaultEmergencyService.AuditEvent(supervisorID, eventNo, req.AuditStatus, req.AuditComment, req.Punishment); err != nil {
+	if err := service.DefaultEmergencyService.AuditEvent(supervisorID, eventNo, req.AuditStatus, req.AuditComment, req.Punishment, c.ClientIP()); err != nil {
 		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: err.Error()})
 		return
 	}
@@ -233,7 +233,7 @@ func (ctrl *SupervisorController) ListAuditLogs(c *gin.Context) {
 
 func (ctrl *SupervisorController) VerifyRecord(c *gin.Context) {
 	recordID, _ := strconv.ParseUint(c.Param("record_id"), 10, 64)
-	res, err := service.DefaultVerificationService.Verify(recordID)
+	res, err := service.DefaultVerificationService.Verify(recordID, c.ClientIP())
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: err.Error()})
 		return
@@ -244,7 +244,7 @@ func (ctrl *SupervisorController) VerifyRecord(c *gin.Context) {
 // SimulateTamper 真实触发数据库篡改演练 (答辩核心演示亮点)
 func (ctrl *SupervisorController) SimulateTamper(c *gin.Context) {
 	recordID, _ := strconv.ParseUint(c.Param("record_id"), 10, 64)
-	res, err := service.DefaultVerificationService.SimulateTamper(recordID)
+	res, err := service.DefaultVerificationService.SimulateTamper(recordID, c.ClientIP())
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: err.Error()})
 		return
@@ -259,7 +259,7 @@ func (ctrl *SupervisorController) SimulateTamper(c *gin.Context) {
 // RestoreTamperedRecord 一键恢复真实病历数据
 func (ctrl *SupervisorController) RestoreTamperedRecord(c *gin.Context) {
 	recordID, _ := strconv.ParseUint(c.Param("record_id"), 10, 64)
-	res, err := service.DefaultVerificationService.RestoreTamperedRecord(recordID)
+	res, err := service.DefaultVerificationService.RestoreTamperedRecord(recordID, c.ClientIP())
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: err.Error()})
 		return
@@ -285,7 +285,7 @@ func (ctrl *SupervisorController) LiftDoctorRestriction(c *gin.Context) {
 		return
 	}
 
-	if err := service.DefaultEmergencyService.LiftDoctorRestriction(supervisorID, req.DoctorID, req.Comment); err != nil {
+	if err := service.DefaultEmergencyService.LiftDoctorRestriction(supervisorID, req.DoctorID, req.Comment, c.ClientIP()); err != nil {
 		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: err.Error()})
 		return
 	}

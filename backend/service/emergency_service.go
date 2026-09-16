@@ -16,7 +16,12 @@ type EmergencyService struct{}
 var DefaultEmergencyService = &EmergencyService{}
 
 // SubmitEmergencyAccess 提交 Break-Glass 紧急访问申请并直接生成事件上链
-func (s *EmergencyService) SubmitEmergencyAccess(doctorID, recordID uint64, reason, desc string, confirmed bool) (*model.EmergencyAccessEvent, error) {
+func (s *EmergencyService) SubmitEmergencyAccess(doctorID, recordID uint64, reason, desc string, confirmed bool, clientIP ...string) (*model.EmergencyAccessEvent, error) {
+	ip := "127.0.0.1"
+	if len(clientIP) > 0 && clientIP[0] != "" {
+		ip = clientIP[0]
+	}
+
 	var doctor model.User
 	if err := repository.DB.First(&doctor, doctorID).Error; err != nil {
 		return nil, fmt.Errorf("医生不存在: %w", err)
@@ -86,12 +91,17 @@ func (s *EmergencyService) SubmitEmergencyAccess(doctorID, recordID uint64, reas
 	}
 	_ = repository.DB.Create(&emgAuth)
 
-	DefaultAuditService.Log(doctorID, "BREAK_GLASS", "EVENT", eventNo, doctor.HospitalID, "SUCCESS", "HIGH", "127.0.0.1")
+	DefaultAuditService.Log(doctorID, "BREAK_GLASS", "EVENT", eventNo, doctor.HospitalID, "SUCCESS", "HIGH", ip)
 	return &event, nil
 }
 
 // SubmitPatientFeedback 患者对紧急调阅做出知情确认或投诉
-func (s *EmergencyService) SubmitPatientFeedback(patientID uint64, eventNo, feedback, comment string) error {
+func (s *EmergencyService) SubmitPatientFeedback(patientID uint64, eventNo, feedback, comment string, clientIP ...string) error {
+	ip := "127.0.0.1"
+	if len(clientIP) > 0 && clientIP[0] != "" {
+		ip = clientIP[0]
+	}
+
 	var event model.EmergencyAccessEvent
 	if err := repository.DB.Where("event_no = ? AND patient_id = ?", eventNo, patientID).First(&event).Error; err != nil {
 		return fmt.Errorf("未找到该紧急事件单或无权操作")
@@ -104,12 +114,17 @@ func (s *EmergencyService) SubmitPatientFeedback(patientID uint64, eventNo, feed
 	event.UpdatedAt = time.Now()
 	repository.DB.Save(&event)
 
-	DefaultAuditService.Log(patientID, "FEEDBACK", "EVENT", eventNo, event.TargetHospitalID, "SUCCESS", "LOW", "127.0.0.1")
+	DefaultAuditService.Log(patientID, "FEEDBACK", "EVENT", eventNo, event.TargetHospitalID, "SUCCESS", "LOW", ip)
 	return nil
 }
 
 // AuditEvent 监管人员执行审核裁决并执行阶梯式惩戒
-func (s *EmergencyService) AuditEvent(supervisorID uint64, eventNo, auditStatus, comment, punishment string) error {
+func (s *EmergencyService) AuditEvent(supervisorID uint64, eventNo, auditStatus, comment, punishment string, clientIP ...string) error {
+	ip := "127.0.0.1"
+	if len(clientIP) > 0 && clientIP[0] != "" {
+		ip = clientIP[0]
+	}
+
 	var event model.EmergencyAccessEvent
 	if err := repository.DB.Where("event_no = ?", eventNo).First(&event).Error; err != nil {
 		return fmt.Errorf("未找到紧急事件单: %w", err)
@@ -136,12 +151,17 @@ func (s *EmergencyService) AuditEvent(supervisorID uint64, eventNo, auditStatus,
 		repository.DB.Model(&model.User{}).Where("id = ?", event.DoctorID).Update("status", punishment)
 	}
 
-	DefaultAuditService.Log(supervisorID, "AUDIT_CLOSE", "EVENT", eventNo, 0, "SUCCESS", "LOW", "127.0.0.1")
+	DefaultAuditService.Log(supervisorID, "AUDIT_CLOSE", "EVENT", eventNo, 0, "SUCCESS", "LOW", ip)
 	return nil
 }
 
 // LiftDoctorRestriction 监管人员一键解除对医生的处罚限制，恢复正常执业状态
-func (s *EmergencyService) LiftDoctorRestriction(supervisorID, doctorID uint64, comment string) error {
+func (s *EmergencyService) LiftDoctorRestriction(supervisorID, doctorID uint64, comment string, clientIP ...string) error {
+	ip := "127.0.0.1"
+	if len(clientIP) > 0 && clientIP[0] != "" {
+		ip = clientIP[0]
+	}
+
 	var doc model.User
 	if err := repository.DB.First(&doc, doctorID).Error; err != nil {
 		return fmt.Errorf("医生不存在: %w", err)
@@ -151,7 +171,7 @@ func (s *EmergencyService) LiftDoctorRestriction(supervisorID, doctorID uint64, 
 		return err
 	}
 
-	DefaultAuditService.Log(supervisorID, "UNRESTRICT_DOCTOR", "USER", fmt.Sprintf("%d", doctorID), doc.HospitalID, "SUCCESS", "LOW", "127.0.0.1")
+	DefaultAuditService.Log(supervisorID, "UNRESTRICT_DOCTOR", "USER", fmt.Sprintf("%d", doctorID), doc.HospitalID, "SUCCESS", "LOW", ip)
 	return nil
 }
 

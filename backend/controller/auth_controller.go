@@ -23,7 +23,7 @@ func (ctrl *AuthController) Login(c *gin.Context) {
 		return
 	}
 
-	token, user, err := service.DefaultAuthService.Login(req.Username, req.Password)
+	token, user, err := service.DefaultAuthService.LoginWithContext(req.Username, req.Password, c.ClientIP(), c.Request.UserAgent())
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, model.Response{Code: 401, Message: err.Error()})
 		return
@@ -64,7 +64,7 @@ func (ctrl *AuthController) Register(c *gin.Context) {
 		return
 	}
 
-	user, err := service.DefaultAuthService.RegisterPatient(req.Username, req.Password, req.RealName, req.IDCard, req.Phone)
+	user, err := service.DefaultAuthService.RegisterPatientWithContext(req.Username, req.Password, req.RealName, req.IDCard, req.Phone, c.ClientIP(), c.Request.UserAgent())
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: err.Error()})
 		return
@@ -92,7 +92,7 @@ func (ctrl *AuthController) UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	user, err := service.DefaultAuthService.UpdateProfile(userID, req.RealName, req.Phone, req.IDCard, req.Title)
+	user, err := service.DefaultAuthService.UpdateProfileWithContext(userID, req.RealName, req.Phone, req.IDCard, req.Title, c.ClientIP(), c.Request.UserAgent())
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: err.Error()})
 		return
@@ -118,7 +118,7 @@ func (ctrl *AuthController) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	if err := service.DefaultAuthService.ChangePassword(userID, req.OldPassword, req.NewPassword); err != nil {
+	if err := service.DefaultAuthService.ChangePasswordWithContext(userID, req.OldPassword, req.NewPassword, c.ClientIP(), c.Request.UserAgent()); err != nil {
 		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: err.Error()})
 		return
 	}
@@ -143,15 +143,15 @@ func (ctrl *AuthController) ChangeMedicalKey(c *gin.Context) {
 		return
 	}
 
-	if err := service.DefaultAuthService.UpdateMedicalKey(userID, req.OldKey, req.NewKey); err != nil {
+	if err := service.DefaultAuthService.UpdateMedicalKeyWithContext(userID, req.OldKey, req.NewKey, c.ClientIP(), c.Request.UserAgent()); err != nil {
 		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, model.Response{
 		Code:    200,
-		Message: "病历调阅专属密钥已成功更新！请妥善保管并在外院就诊时向医生提供或现场输入",
-		Data:    gin.H{"medical_key": req.NewKey},
+		Message: "医疗密钥修改成功",
+		Data:    nil,
 	})
 }
 
