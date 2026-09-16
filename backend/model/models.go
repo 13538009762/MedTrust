@@ -244,8 +244,10 @@ type Authorization struct {
 	RecordID       uint64    `gorm:"default:0" json:"record_id"`
 	StartTime      time.Time `json:"start_time"`
 	EndTime        time.Time `json:"end_time"`
-	Status         string    `gorm:"size:20;default:'ACTIVE';index:idx_patient_target" json:"status"` // ACTIVE, REVOKED
+	Status         string    `gorm:"size:20;default:'ACTIVE';index:idx_patient_target" json:"status"` // ACTIVE, REVOKED, REVOKE_PENDING, FABRIC_REVOKED, REVOKE_FAILED
 	FabricTxID     string    `gorm:"size:128;default:''" json:"fabric_tx_id"`
+	RevokeTxID     string    `gorm:"size:128;default:''" json:"revoke_tx_id,omitempty"`
+	RevokeError    string    `gorm:"size:255;default:''" json:"revoke_error,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
 
 	// 辅助展示
@@ -335,7 +337,11 @@ type AuditLog struct {
 	HospitalID    uint64    `gorm:"index:idx_hospital_time" json:"hospital_id"`
 	Result        string    `gorm:"size:20" json:"result"`         // SUCCESS, FAILED, INTERCEPTED
 	RiskLevel     string    `gorm:"size:20;default:'LOW'" json:"risk_level"`
+	RiskScore     int       `gorm:"default:0" json:"risk_score"`
+	Source        string    `gorm:"size:30;default:'WEB'" json:"source"` // WEB, API, AI_AGENT, SYSTEM, BREAK_GLASS
+	Reason        string    `gorm:"size:255;default:''" json:"reason"`
 	IPAddress     string    `gorm:"size:50;default:''" json:"ip_address"`
+	UserAgent     string    `gorm:"size:255;default:''" json:"user_agent"`
 	FabricTxID    string    `gorm:"size:128;default:''" json:"fabric_tx_id"`
 	CreatedAt     time.Time `gorm:"index:idx_hospital_time" json:"created_at"`
 

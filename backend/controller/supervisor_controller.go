@@ -181,6 +181,8 @@ func (ctrl *SupervisorController) AuditEmergencyEvent(c *gin.Context) {
 func (ctrl *SupervisorController) ListAuditLogs(c *gin.Context) {
 	opType := c.Query("operation_type")
 	riskLevel := c.Query("risk_level")
+	currentUserID := c.GetUint64("user_id")
+	role := c.GetString("role")
 
 	query := repository.DB.Model(&model.AuditLog{})
 	if opType != "" {
@@ -188,6 +190,28 @@ func (ctrl *SupervisorController) ListAuditLogs(c *gin.Context) {
 	}
 	if riskLevel != "" {
 		query = query.Where("risk_level = ?", riskLevel)
+	}
+
+	// 患者角色数据隔离: 仅允许调阅涉及本人的访问痕迹与全生命周期追踪 ("谁访问过我的数据")
+	if role == "patient" {
+		var pat model.User
+		repository.DB.First(&pat, currentUserID)
+
+		var recordNos []string
+		repository.DB.Model(&model.MedicalRecord{}).Where("patient_id = ?", currentUserID).Pluck("record_no", &recordNos)
+
+		var authNos []string
+		repository.DB.Model(&model.Authorization{}).Where("patient_id = ?", currentUserID).Pluck("auth_no", &authNos)
+
+		if len(recordNos) == 0 {
+			recordNos = []string{"__EMPTY__"}
+		}
+		if len(authNos) == 0 {
+			authNos = []string{"__EMPTY__"}
+		}
+
+		query = query.Where("user_id = ? OR (target_type = 'RECORD' AND target_id IN (?)) OR (target_type = 'PATIENT' AND target_id = ?) OR (target_type = 'AUTH' AND target_id IN (?))",
+			currentUserID, recordNos, pat.UserNo, authNos)
 	}
 
 	var list []model.AuditLog

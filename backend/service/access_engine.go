@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"time"
 
 	"medtrust-backend/model"
@@ -8,12 +9,32 @@ import (
 	"medtrust-backend/repository"
 )
 
+// AccessRequest 结构化统一访问请求上下文 (对齐行业与论文统一访问控制决策模型)
+type AccessRequest struct {
+	UserID      uint64 `json:"user_id"`
+	Role        string `json:"role"`
+	PatientID   uint64 `json:"patient_id"`
+	RecordID    uint64 `json:"record_id"`
+	Action      string `json:"action"` // "VIEW", "DOWNLOAD", "EXAM", "AUDIT"
+	Purpose     string `json:"purpose"`
+	Source      string `json:"source"` // "WEB", "API", "AI_AGENT", "BREAK_GLASS"
+	IsEmergency bool   `json:"is_emergency"`
+	IPAddress   string `json:"ip_address"`
+	UserAgent   string `json:"user_agent"`
+}
+
+// AccessDecision 统一访问决策输出模型
 type AccessDecision struct {
-	Allowed        bool                `json:"allowed"`
-	IsEmergency    bool                `json:"is_emergency"`
-	Decision       string              `json:"decision"` // ALLOWED, NEED_BREAK_GLASS, PENDING_CONFIRM, REJECTED, BREAK_GLASS_ALLOWED
-	Reason         string              `json:"reason"`
-	RiskEvaluation risk.RiskEvaluation `json:"risk_evaluation"`
+	Allowed         bool                  `json:"allowed"`
+	IsEmergency     bool                  `json:"is_emergency"`
+	Decision        string                `json:"decision"` // ALLOWED, DENIED, REQUIRE_AUTHORIZATION, REQUIRE_BREAK_GLASS, REQUIRE_SUPERVISOR_APPROVAL, BREAK_GLASS_ALLOWED, PENDING_CONFIRM
+	Reason          string                `json:"reason"`
+	RiskScore       int                   `json:"risk_score"`
+	RiskLevel       string                `json:"risk_level"`
+	RiskFactors     []risk.RiskFactorItem `json:"risk_factors,omitempty"`
+	AuthorizationOK bool                  `json:"authorization_ok"`
+	NeedBreakGlass  bool                  `json:"need_break_glass"`
+	RiskEvaluation  risk.RiskEvaluation   `json:"risk_evaluation"`
 }
 
 type DBAccessHistoryProvider struct{}
@@ -86,81 +107,174 @@ func (e *AccessEngine) GetRiskEngine() *risk.RiskEngine {
 	return e.riskEngine
 }
 
-// EvaluateAccess 执行统一的权限与紧急访问评估流水线
-func (e *AccessEngine) EvaluateAccess(doctorID, patientID, recordID uint64, isEmergency bool) (*AccessDecision, error) {
-	// 1. RBAC & ABAC: 基础身份前置安全核验
-	var doctor model.User
-	if err := repository.DB.First(&doctor, doctorID).Error; err != nil {
-		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "未找到该医生身份信息"}, nil
-	}
-	if doctor.Role != "doctor" {
-		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "非合法医生角色，拒绝访问"}, nil
-	}
-	if doctor.Status == "DISABLED" {
-		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "医生账号已被系统封禁禁用，禁止任何调阅操作"}, nil
-	}
-	if doctor.Status == "RESTRICTED" && isEmergency {
-		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "该医生账号已被监管部门下达惩戒，禁止使用紧急访问权限"}, nil
-	}
-
-	// 检查病历归属机构与开具医生
+// Evaluate 执行统一的访问控制与动态风控综合评估决策流水线 (RBAC + ABAC + Consent + Risk + Break-Glass + Audit)
+func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, err error) {
+	var user model.User
 	var record model.MedicalRecord
-	if err := repository.DB.First(&record, recordID).Error; err != nil {
-		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "目标医疗记录不存在"}, nil
+
+	defer func() {
+		if decision != nil && req.UserID > 0 && DefaultAuditService != nil {
+			source := req.Source
+			if source == "" {
+				source = "WEB"
+			}
+			ip := req.IPAddress
+			if ip == "" {
+				ip = "127.0.0.1"
+			}
+			resStr := "ALLOWED"
+			if !decision.Allowed {
+				resStr = "INTERCEPTED"
+			}
+			targetID := record.RecordNo
+			if targetID == "" {
+				targetID = fmt.Sprintf("REC_%d", req.RecordID)
+			}
+			DefaultAuditService.LogDetailed(AuditEntry{
+				UserID:        req.UserID,
+				OperationType: "ACCESS_EVALUATE",
+				TargetType:    "RECORD",
+				TargetID:      targetID,
+				HospitalID:    user.HospitalID,
+				Result:        resStr,
+				RiskLevel:     decision.RiskLevel,
+				RiskScore:     decision.RiskScore,
+				Source:        source,
+				Reason:        decision.Reason,
+				IPAddress:     ip,
+				UserAgent:     req.UserAgent,
+			})
+		}
+	}()
+
+	if req.UserID == 0 {
+		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "未提供有效的调用者身份凭证"}, nil
 	}
 
-	// 1. 本人开具的病历：医生对本人开具的病历依法享有直接诊疗与调阅权限，免除授权申请
-	if record.DoctorID == doctorID {
+	if err := repository.DB.First(&user, req.UserID).Error; err != nil {
+		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "未找到调用者身份信息"}, nil
+	}
+
+	if user.Status == "DISABLED" {
+		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "账号已被系统封禁禁用，禁止任何访问操作"}, nil
+	}
+
+	// 1. 患者端访问策略 (只允许查阅自己本人的记录，严格防御水平越权 IDOR)
+	if user.Role == "patient" {
+		if req.RecordID > 0 {
+			var rec model.MedicalRecord
+			if err := repository.DB.First(&rec, req.RecordID).Error; err != nil {
+				return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "目标病历档案不存在"}, nil
+			}
+			if rec.PatientID != user.ID {
+				return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "水平越权拦截(IDOR)：禁止查阅或下载非本人的就诊病历"}, nil
+			}
+		}
+		return &AccessDecision{
+			Allowed:         true,
+			Decision:        "ALLOWED",
+			Reason:          "患者依法享有本人健康医疗数据完整查阅权限",
+			AuthorizationOK: true,
+			RiskScore:       0,
+			RiskLevel:       "LOW",
+			RiskEvaluation:  risk.RiskEvaluation{Level: "LOW", TotalScore: 0, SuggestedAction: "DIRECT_ALLOW"},
+		}, nil
+	}
+
+	// 2. 管理员与监管人员治理边界隔离策略
+	if user.Role == "admin" {
+		if req.Action == "DOWNLOAD" || (req.Action == "VIEW" && req.RecordID > 0) {
+			return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "系统管理权限与临床数据查阅分离：禁止直接调阅或下载患者临床隐私明文"}, nil
+		}
 		return &AccessDecision{
 			Allowed:        true,
-			IsEmergency:    false,
 			Decision:       "ALLOWED",
-			Reason:         "该病历由当前医生本人开具，依法享有直接诊疗与调阅权限，系统直接放行",
+			Reason:         "管理员系统治理操作核验通过",
 			RiskEvaluation: risk.RiskEvaluation{Level: "LOW", TotalScore: 0},
 		}, nil
 	}
 
-	isCrossHospital := doctor.HospitalID != record.HospitalID
-	if doctor.Status == "RESTRICTED" && isCrossHospital {
+	if user.Role == "supervisor" {
+		if req.Action == "DOWNLOAD" {
+			return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "监管合规权限控制：监管人员禁止下载临床原始诊疗附件"}, nil
+		}
+		// 监管员调阅详情由上层执行脱敏屏蔽
+		return &AccessDecision{
+			Allowed:        true,
+			Decision:       "REQUIRE_SUPERVISOR_APPROVAL",
+			Reason:         "监管审计治理调阅核验通过（临床数据需脱敏）",
+			RiskEvaluation: risk.RiskEvaluation{Level: "LOW", TotalScore: 5},
+		}, nil
+	}
+
+	// 3. 医生角色核心访问控制流水线
+	if user.Role != "doctor" {
+		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "非法角色身份，系统拒绝访问"}, nil
+	}
+
+	if user.Status == "RESTRICTED" && req.IsEmergency {
+		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "该医生已被监管下达惩戒限制，禁止发起 Break-Glass 紧急访问"}, nil
+	}
+
+	if req.RecordID == 0 {
+		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "未指定目标医疗记录编号"}, nil
+	}
+
+	if err := repository.DB.First(&record, req.RecordID).Error; err != nil {
+		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "目标医疗记录不存在"}, nil
+	}
+
+	// 规则 1: 经治医生对本人开具的病历直接享有调阅放行权限
+	if record.DoctorID == user.ID {
+		return &AccessDecision{
+			Allowed:         true,
+			Decision:        "ALLOWED",
+			Reason:          "该病历由当前医生本人开具，依法享有直接诊疗与调阅权限，系统直接放行",
+			AuthorizationOK: true,
+			RiskScore:       0,
+			RiskLevel:       "LOW",
+			RiskEvaluation:  risk.RiskEvaluation{Level: "LOW", TotalScore: 0, SuggestedAction: "DIRECT_ALLOW"},
+		}, nil
+	}
+
+	isCrossHospital := user.HospitalID != record.HospitalID
+	if user.Status == "RESTRICTED" && isCrossHospital {
 		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "该医生账号已被监管限制跨机构调阅权限"}, nil
 	}
 
-	// 2. 本院机构病历访问控制 (ABAC 细粒度科室协同判定)
+	// 规则 2: 本院科室协同与专家会诊 (ABAC 细粒度判定)
 	if !isCrossHospital {
 		var docDept model.Department
-		if doctor.DepartmentID > 0 {
-			_ = repository.DB.First(&docDept, doctor.DepartmentID)
+		if user.DepartmentID > 0 {
+			_ = repository.DB.First(&docDept, user.DepartmentID)
 		}
-
-		// 同科室协同诊疗或未区分科室时直接放行
-		isSameDept := doctor.DepartmentID == 0 || record.DepartmentName == "" ||
+		isSameDept := user.DepartmentID == 0 || record.DepartmentName == "" ||
 			record.DepartmentName == "综合门诊" || (docDept.Name != "" && docDept.Name == record.DepartmentName)
 
 		if isSameDept {
 			return &AccessDecision{
-				Allowed:        true,
-				IsEmergency:    false,
-				Decision:       "ALLOWED",
-				Reason:         "病历归属当前医生所属医院同科室诊疗协同，系统核验放行",
-				RiskEvaluation: risk.RiskEvaluation{Level: "LOW", TotalScore: 5},
+				Allowed:         true,
+				Decision:        "ALLOWED",
+				Reason:          "病历归属当前医生所属医院同科室诊疗协同，系统核验放行",
+				AuthorizationOK: true,
+				RiskScore:       5,
+				RiskLevel:       "LOW",
+				RiskEvaluation:  risk.RiskEvaluation{Level: "LOW", TotalScore: 5, SuggestedAction: "DIRECT_ALLOW"},
 			}, nil
 		}
-		// 院内跨科室会诊：若未取得患者授权且非紧急情况，引导授权或由高级职称医生协同
-		// 后续流程进入显式授权与风险评估流水线
 	}
 
-	// 3. 检查患者显式授权 (包括对指定医生、指定医院及全体执业医生的开放授权)
+	// 规则 3: 患者在线显式授权策略核查
 	now := time.Now()
 	var auths []model.Authorization
-	repository.DB.Where("patient_id = ? AND status = 'ACTIVE' AND start_time <= ? AND end_time >= ?", patientID, now, now).Find(&auths)
+	repository.DB.Where("patient_id = ? AND status = 'ACTIVE' AND start_time <= ? AND end_time >= ?", record.PatientID, now, now).Find(&auths)
 
 	hasConsent := false
 	isAllDoctorsConsent := false
 
-	// 先查找该病历专属的独立授权策略 (SINGLE 范围优先级高于全局 ALL 范围)
 	var singleAuth *model.Authorization
 	for _, a := range auths {
-		if a.ScopeType == "SINGLE" && a.RecordID == recordID {
+		if a.ScopeType == "SINGLE" && a.RecordID == req.RecordID {
 			copyA := a
 			singleAuth = &copyA
 			break
@@ -169,33 +283,26 @@ func (e *AccessEngine) EvaluateAccess(doctorID, patientID, recordID uint64, isEm
 
 	if singleAuth != nil {
 		if singleAuth.AuthTargetType != "PRIVATE" {
-			targetMatch := false
 			if singleAuth.AuthTargetType == "ALL_DOCTORS" {
-				targetMatch = true
+				hasConsent = true
 				isAllDoctorsConsent = true
-			} else if singleAuth.AuthTargetType == "DOCTOR" && singleAuth.AuthTargetID == doctorID {
-				targetMatch = true
-			} else if singleAuth.AuthTargetType == "HOSPITAL" && singleAuth.AuthTargetID == doctor.HospitalID {
-				targetMatch = true
-			}
-			if targetMatch {
+			} else if singleAuth.AuthTargetType == "DOCTOR" && singleAuth.AuthTargetID == user.ID {
+				hasConsent = true
+			} else if singleAuth.AuthTargetType == "HOSPITAL" && singleAuth.AuthTargetID == user.HospitalID {
 				hasConsent = true
 			}
 		}
 	} else {
-		// 无单病历专属授权时，回退评估全局授权策略 (ScopeType == ALL)
 		for _, a := range auths {
 			if a.ScopeType == "ALL" {
-				targetMatch := false
 				if a.AuthTargetType == "ALL_DOCTORS" {
-					targetMatch = true
+					hasConsent = true
 					isAllDoctorsConsent = true
-				} else if a.AuthTargetType == "DOCTOR" && a.AuthTargetID == doctorID {
-					targetMatch = true
-				} else if a.AuthTargetType == "HOSPITAL" && a.AuthTargetID == doctor.HospitalID {
-					targetMatch = true
-				}
-				if targetMatch {
+					break
+				} else if a.AuthTargetType == "DOCTOR" && a.AuthTargetID == user.ID {
+					hasConsent = true
+					break
+				} else if a.AuthTargetType == "HOSPITAL" && a.AuthTargetID == user.HospitalID {
 					hasConsent = true
 					break
 				}
@@ -203,22 +310,24 @@ func (e *AccessEngine) EvaluateAccess(doctorID, patientID, recordID uint64, isEm
 		}
 	}
 
-	// 院内跨科室调阅且无患者授权场景：若为副主任医师及以上高级职称且处于工作时间，允许会诊放行（低风险）；否则需患者授权
+	// 同院跨科室专家会诊高级职称放行
 	if !isCrossHospital && !hasConsent {
-		isSenior := doctor.Title == "主任医师" || doctor.Title == "副主任医师"
+		isSenior := user.Title == "主任医师" || user.Title == "副主任医师"
 		if isSenior {
 			return &AccessDecision{
-				Allowed:        true,
-				IsEmergency:    false,
-				Decision:       "ALLOWED",
-				Reason:         "同院跨科室专家会诊协同调阅，经高级职称属性（ABAC）核验通过，系统放行",
-				RiskEvaluation: risk.RiskEvaluation{Level: "LOW", TotalScore: 15},
+				Allowed:         true,
+				Decision:        "ALLOWED",
+				Reason:          "同院跨科室专家会诊协同调阅，经高级职称属性（ABAC）核验通过，系统放行",
+				AuthorizationOK: true,
+				RiskScore:       15,
+				RiskLevel:       "LOW",
+				RiskEvaluation:  risk.RiskEvaluation{Level: "LOW", TotalScore: 15, SuggestedAction: "DIRECT_ALLOW"},
 			}, nil
 		}
 	}
 
-	// 风险评分引擎评估 (紧急访问走专属绿色通道)
-	eval := e.riskEngine.Evaluate(doctorID, patientID, isCrossHospital, hasConsent, isEmergency)
+	// 规则 4: 动态多因子风控引擎判定
+	eval := e.riskEngine.Evaluate(user.ID, record.PatientID, isCrossHospital, hasConsent, req.IsEmergency)
 
 	// 分支 A: 具备患者有效授权
 	if hasConsent {
@@ -228,63 +337,96 @@ func (e *AccessEngine) EvaluateAccess(doctorID, patientID, recordID uint64, isEm
 		}
 		if eval.Level == "LOW" {
 			return &AccessDecision{
-				Allowed:        true,
-				IsEmergency:    false,
-				Decision:       "ALLOWED",
-				Reason:         reason,
-				RiskEvaluation: eval,
+				Allowed:         true,
+				Decision:        "ALLOWED",
+				Reason:          reason,
+				RiskScore:       eval.TotalScore,
+				RiskLevel:       eval.Level,
+				RiskFactors:     eval.Factors,
+				AuthorizationOK: true,
+				RiskEvaluation:  eval,
 			}, nil
 		} else if eval.Level == "MEDIUM" {
 			return &AccessDecision{
-				Allowed:        false,
-				IsEmergency:    false,
-				Decision:       "PENDING_CONFIRM",
-				Reason:         "检测到中风险操作，等待患者在线确认二次授权",
-				RiskEvaluation: eval,
+				Allowed:         false,
+				Decision:        "PENDING_CONFIRM",
+				Reason:          "检测到中风险操作，等待患者在线确认二次授权",
+				RiskScore:       eval.TotalScore,
+				RiskLevel:       eval.Level,
+				RiskFactors:     eval.Factors,
+				AuthorizationOK: true,
+				RiskEvaluation:  eval,
 			}, nil
 		} else {
 			return &AccessDecision{
-				Allowed:        false,
-				IsEmergency:    false,
-				Decision:       "REJECTED",
-				Reason:         "高风险异常调阅，系统安全规则拦截阻断",
-				RiskEvaluation: eval,
+				Allowed:         false,
+				Decision:        "REJECTED",
+				Reason:          "高风险异常调阅，系统安全规则拦截阻断",
+				RiskScore:       eval.TotalScore,
+				RiskLevel:       eval.Level,
+				RiskFactors:     eval.Factors,
+				AuthorizationOK: true,
+				RiskEvaluation:  eval,
 			}, nil
 		}
 	}
 
-	// 分支 B: 未取得患者显式授权
-	// 检查该医生是否曾在过去 24 小时内对该病历成功实施过破窗放行，且未被监管裁定违规或患者提出异议
+	// 分支 B: 未取得患者授权，检查过去 24 小时紧急救治随访有效放行
 	var pastEmg model.EmergencyAccessEvent
 	if err := repository.DB.Where("doctor_id = ? AND record_id = ? AND created_at >= ? AND audit_status != 'CLOSED_VIOLATION' AND patient_feedback != 'OBJECTED'",
-		doctorID, recordID, now.Add(-24*time.Hour)).First(&pastEmg).Error; err == nil {
+		user.ID, req.RecordID, now.Add(-24*time.Hour)).First(&pastEmg).Error; err == nil {
 		return &AccessDecision{
-			Allowed:        true,
-			IsEmergency:    true,
-			Decision:       "ALLOWED",
-			Reason:         "已在紧急破窗 24 小时急救与随诊有效期内核准放行 (无患者异议与监管违规)，系统免重复申请直接放行",
-			RiskEvaluation: risk.RiskEvaluation{Level: "LOW", TotalScore: 10},
+			Allowed:         true,
+			IsEmergency:     true,
+			Decision:        "ALLOWED",
+			Reason:          "已在紧急破窗 24 小时急救与随诊有效期内核准放行 (无患者异议与监管违规)，免重复申请直接放行",
+			RiskScore:       10,
+			RiskLevel:       "LOW",
+			AuthorizationOK: false,
+			RiskEvaluation:  risk.RiskEvaluation{Level: "LOW", TotalScore: 10, SuggestedAction: "DIRECT_ALLOW"},
 		}, nil
 	}
 
-	if !isEmergency {
+	if !req.IsEmergency {
 		return &AccessDecision{
-			Allowed:        false,
-			IsEmergency:    false,
-			Decision:       "NEED_BREAK_GLASS",
-			Reason:         "未取得患者在线授权，若处于急诊抢救或危急场景可申请 Break-Glass 紧急访问",
-			RiskEvaluation: eval,
+			Allowed:         false,
+			IsEmergency:     false,
+			Decision:        "NEED_BREAK_GLASS",
+			Reason:          "未取得患者在线授权，若处于急诊抢救或危急场景可申请 Break-Glass 紧急访问",
+			RiskScore:       eval.TotalScore,
+			RiskLevel:       eval.Level,
+			RiskFactors:     eval.Factors,
+			NeedBreakGlass:  true,
+			AuthorizationOK: false,
+			RiskEvaluation:  eval,
 		}, nil
 	}
 
-	// 分支 C: 触发 Break-Glass 抢救放行 (专属绿色通道)
+	// 分支 C: 触发 Break-Glass 抢救放行
 	return &AccessDecision{
-		Allowed:        true,
-		IsEmergency:    true,
-		Decision:       "BREAK_GLASS_ALLOWED",
-		Reason:         "临床急救访问责任声明核验通过，临时放行并生成不可篡改紧急事件单",
-		RiskEvaluation: eval,
+		Allowed:         true,
+		IsEmergency:     true,
+		Decision:        "BREAK_GLASS_ALLOWED",
+		Reason:          "临床急救访问责任声明核验通过，临时放行并生成不可篡改紧急事件单",
+		RiskScore:       eval.TotalScore,
+		RiskLevel:       eval.Level,
+		RiskFactors:     eval.Factors,
+		NeedBreakGlass:  false,
+		AuthorizationOK: false,
+		RiskEvaluation:  eval,
 	}, nil
+}
+
+// EvaluateAccess 执行统一的权限与紧急访问评估流水线 (兼容旧版调用入口)
+func (e *AccessEngine) EvaluateAccess(doctorID, patientID, recordID uint64, isEmergency bool) (*AccessDecision, error) {
+	return e.Evaluate(AccessRequest{
+		UserID:      doctorID,
+		Role:        "doctor",
+		PatientID:   patientID,
+		RecordID:    recordID,
+		Action:      "VIEW",
+		IsEmergency: isEmergency,
+	})
 }
 
 // RecordSuccessfulAccess 记录一次真实且成功的病历调阅行为至时间窗口

@@ -158,7 +158,18 @@ func (ctrl *MedicalController) GetByID(c *gin.Context) {
 			return
 		}
 	} else if role == "doctor" {
-		decision, err := service.DefaultAccessEngine.EvaluateAccess(currentUserID, rec.PatientID, rec.ID, false)
+		decision, err := service.DefaultAccessEngine.Evaluate(service.AccessRequest{
+			UserID:      currentUserID,
+			Role:        role,
+			PatientID:   rec.PatientID,
+			RecordID:    rec.ID,
+			Action:      "READ",
+			Purpose:     "DIAGNOSIS",
+			Source:      c.GetHeader("X-Source"),
+			IPAddress:   c.ClientIP(),
+			UserAgent:   c.Request.UserAgent(),
+			IsEmergency: false,
+		})
 		if err != nil || !decision.Allowed {
 			c.JSON(http.StatusForbidden, model.Response{
 				Code:    403,
@@ -206,7 +217,18 @@ func (ctrl *MedicalController) Download(c *gin.Context) {
 			return
 		}
 	} else if role == "doctor" {
-		decision, err := service.DefaultAccessEngine.EvaluateAccess(currentUserID, rec.PatientID, rec.ID, false)
+		decision, err := service.DefaultAccessEngine.Evaluate(service.AccessRequest{
+			UserID:      currentUserID,
+			Role:        role,
+			PatientID:   rec.PatientID,
+			RecordID:    rec.ID,
+			Action:      "DOWNLOAD",
+			Purpose:     "EVIDENCE_EXPORT",
+			Source:      c.GetHeader("X-Source"),
+			IPAddress:   c.ClientIP(),
+			UserAgent:   c.Request.UserAgent(),
+			IsEmergency: false,
+		})
 		if err != nil || !decision.Allowed {
 			c.JSON(http.StatusForbidden, model.Response{
 				Code:    403,

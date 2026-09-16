@@ -69,7 +69,7 @@ func (ctrl *SystemController) UpdateUserStatus(c *gin.Context) {
 	u.Status = req.Status
 	repository.DB.Model(&model.User{}).Where("id = ?", id).Update("status", req.Status)
 
-	service.DefaultAuditService.Log(c.GetUint64("user_id"), "UPDATE_USER", "USER", u.UserNo, u.HospitalID, "SUCCESS", "LOW", "127.0.0.1")
+	service.DefaultAuditService.Log(c.GetUint64("user_id"), "UPDATE_USER", "USER", u.UserNo, u.HospitalID, "SUCCESS", "LOW", c.ClientIP())
 	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "账号状态变更成功"})
 }
 
@@ -154,7 +154,7 @@ func (ctrl *SystemController) CreateUser(c *gin.Context) {
 		return
 	}
 
-	service.DefaultAuditService.Log(c.GetUint64("user_id"), "CREATE_USER", "USER", u.UserNo, u.HospitalID, "SUCCESS", "LOW", "127.0.0.1")
+	service.DefaultAuditService.Log(c.GetUint64("user_id"), "CREATE_USER", "USER", u.UserNo, u.HospitalID, "SUCCESS", "LOW", c.ClientIP())
 
 	respData := gin.H{
 		"user": u,

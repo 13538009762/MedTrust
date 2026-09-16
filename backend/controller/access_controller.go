@@ -71,7 +71,7 @@ func (ctrl *AccessController) RequestAccess(c *gin.Context) {
 			return "SUCCESS"
 		}
 		return "INTERCEPTED"
-	}(), decision.RiskEvaluation.Level, "127.0.0.1")
+	}(), decision.RiskEvaluation.Level, c.ClientIP())
 
 	c.JSON(http.StatusOK, model.Response{
 		Code:    200,
@@ -155,7 +155,7 @@ func (ctrl *AccessController) ApplyConsent(c *gin.Context) {
 	}
 	repository.DB.Create(&accessRec)
 
-	service.DefaultAuditService.Log(doctorID, "CONSENT_APPLY", "REQUEST", reqNo, doctor.HospitalID, "PENDING", "LOW", "127.0.0.1")
+	service.DefaultAuditService.Log(doctorID, "CONSENT_APPLY", "REQUEST", reqNo, doctor.HospitalID, "PENDING", "LOW", c.ClientIP())
 
 	c.JSON(http.StatusOK, model.Response{
 		Code:    200,
@@ -228,7 +228,7 @@ func (ctrl *AccessController) BatchApplyConsent(c *gin.Context) {
 		createdRequests = append(createdRequests, accessRec)
 	}
 
-	service.DefaultAuditService.Log(doctorID, "BATCH_CONSENT_APPLY", "REQUEST_BATCH", fmt.Sprintf("PATIENT_%d", req.PatientID), doctor.HospitalID, "PENDING", "LOW", "127.0.0.1")
+	service.DefaultAuditService.Log(doctorID, "BATCH_CONSENT_APPLY", "REQUEST_BATCH", fmt.Sprintf("PATIENT_%d", req.PatientID), doctor.HospitalID, "PENDING", "LOW", c.ClientIP())
 
 	c.JSON(http.StatusOK, model.Response{
 		Code:    200,
@@ -264,7 +264,7 @@ func (ctrl *AccessController) UnlockPatientByKey(c *gin.Context) {
 
 	inputKey := strings.TrimSpace(req.MedicalKey)
 	if !service.VerifyMedicalKey(inputKey, patient.UserNo, patient.MedicalKeyHash, patient.MedicalKey) {
-		service.DefaultAuditService.Log(doctorID, "KEY_UNLOCK_FAILED", "PATIENT", patient.UserNo, doctor.HospitalID, "INTERCEPTED", "HIGH", "127.0.0.1")
+		service.DefaultAuditService.Log(doctorID, "KEY_UNLOCK_FAILED", "PATIENT", patient.UserNo, doctor.HospitalID, "INTERCEPTED", "HIGH", c.ClientIP())
 		c.JSON(http.StatusForbidden, model.Response{
 			Code:    403,
 			Message: "患者授权密钥校验失败，密码不正确！请由患者在个人中心核实或重新设置调阅密钥",
@@ -310,7 +310,7 @@ func (ctrl *AccessController) UnlockPatientByKey(c *gin.Context) {
 	}
 	repository.DB.Create(&auth)
 
-	service.DefaultAuditService.Log(doctorID, "KEY_UNLOCK_SUCCESS", "PATIENT", patient.UserNo, doctor.HospitalID, "SUCCESS", "LOW", "127.0.0.1")
+	service.DefaultAuditService.Log(doctorID, "KEY_UNLOCK_SUCCESS", "PATIENT", patient.UserNo, doctor.HospitalID, "SUCCESS", "LOW", c.ClientIP())
 
 	c.JSON(http.StatusOK, model.Response{
 		Code:    200,
@@ -378,7 +378,7 @@ func (ctrl *AccessController) EmergencyBatchAccess(c *gin.Context) {
 		}
 	}
 
-	service.DefaultAuditService.Log(doctorID, "EMERGENCY_BATCH_ACCESS", "PATIENT", patient.UserNo, doctor.HospitalID, "SUCCESS", "HIGH", "127.0.0.1")
+	service.DefaultAuditService.Log(doctorID, "EMERGENCY_BATCH_ACCESS", "PATIENT", patient.UserNo, doctor.HospitalID, "SUCCESS", "HIGH", c.ClientIP())
 
 	c.JSON(http.StatusOK, model.Response{
 		Code:    200,
@@ -484,7 +484,7 @@ func (ctrl *AccessController) ApproveRequest(c *gin.Context) {
 	req.Decision = "ALLOWED"
 	repository.DB.Save(&req)
 
-	service.DefaultAuditService.Log(patientID, "APPROVE_CONSENT", "AUTH", authNo, 0, "SUCCESS", "LOW", "127.0.0.1")
+	service.DefaultAuditService.Log(patientID, "APPROVE_CONSENT", "AUTH", authNo, 0, "SUCCESS", "LOW", c.ClientIP())
 
 	c.JSON(http.StatusOK, model.Response{
 		Code:    200,
@@ -508,7 +508,7 @@ func (ctrl *AccessController) RejectRequest(c *gin.Context) {
 	req.Decision = "REJECTED"
 	repository.DB.Save(&req)
 
-	service.DefaultAuditService.Log(patientID, "REJECT_CONSENT", "REQUEST", req.RequestNo, 0, "SUCCESS", "LOW", "127.0.0.1")
+	service.DefaultAuditService.Log(patientID, "REJECT_CONSENT", "REQUEST", req.RequestNo, 0, "SUCCESS", "LOW", c.ClientIP())
 
 	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "已驳回该调阅申请"})
 }
@@ -653,7 +653,7 @@ func (ctrl *AccessController) CreateAuthorization(c *gin.Context) {
 	}
 	repository.DB.Create(&auth)
 
-	service.DefaultAuditService.Log(patientID, "AUTHORIZE", "AUTH", authNo, 0, "SUCCESS", "LOW", "127.0.0.1")
+	service.DefaultAuditService.Log(patientID, "AUTHORIZE", "AUTH", authNo, 0, "SUCCESS", "LOW", c.ClientIP())
 	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "授权策略建立并上链成功", Data: auth})
 }
 
@@ -726,41 +726,127 @@ func (ctrl *AccessController) RevokeAuthorization(c *gin.Context) {
 		"timestamp": time.Now().Format(time.RFC3339),
 	})
 
-	service.DefaultAuditService.Log(patientID, "REVOKE", "AUTH", auth.AuthNo, 0, "SUCCESS", "LOW", "127.0.0.1")
+	service.DefaultAuditService.Log(patientID, "REVOKE", "AUTH", auth.AuthNo, 0, "SUCCESS", "LOW", c.ClientIP())
 	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "授权已撤回上链"})
 }
 
-// RevokeAllAuthorizations 患者一键撤销名下所有有效授权
+type RevokeItemDetail struct {
+	AuthID     uint64 `json:"auth_id"`
+	AuthNo     string `json:"auth_no"`
+	Status     string `json:"status"` // COMPLETED, REVOKE_FAILED
+	FabricTxID string `json:"fabric_tx_id,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+type RevokeAllResultDTO struct {
+	Total        int                `json:"total"`
+	RevokedCount int                `json:"revoked_count"`
+	FailedCount  int                `json:"failed_count"`
+	Details      []RevokeItemDetail `json:"details"`
+}
+
+// RevokeAllAuthorizations 患者一键撤销名下所有有效授权 (支持区块链逐笔确权与链下强一致性状态机)
 func (ctrl *AccessController) RevokeAllAuthorizations(c *gin.Context) {
 	patientID := c.GetUint64("user_id")
+	clientIP := c.ClientIP()
+	userAgent := c.Request.UserAgent()
+	source := c.GetHeader("X-Source")
+	if source == "" {
+		source = "WEB"
+	}
 
 	var activeAuths []model.Authorization
 	repository.DB.Where("patient_id = ? AND status = 'ACTIVE'", patientID).Find(&activeAuths)
 
-	count := len(activeAuths)
-	if count == 0 {
-		c.JSON(http.StatusOK, model.Response{Code: 200, Message: "当前名下暂无生效中的授权策略", Data: 0})
+	total := len(activeAuths)
+	if total == 0 {
+		c.JSON(http.StatusOK, model.Response{Code: 200, Message: "当前名下暂无生效中的授权策略", Data: RevokeAllResultDTO{Total: 0}})
 		return
 	}
 
+	revokedCount := 0
+	failedCount := 0
+	details := make([]RevokeItemDetail, 0, total)
+
 	for _, a := range activeAuths {
-		_, _, _ = blockchain.DefaultService.CommitAsset("REVOKE_AUTH", a.AuthNo, map[string]interface{}{
-			"auth_no":   a.AuthNo,
-			"status":    "REVOKED",
-			"timestamp": time.Now().Format(time.RFC3339),
-		})
+		// 阶段 1: 标记为 REVOKE_PENDING
+		repository.DB.Model(&model.Authorization{}).Where("id = ?", a.ID).Update("status", "REVOKE_PENDING")
+
+		// 阶段 2: 提交 Fabric 区块链撤销存证
+		var txID string
+		var err error
+		if blockchain.DefaultService != nil {
+			txID, _, err = blockchain.DefaultService.CommitAsset("REVOKE_AUTH", a.AuthNo, map[string]interface{}{
+				"auth_no":    a.AuthNo,
+				"patient_id": patientID,
+				"status":     "REVOKED",
+				"timestamp":  time.Now().Format(time.RFC3339),
+			})
+		}
+
+		if err != nil {
+			failedCount++
+			errMsg := fmt.Sprintf("区块链撤销存证失败: %v", err)
+			repository.DB.Model(&model.Authorization{}).Where("id = ?", a.ID).Updates(map[string]interface{}{
+				"status":       "REVOKE_FAILED",
+				"revoke_error": errMsg,
+			})
+			details = append(details, RevokeItemDetail{
+				AuthID: a.ID,
+				AuthNo: a.AuthNo,
+				Status: "REVOKE_FAILED",
+				Error:  errMsg,
+			})
+		} else {
+			revokedCount++
+			// 阶段 3: 链上存证成功，完成终态持久化
+			repository.DB.Model(&model.Authorization{}).Where("id = ?", a.ID).Updates(map[string]interface{}{
+				"status":       "REVOKED",
+				"revoke_tx_id": txID,
+				"revoke_error": "",
+			})
+			details = append(details, RevokeItemDetail{
+				AuthID:     a.ID,
+				AuthNo:     a.AuthNo,
+				Status:     "COMPLETED",
+				FabricTxID: txID,
+			})
+		}
 	}
 
-	repository.DB.Model(&model.Authorization{}).
-		Where("patient_id = ? AND status = 'ACTIVE'", patientID).
-		Update("status", "REVOKED")
+	resResult := "SUCCESS"
+	if failedCount > 0 && revokedCount == 0 {
+		resResult = "FAILED"
+	} else if failedCount > 0 {
+		resResult = "PARTIAL"
+	}
 
-	service.DefaultAuditService.Log(patientID, "REVOKE_ALL_AUTH", "AUTHORIZATION", fmt.Sprintf("COUNT_%d", count), 0, "SUCCESS", "LOW", "127.0.0.1")
+	service.DefaultAuditService.LogDetailed(service.AuditEntry{
+		UserID:        patientID,
+		OperationType: "REVOKE_ALL_AUTH",
+		TargetType:    "AUTHORIZATION",
+		TargetID:      fmt.Sprintf("SUCCESS_%d_FAIL_%d", revokedCount, failedCount),
+		HospitalID:    0,
+		Result:        resResult,
+		RiskLevel:     "LOW",
+		Source:        source,
+		Reason:        fmt.Sprintf("患者一键撤销名下授权: 成功 %d / 失败 %d", revokedCount, failedCount),
+		IPAddress:     clientIP,
+		UserAgent:     userAgent,
+	})
 
+	resultDTO := RevokeAllResultDTO{
+		Total:        total,
+		RevokedCount: revokedCount,
+		FailedCount:  failedCount,
+		Details:      details,
+	}
+
+	msg := fmt.Sprintf("一键撤销处理完毕：成功撤销 %d 份，失败 %d 份（详情已上链存证）", revokedCount, failedCount)
 	c.JSON(http.StatusOK, model.Response{
 		Code:    200,
-		Message: fmt.Sprintf("已成功撤销名下全部 %d 份生效中的授权策略，并在区块链完成存证记录", count),
-		Data:    count,
+		Message: msg,
+		Data:    resultDTO,
 	})
 }
 
@@ -797,7 +883,7 @@ func (ctrl *AccessController) UnlockByKey(c *gin.Context) {
 
 	inputKey := strings.TrimSpace(req.MedicalKey)
 	if !service.VerifyMedicalKey(inputKey, patient.UserNo, patient.MedicalKeyHash, patient.MedicalKey) {
-		service.DefaultAuditService.Log(doctorID, "KEY_UNLOCK_FAILED", "RECORD", rec.RecordNo, doctor.HospitalID, "INTERCEPTED", "HIGH", "127.0.0.1")
+		service.DefaultAuditService.Log(doctorID, "KEY_UNLOCK_FAILED", "RECORD", rec.RecordNo, doctor.HospitalID, "INTERCEPTED", "HIGH", c.ClientIP())
 		c.JSON(http.StatusForbidden, model.Response{
 			Code:    403,
 			Message: "患者授权密钥校验失败，密码不正确！请由患者在个人中心核实或重新设置调阅密钥",
@@ -852,7 +938,7 @@ func (ctrl *AccessController) UnlockByKey(c *gin.Context) {
 			"decision": "ALLOWED",
 		})
 
-	service.DefaultAuditService.Log(doctorID, "KEY_UNLOCK_SUCCESS", "RECORD", rec.RecordNo, doctor.HospitalID, "SUCCESS", "LOW", "127.0.0.1")
+	service.DefaultAuditService.Log(doctorID, "KEY_UNLOCK_SUCCESS", "RECORD", rec.RecordNo, doctor.HospitalID, "SUCCESS", "LOW", c.ClientIP())
 
 	// 加载完整解密病历
 	fullRecord, err := service.DefaultMedicalService.GetRecordByID(req.RecordID)
@@ -938,7 +1024,7 @@ func (ctrl *AccessController) SetRecordAccessPolicy(c *gin.Context) {
 		}
 		repository.DB.Create(&auth)
 
-		service.DefaultAuditService.Log(patientID, "SET_RECORD_VISIBILITY", "RECORD", rec.RecordNo, 0, "SUCCESS", "LOW", "127.0.0.1")
+		service.DefaultAuditService.Log(patientID, "SET_RECORD_VISIBILITY", "RECORD", rec.RecordNo, 0, "SUCCESS", "LOW", c.ClientIP())
 		c.JSON(http.StatusOK, model.Response{
 			Code:    200,
 			Message: "已成功设置该病历对「全体医生可见」，所有医院执业医生可直接免审调阅，策略已固化上链",
@@ -990,7 +1076,7 @@ func (ctrl *AccessController) SetRecordAccessPolicy(c *gin.Context) {
 		}
 		repository.DB.Create(&auth)
 
-		service.DefaultAuditService.Log(patientID, "SET_RECORD_VISIBILITY", "RECORD", rec.RecordNo, 0, "SUCCESS", "LOW", "127.0.0.1")
+		service.DefaultAuditService.Log(patientID, "SET_RECORD_VISIBILITY", "RECORD", rec.RecordNo, 0, "SUCCESS", "LOW", c.ClientIP())
 		c.JSON(http.StatusOK, model.Response{
 			Code:    200,
 			Message: fmt.Sprintf("已成功设置该病历对「%s」全体医生可见，策略已固化上链", hosp.Name),
@@ -1046,7 +1132,7 @@ func (ctrl *AccessController) SetRecordAccessPolicy(c *gin.Context) {
 		if !strings.HasSuffix(docName, "医生") && !strings.HasSuffix(docName, "医师") {
 			docName += " 医生"
 		}
-		service.DefaultAuditService.Log(patientID, "SET_RECORD_VISIBILITY", "RECORD", rec.RecordNo, 0, "SUCCESS", "LOW", "127.0.0.1")
+		service.DefaultAuditService.Log(patientID, "SET_RECORD_VISIBILITY", "RECORD", rec.RecordNo, 0, "SUCCESS", "LOW", c.ClientIP())
 		c.JSON(http.StatusOK, model.Response{
 			Code:    200,
 			Message: fmt.Sprintf("已成功设置该病历对「%s」专属授权调阅，策略已固化上链", docName),
@@ -1088,7 +1174,7 @@ func (ctrl *AccessController) SetRecordAccessPolicy(c *gin.Context) {
 		}
 		repository.DB.Create(&auth)
 
-		service.DefaultAuditService.Log(patientID, "REVOKE_RECORD_VISIBILITY", "RECORD", rec.RecordNo, 0, "SUCCESS", "LOW", "127.0.0.1")
+		service.DefaultAuditService.Log(patientID, "REVOKE_RECORD_VISIBILITY", "RECORD", rec.RecordNo, 0, "SUCCESS", "LOW", c.ClientIP())
 		c.JSON(http.StatusOK, model.Response{
 			Code:    200,
 			Message: "已将该病历恢复为「私密受控」，其他医生调阅需通过系统知情同意审批，存证已固化上链",
@@ -1158,7 +1244,7 @@ func (ctrl *AccessController) BatchSetAccessPolicy(c *gin.Context) {
 		}
 		repository.DB.Create(&auth)
 
-		service.DefaultAuditService.Log(patientID, "SET_ALL_VISIBILITY", "ALL_RECORDS", "ALL", 0, "SUCCESS", "LOW", "127.0.0.1")
+		service.DefaultAuditService.Log(patientID, "SET_ALL_VISIBILITY", "ALL_RECORDS", "ALL", 0, "SUCCESS", "LOW", c.ClientIP())
 		c.JSON(http.StatusOK, model.Response{
 			Code:    200,
 			Message: "已成功开启「全部健康档案对所有医生可见」，全联盟医生均可直接查阅您的历史健康档案",
@@ -1209,7 +1295,7 @@ func (ctrl *AccessController) BatchSetAccessPolicy(c *gin.Context) {
 		}
 		repository.DB.Create(&auth)
 
-		service.DefaultAuditService.Log(patientID, "SET_ALL_VISIBILITY", "ALL_RECORDS", "HOSPITAL", 0, "SUCCESS", "LOW", "127.0.0.1")
+		service.DefaultAuditService.Log(patientID, "SET_ALL_VISIBILITY", "ALL_RECORDS", "HOSPITAL", 0, "SUCCESS", "LOW", c.ClientIP())
 		c.JSON(http.StatusOK, model.Response{
 			Code:    200,
 			Message: fmt.Sprintf("已成功开启「全部健康档案对 %s 全体医生可见」，策略已固化上链", hosp.Name),
@@ -1264,7 +1350,7 @@ func (ctrl *AccessController) BatchSetAccessPolicy(c *gin.Context) {
 		if !strings.HasSuffix(docName, "医生") && !strings.HasSuffix(docName, "医师") {
 			docName += " 医生"
 		}
-		service.DefaultAuditService.Log(patientID, "SET_ALL_VISIBILITY", "ALL_RECORDS", "DOCTOR", 0, "SUCCESS", "LOW", "127.0.0.1")
+		service.DefaultAuditService.Log(patientID, "SET_ALL_VISIBILITY", "ALL_RECORDS", "DOCTOR", 0, "SUCCESS", "LOW", c.ClientIP())
 		c.JSON(http.StatusOK, model.Response{
 			Code:    200,
 			Message: fmt.Sprintf("已成功开启「全部健康档案对 %s 可见」，策略已固化上链", docName),
@@ -1275,7 +1361,7 @@ func (ctrl *AccessController) BatchSetAccessPolicy(c *gin.Context) {
 			Where("patient_id = ? AND scope_type = 'ALL' AND status = 'ACTIVE'", patientID).
 			Update("status", "REVOKED")
 
-		service.DefaultAuditService.Log(patientID, "REVOKE_ALL_VISIBILITY", "ALL_RECORDS", "ALL", 0, "SUCCESS", "LOW", "127.0.0.1")
+		service.DefaultAuditService.Log(patientID, "REVOKE_ALL_VISIBILITY", "ALL_RECORDS", "ALL", 0, "SUCCESS", "LOW", c.ClientIP())
 		c.JSON(http.StatusOK, model.Response{
 			Code:    200,
 			Message: "已关闭全局公开，恢复为私密受控模式",

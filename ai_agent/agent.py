@@ -5,7 +5,24 @@ from tools import (
     tool_query_authorizations,
     tool_verify_integrity,
     tool_query_audit_logs,
+    extract_jwt_claims,
+    is_tool_allowed_for_role,
 )
+
+def sanitize_agent_output(text: str) -> str:
+    """对智能体输出执行严格的数据脱敏防护，防范 JWT、密钥、电话、身份证和密码泄露"""
+    if not text:
+        return ""
+    # 1. 脱敏 Bearer JWT Token
+    text = re.sub(r'Bearer\s+[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+', 'Bearer [JWT_TOKEN_MASKED]', text)
+    text = re.sub(r'eyJ[A-Za-z0-9-_]{10,}\.[A-Za-z0-9-_]{10,}\.[A-Za-z0-9-_]{10,}', '[JWT_TOKEN_MASKED]', text)
+    # 2. 脱敏中国大陆手机号 (11位)
+    text = re.sub(r'(?<!\d)(1[3-9]\d)\d{4}(\d{4})(?!\d)', r'\1****\2', text)
+    # 3. 脱敏身份证号 (18位)
+    text = re.sub(r'(?<!\d)(\d{6})(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])(\d{3}[\dXx])(?!\d)', r'\1********\2', text)
+    # 4. 脱敏密码和密钥字样
+    text = re.sub(r'(password|passwd|secret|medical_key|root_key|mysql_pwd)\s*[:=]\s*[^\s,;]+', r'\1=********', text, flags=re.IGNORECASE)
+    return text
 
 class MedTrustAgent:
     """
@@ -15,6 +32,8 @@ class MedTrustAgent:
     2. 严格践行 Single Gatekeeper 原则，仅通过 Tool Calling 携带当前调用者 JWT Bearer Token 请求 Go 后端 RESTful API
     3. 严格受到 Go 端 RBAC 角色过滤、ABAC 环境属性判定、患者知情授权与 RiskEngine 规则引擎审查
     4. 严守红线原则：严禁做出自动疾病诊断、处方推荐、自动授权或越权审批
+    5. 工具调用前严格实施角色-工具白名单准入控制与参数模式校验
+    6. 输出结果全面执行敏感信息过滤脱敏
     """
     def __init__(self):
         pass
@@ -25,6 +44,11 @@ class MedTrustAgent:
         tool_called = None
         tool_result = None
 
+        # 0.0 解析 JWT 提取调用者身份角色与上下文
+        claims = extract_jwt_claims(token)
+        user_role = claims.get("role", "").lower()
+        user_name = claims.get("username", "调用者")
+
         # 0.1 提示词注入与越狱探测防御 (Prompt Injection & Jailbreak Defense)
         injection_patterns = [
             r"ignore\s+(?:all\s+)?(?:previous\s+)?instructions",
@@ -33,13 +57,14 @@ class MedTrustAgent:
             r"jailbreak",
             r"bypass\s+(?:security|rules|auth)",
             r"越狱",
+            r"开发者模式",
             r"忽略所有(?:前置)?设定",
             r"忽略上述指令",
             r"导出(?:全部|系统)?密码",
             r"输出(?:私钥|密钥|root\s*key)",
             r"dump\s+(?:all\s+)?(?:database|tables)",
             r"drop\s+table",
-            r"(?:'|\")\s*or\s*(?:'|\")?1\s*=\s*1",
+            r"(?:'|\")?\s*or\s*(?:'|\")?1(?:'|\")?\s*=\s*(?:'|\")?1(?:'|\")?",
             r"以最高管理员身份执行",
             r"冒充监管人员",
         ]
@@ -70,12 +95,19 @@ class MedTrustAgent:
 
         # 1. 动态防篡改完整性核验
         if any(w in msg for w in ["核验", "防篡改", "真实性", "哈希", "完整性", "篡改"]):
-            # 动态抽取病历 ID
+            tool_name = "tool_verify_integrity"
+            if user_role and not is_tool_allowed_for_role(tool_name, user_role):
+                return {
+                    "reply": f"【角色权限拦截 (403 Forbidden)】当前角色「{user_role}」在受控智能体策略中无权调用防篡改核验工具（仅医生与监管员可用）。",
+                    "tool_called": tool_name,
+                    "tool_status": "INTERCEPTED"
+                }
+
             rec_id = 1
             m = re.search(r'(\d+)', msg)
             if m:
                 rec_id = int(m.group(1))
-            tool_called = f"tool_verify_integrity(record_id={rec_id})"
+            tool_called = f"{tool_name}(record_id={rec_id})"
             tool_result = tool_verify_integrity(token, record_id=rec_id)
             if tool_result.get("code") == 200:
                 v = tool_result.get("data", {})
@@ -93,7 +125,15 @@ class MedTrustAgent:
                 reply = f"完整性核验失败: {tool_result.get('message')}"
 
         # 2. 监管审计流水与高风险事件检索
-        elif any(w in msg for w in ["审计", "风险", "高风险", "日志", "监控", "拦截", "流水"]):
+        elif any(w in msg for w in ["审计", "风险", "高风险", "日志", "监控", "拦截", "流水", "谁访问过我的数据"]):
+            tool_name = "tool_query_audit_logs"
+            if user_role and not is_tool_allowed_for_role(tool_name, user_role):
+                return {
+                    "reply": f"【角色权限拦截 (403 Forbidden)】当前角色「{user_role}」在受控智能体策略中无权调用审计日志工具。",
+                    "tool_called": tool_name,
+                    "tool_status": "INTERCEPTED"
+                }
+
             risk_level = ""
             if "高风险" in msg or "high" in msg_lower:
                 risk_level = "HIGH"
@@ -102,15 +142,16 @@ class MedTrustAgent:
             elif "低风险" in msg or "low" in msg_lower:
                 risk_level = "LOW"
 
-            tool_called = f"tool_query_audit_logs(risk_level='{risk_level}')"
+            tool_called = f"{tool_name}(risk_level='{risk_level}')"
             tool_result = tool_query_audit_logs(token, risk_level=risk_level)
             if tool_result.get("code") == 200:
                 logs = tool_result.get("data", [])
                 if not logs:
                     reply = f"系统中暂无匹配的审计流水记录 (筛选条件: 风险等级={risk_level or '全部'})。"
                 else:
-                    lines = [f"为您检索到系统最新审计流水 {len(logs[:5])} 条：\n"]
-                    for l in logs[:5]:
+                    count = min(len(logs), 5)
+                    lines = [f"为您检索到系统最新审计流水 {count} 条：\n"]
+                    for l in logs[:count]:
                         lines.append(
                             f"* [{str(l.get('created_at', ''))[:19]}] 操作: {l.get('operation_type')} | "
                             f"主体: {l.get('user_name', '用户')} | 结果: {l.get('result')} | 风险: {l.get('risk_level')}\n"
@@ -121,7 +162,15 @@ class MedTrustAgent:
 
         # 3. 患者知情授权策略查询
         elif any(w in msg for w in ["授权", "谁调阅", "我的授权", "被授权", "权限"]):
-            tool_called = "tool_query_authorizations()"
+            tool_name = "tool_query_authorizations"
+            if user_role and not is_tool_allowed_for_role(tool_name, user_role):
+                return {
+                    "reply": f"【角色权限拦截 (403 Forbidden)】当前角色「{user_role}」在受控智能体策略中无权调用授权策略查询工具（仅患者本人可用）。",
+                    "tool_called": tool_name,
+                    "tool_status": "INTERCEPTED"
+                }
+
+            tool_called = f"{tool_name}()"
             tool_result = tool_query_authorizations(token)
             if tool_result.get("code") == 200:
                 auths = tool_result.get("data", [])
@@ -140,6 +189,14 @@ class MedTrustAgent:
 
         # 4. 临床病历/检验报告受控检索
         elif any(w in msg for w in ["病历", "检查", "报告", "记录", "用药", "历史", "就诊", "患者", "档案"]):
+            tool_name = "tool_query_medical_records"
+            if user_role and not is_tool_allowed_for_role(tool_name, user_role):
+                return {
+                    "reply": f"【角色权限拦截 (403 Forbidden)】当前角色「{user_role}」在受控智能体策略中无权直接检索临床病历。",
+                    "tool_called": tool_name,
+                    "tool_status": "INTERCEPTED"
+                }
+
             # 动态抽取患者姓名或业务单号
             keyword = ""
             for name in ["张伟", "李雷", "韩梅梅", "王芳", "赵敏", "张三", "李四", "王五"]:
@@ -159,8 +216,10 @@ class MedTrustAgent:
                     if m_rec:
                         keyword = m_rec.group(1)
 
-            # 严谨性校验：若指令未明确患者主体，提示用户指定，杜绝默认臆测患者
-            if not keyword:
+            # 患者查阅自身档案时可不指定患者姓名，默认查阅自身
+            if not keyword and user_role == "patient":
+                keyword = ""
+            elif not keyword:
                 return {
                     "reply": (
                         "【提示】请在指令中明确需要检索的患者姓名或病历单号（例如：“查询患者张伟的病历记录” 或 “调阅 REC20250501001”），"
@@ -170,9 +229,9 @@ class MedTrustAgent:
                     "tool_status": "PROMPT_USER"
                 }
 
-            tool_called = f"tool_query_medical_records(keyword='{keyword}')"
+            tool_called = f"{tool_name}(keyword='{keyword}')"
             tool_result = tool_query_medical_records(token, keyword=keyword)
-            
+
             if tool_result.get("code") == 200:
                 records = tool_result.get("data", [])
                 if not records:
@@ -184,7 +243,7 @@ class MedTrustAgent:
                             f"【记录 {idx}】流水号: {r.get('record_no')} | 患者: {r.get('patient_name', '患者')} | 类型: {r.get('data_type')}\n"
                             f"  - 诊断结论: {r.get('diagnosis')}\n"
                             f"  - 归属机构: {r.get('hospital_name', '医院')} | 经治医生: {r.get('doctor_name', '医生')}\n"
-                            f"  - Fabric 账本凭据: {r.get('fabric_tx_id', '')[:24]}... (高度 #{r.get('block_height')})\n"
+                            f"  - Fabric 账本凭据: {str(r.get('fabric_tx_id', ''))[:24]}... (高度 #{r.get('block_height')})\n"
                         )
                     lines.append("\n安全提示：以上数据均由 Go 统一安全网关执行 RBAC 角色校验与患者授权核验，密文从 IPFS 节点拉取并于内存动态解密。")
                     reply = "".join(lines)
@@ -195,16 +254,19 @@ class MedTrustAgent:
 
         else:
             reply = (
-                "您好！我是 MedTrust 医疗数据受控 AI 智能助手。基于软件工程与安全规范，我可以协助您执行以下受控自然语言指令：\n\n"
+                f"您好，{user_name}！我是 MedTrust 医疗数据受控 AI 智能助手。\n"
+                f"当前已识别您的会话角色为「{user_role or '匿名/受访者'}」。我可以协助您执行以下受控自然语言指令：\n\n"
                 "1. 医生查询：例如“查询患者张伟的历史病历记录”、“调阅张伟历史用药与既往病史”\n"
-                "2. 患者中心：例如“我现在授权了哪些医生或机构？”、“查看我的有效授权策略”\n"
+                "2. 患者中心：例如“我现在授权了哪些医生或机构？”、“查看我的有效授权策略”、“谁访问过我的数据”\n"
                 "3. 完整性核验：例如“核验病历1的数据真实完整性与区块链存证哈希”\n"
                 "4. 安全监管：例如“今天有哪些高风险调阅事件？”、“查看最近的审计流水”\n\n"
                 "安全边界声明：本助手不直连任何底层数据库或 IPFS 节点，所有指令均携带当前用户会话 Token 经由 Go 统一安全网关进行鉴权与风险评分过滤。"
             )
 
+        sanitized_reply = sanitize_agent_output(reply)
+
         return {
-            "reply": reply,
+            "reply": sanitized_reply,
             "tool_called": tool_called,
             "tool_status": "SUCCESS" if tool_result and tool_result.get("code") == 200 else ("INTERCEPTED" if tool_result and tool_result.get("code") == 403 else "SKIPPED")
         }
