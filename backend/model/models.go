@@ -15,12 +15,17 @@ type User struct {
 	DepartmentID uint64    `gorm:"default:0;index:idx_hosp_dept" json:"department_id"`
 	Title        string    `gorm:"size:50;default:''" json:"title"`
 	Phone        string    `gorm:"size:20;default:''" json:"phone"`
-	IDCard       string    `gorm:"size:20;default:''" json:"id_card"`
-	MedicalKey   string    `gorm:"size:64;default:'123456'" json:"medical_key,omitempty"` // 患者跨院病历调阅专属密码/现场授权密钥
-	Status       string    `gorm:"size:20;default:'NORMAL'" json:"status"` // NORMAL, RESTRICTED, DISABLED
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	IDCard           string    `gorm:"size:20;default:''" json:"id_card"`
+	MedicalKey       string    `gorm:"size:64;default:''" json:"-"` // 废弃明文，严禁在 API 响应输出
+	MedicalKeyHash   string    `gorm:"size:128;default:''" json:"-"` // 医疗专属密钥 SHA-256 加盐安全散列
+	MustChangePwd    bool      `gorm:"default:false" json:"must_change_pwd"` // 管理员重置或首次建档强制修改密码
+	FailedLoginCount int       `gorm:"default:0" json:"-"` // 连续登录失败次数
+	LockedUntil      *time.Time `json:"locked_until,omitempty"` // 账户临时锁定到期时间戳
+	Status           string    `gorm:"size:20;default:'NORMAL'" json:"status"` // NORMAL, RESTRICTED, DISABLED
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 	// 辅助关联展示与急诊抢救画像字段
+	HasMedicalKey    bool                `gorm:"-" json:"has_medical_key"` // 标识是否已设置专属调阅密钥 (零明文回传)
 	HospitalName     string              `gorm:"-" json:"hospital_name,omitempty"`
 	DepartmentName   string              `gorm:"-" json:"department_name,omitempty"`
 	InfectionAlert   *InfectionRiskAlert `gorm:"-" json:"infection_alert,omitempty"`
@@ -97,6 +102,12 @@ type MedicalRecord struct {
 	ExamResult       string `gorm:"type:text" json:"exam_result"`                       // 检验科/影像科报告结果描述
 	ExamDoctor       string `gorm:"size:50;default:''" json:"exam_doctor"`              // 检查出具医生/技师
 	ExamTime         string `gorm:"size:50;default:''" json:"exam_time"`                // 检查完成时间
+
+	// 链上链下数据流转状态机与幂等控制
+	SyncStatus     string `gorm:"size:32;default:'COMPLETED';index" json:"sync_status"` // PENDING, IPFS_SUCCESS, FABRIC_SUCCESS, DB_SUCCESS, COMPLETED, FAILED, RETRYING, NEEDS_RECONCILIATION
+	IdempotencyKey string `gorm:"size:64;index" json:"idempotency_key,omitempty"`
+	SyncError      string `gorm:"type:text" json:"sync_error,omitempty"`
+	RetryCount     int    `gorm:"default:0" json:"retry_count"`
 
 	// 辅助展示
 	PatientName   string        `gorm:"-" json:"patient_name,omitempty"`

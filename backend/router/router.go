@@ -73,6 +73,7 @@ func SetupRouter() *gin.Engine {
 			// 患者自主授权模块与病历可见性配置
 			authGroup.POST("/authorizations", middleware.RequireRoles("patient"), controller.DefaultAccessController.CreateAuthorization)
 			authGroup.GET("/authorizations", controller.DefaultAccessController.ListAuthorizations)
+			authGroup.DELETE("/authorizations/revoke-all", middleware.RequireRoles("patient"), controller.DefaultAccessController.RevokeAllAuthorizations)
 			authGroup.DELETE("/authorizations/:id", middleware.RequireRoles("patient"), controller.DefaultAccessController.RevokeAuthorization)
 			authGroup.POST("/medical-records/:id/access-policy", middleware.RequireRoles("patient"), controller.DefaultAccessController.SetRecordAccessPolicy)
 			authGroup.POST("/medical-records/batch-access-policy", middleware.RequireRoles("patient"), controller.DefaultAccessController.BatchSetAccessPolicy)

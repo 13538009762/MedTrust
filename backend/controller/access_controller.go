@@ -262,17 +262,12 @@ func (ctrl *AccessController) UnlockPatientByKey(c *gin.Context) {
 	var doctor model.User
 	_ = repository.DB.First(&doctor, doctorID)
 
-	expectedKey := patient.MedicalKey
-	if expectedKey == "" {
-		expectedKey = "123456"
-	}
-
 	inputKey := strings.TrimSpace(req.MedicalKey)
-	if inputKey != expectedKey {
+	if !service.VerifyMedicalKey(inputKey, patient.UserNo, patient.MedicalKeyHash, patient.MedicalKey) {
 		service.DefaultAuditService.Log(doctorID, "KEY_UNLOCK_FAILED", "PATIENT", patient.UserNo, doctor.HospitalID, "INTERCEPTED", "HIGH", "127.0.0.1")
 		c.JSON(http.StatusForbidden, model.Response{
 			Code:    403,
-			Message: "患者授权密钥校验失败，密码不正确！请由患者在个人中心核实或重新设置调阅密钥（初始默认: 123456）",
+			Message: "患者授权密钥校验失败，密码不正确！请由患者在个人中心核实或重新设置调阅密钥",
 		})
 		return
 	}
@@ -735,6 +730,40 @@ func (ctrl *AccessController) RevokeAuthorization(c *gin.Context) {
 	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "授权已撤回上链"})
 }
 
+// RevokeAllAuthorizations 患者一键撤销名下所有有效授权
+func (ctrl *AccessController) RevokeAllAuthorizations(c *gin.Context) {
+	patientID := c.GetUint64("user_id")
+
+	var activeAuths []model.Authorization
+	repository.DB.Where("patient_id = ? AND status = 'ACTIVE'", patientID).Find(&activeAuths)
+
+	count := len(activeAuths)
+	if count == 0 {
+		c.JSON(http.StatusOK, model.Response{Code: 200, Message: "当前名下暂无生效中的授权策略", Data: 0})
+		return
+	}
+
+	for _, a := range activeAuths {
+		_, _, _ = blockchain.DefaultService.CommitAsset("REVOKE_AUTH", a.AuthNo, map[string]interface{}{
+			"auth_no":   a.AuthNo,
+			"status":    "REVOKED",
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
+	}
+
+	repository.DB.Model(&model.Authorization{}).
+		Where("patient_id = ? AND status = 'ACTIVE'", patientID).
+		Update("status", "REVOKED")
+
+	service.DefaultAuditService.Log(patientID, "REVOKE_ALL_AUTH", "AUTHORIZATION", fmt.Sprintf("COUNT_%d", count), 0, "SUCCESS", "LOW", "127.0.0.1")
+
+	c.JSON(http.StatusOK, model.Response{
+		Code:    200,
+		Message: fmt.Sprintf("已成功撤销名下全部 %d 份生效中的授权策略，并在区块链完成存证记录", count),
+		Data:    count,
+	})
+}
+
 type UnlockByKeyDTO struct {
 	RecordID   uint64 `json:"record_id" binding:"required"`
 	MedicalKey string `json:"medical_key" binding:"required"`
@@ -766,17 +795,12 @@ func (ctrl *AccessController) UnlockByKey(c *gin.Context) {
 	var doctor model.User
 	_ = repository.DB.First(&doctor, doctorID)
 
-	expectedKey := patient.MedicalKey
-	if expectedKey == "" {
-		expectedKey = "123456"
-	}
-
 	inputKey := strings.TrimSpace(req.MedicalKey)
-	if inputKey != expectedKey {
+	if !service.VerifyMedicalKey(inputKey, patient.UserNo, patient.MedicalKeyHash, patient.MedicalKey) {
 		service.DefaultAuditService.Log(doctorID, "KEY_UNLOCK_FAILED", "RECORD", rec.RecordNo, doctor.HospitalID, "INTERCEPTED", "HIGH", "127.0.0.1")
 		c.JSON(http.StatusForbidden, model.Response{
 			Code:    403,
-			Message: "患者授权密钥校验失败，密码不正确！请由患者在个人中心核实或重新设置调阅密钥（初始默认: 123456）",
+			Message: "患者授权密钥校验失败，密码不正确！请由患者在个人中心核实或重新设置调阅密钥",
 		})
 		return
 	}

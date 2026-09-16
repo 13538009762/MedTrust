@@ -53,6 +53,9 @@ Thumbs.db
 scratch/
 backend/data/uploads/
 backend/data/ipfs_storage/
+backend/ipfs_storage/
+backend/ledger_data/
+task_content.txt
 
 # Hyperledger Fabric generated crypto materials
 backend/fabric_crypto/

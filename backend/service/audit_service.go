@@ -22,16 +22,19 @@ func (s *AuditService) Log(userID uint64, opType, targetType, targetID string, h
 		logID := fmt.Sprintf("LOG-%s-%d", hex.EncodeToString(uuidBytes), time.Now().Unix())
 
 		// 上链存证
-		txID, _, _ := blockchain.DefaultService.CommitAsset("AUDIT", logID, map[string]interface{}{
-			"user_id":     userID,
-			"op_type":     opType,
-			"target_type": targetType,
-			"target_id":   targetID,
-			"hospital_id": hospitalID,
-			"result":      result,
-			"risk_level":  riskLevel,
-			"timestamp":   time.Now().Format(time.RFC3339),
-		})
+		var txID string
+		if blockchain.DefaultService != nil {
+			txID, _, _ = blockchain.DefaultService.CommitAsset("AUDIT", logID, map[string]interface{}{
+				"user_id":     userID,
+				"op_type":     opType,
+				"target_type": targetType,
+				"target_id":   targetID,
+				"hospital_id": hospitalID,
+				"result":      result,
+				"risk_level":  riskLevel,
+				"timestamp":   time.Now().Format(time.RFC3339),
+			})
+		}
 
 		log := model.AuditLog{
 			LogID:         logID,

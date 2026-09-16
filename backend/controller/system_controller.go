@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -25,6 +26,11 @@ func (ctrl *SystemController) ListUsers(c *gin.Context) {
 	repository.DB.Order("id asc").Find(&users)
 
 	for i := range users {
+		users[i].PasswordHash = ""
+		users[i].MedicalKey = ""
+		users[i].MedicalKeyHash = ""
+		users[i].HasMedicalKey = (users[i].MedicalKeyHash != "" || users[i].MedicalKey != "")
+
 		if users[i].HospitalID > 0 {
 			var hosp model.Hospital
 			if err := repository.DB.First(&hosp, users[i].HospitalID).Error; err == nil {
@@ -88,11 +94,21 @@ func (ctrl *SystemController) CreateUser(c *gin.Context) {
 		return
 	}
 
-	pwd := dto.Password
+	pwd := strings.TrimSpace(dto.Password)
+	isRandomTemp := false
 	if pwd == "" {
-		pwd = "123456"
+		pwd = service.GenerateSecureRandomPassword(10)
+		isRandomTemp = true
+	} else if len(pwd) < 6 {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "密码长度至少需要 6 个字符"})
+		return
 	}
-	hash, _ := bcrypt.GenerateFromPassword([]byte(pwd), bcrypt.DefaultCost)
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(pwd), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "密码哈希生成失败"})
+		return
+	}
 
 	userNo := dto.UserNo
 	if userNo == "" {
@@ -117,19 +133,20 @@ func (ctrl *SystemController) CreateUser(c *gin.Context) {
 	}
 
 	u := model.User{
-		UserNo:       userNo,
-		Username:     dto.Username,
-		PasswordHash: string(hash),
-		RealName:     dto.RealName,
-		Role:         dto.Role,
-		HospitalID:   dto.HospitalID,
-		DepartmentID: dto.DepartmentID,
-		Title:        dto.Title,
-		Phone:        dto.Phone,
-		IDCard:       dto.IDCard,
-		Status:       status,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
+		UserNo:        userNo,
+		Username:      dto.Username,
+		PasswordHash:  string(hash),
+		RealName:      dto.RealName,
+		Role:          dto.Role,
+		HospitalID:    dto.HospitalID,
+		DepartmentID:  dto.DepartmentID,
+		Title:         dto.Title,
+		Phone:         dto.Phone,
+		IDCard:        dto.IDCard,
+		MustChangePwd: isRandomTemp,
+		Status:        status,
+		CreatedAt:     time.Now(),
+		UpdatedAt:     time.Now(),
 	}
 
 	if err := repository.DB.Create(&u).Error; err != nil {
@@ -138,7 +155,19 @@ func (ctrl *SystemController) CreateUser(c *gin.Context) {
 	}
 
 	service.DefaultAuditService.Log(c.GetUint64("user_id"), "CREATE_USER", "USER", u.UserNo, u.HospitalID, "SUCCESS", "LOW", "127.0.0.1")
-	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "用户创建成功", Data: u})
+
+	respData := gin.H{
+		"user": u,
+	}
+	if isRandomTemp {
+		respData["temp_password"] = pwd
+		respData["notice"] = "已为新用户生成高强度临时随机初始密码，用户首次登录时必须修改密码"
+	}
+	c.JSON(http.StatusOK, model.Response{
+		Code:    200,
+		Message: "用户创建成功",
+		Data:    respData,
+	})
 }
 
 func (ctrl *SystemController) ListHospitals(c *gin.Context) {

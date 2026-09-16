@@ -29,6 +29,13 @@ func InitMedicalService(apiURL, storageDir string) {
 	}
 }
 
+func (s *MedicalService) GetIPFSService() *ipfs.IPFSService {
+	if s == nil || s.ipfsService == nil {
+		return ipfs.NewIPFSService("http://127.0.0.1:5001", "./ipfs_storage")
+	}
+	return s.ipfsService
+}
+
 type UploadRecordParams struct {
 	DoctorID         uint64
 	PatientID        uint64
@@ -177,6 +184,7 @@ func (s *MedicalService) UploadRecord(p UploadRecordParams) (*model.MedicalRecor
 		ExamResult:       p.ExamResult,
 		ExamDoctor:       p.ExamDoctor,
 		ExamTime:         p.ExamTime,
+		SyncStatus:       SyncStatusCompleted,
 		CreatedAt:        time.Now(),
 	}
 	if err := repository.DB.Create(&record).Error; err != nil {
@@ -240,9 +248,10 @@ func (s *MedicalService) VerifyRecord(r *model.MedicalRecord) {
 	if !exists || chainData == nil {
 		currentHash := ComputeRecordHash(r)
 		r.CurrentHash = currentHash
-		r.Verified = true
-		r.IsTampered = false
-		r.ChainHash = currentHash
+		r.Verified = false
+		r.IsTampered = true
+		r.ChainHash = ""
+		r.TamperReason = "【区块链安全告警】该病历在区块链分布式账本中存证缺失，未通过可信背书核验！"
 		return
 	}
 
@@ -253,6 +262,15 @@ func (s *MedicalService) VerifyRecord(r *model.MedicalRecord) {
 		chainHash = fmt.Sprintf("%v", h)
 	}
 	r.ChainHash = chainHash
+
+	if chainHash == "" {
+		currentHash := ComputeRecordHash(r)
+		r.CurrentHash = currentHash
+		r.Verified = false
+		r.IsTampered = true
+		r.TamperReason = "【区块链安全告警】链上存证数据关键指纹为空，未能通过可信背书校验！"
+		return
+	}
 
 	// 动态智能比对：针对就诊流程中的临床多维结构化数据与附件进行严密防篡改核验
 	matched := false
@@ -283,10 +301,18 @@ func (s *MedicalService) VerifyRecord(r *model.MedicalRecord) {
 	r.CurrentHash = matchedHash
 
 	// 严密安全校验：凡是计算哈希与链上不可篡改指纹不相等的，绝对判定为篡改！
-	if chainHash != "" && !matched {
+	if !matched {
 		r.IsTampered = true
 		r.Verified = false
-		r.TamperReason = fmt.Sprintf("【区块链安全告警】病历关键临床数据（诱因/过敏史/治疗方案/诊断）或文件指纹已被恶意篡改！当前哈希: %s..., 链上不可篡改凭证: %s...", matchedHash[:16], chainHash[:16])
+		subMatched := matchedHash
+		if len(subMatched) > 16 {
+			subMatched = subMatched[:16]
+		}
+		subChain := chainHash
+		if len(subChain) > 16 {
+			subChain = subChain[:16]
+		}
+		r.TamperReason = fmt.Sprintf("【区块链安全告警】病历关键临床数据（诱因/过敏史/治疗方案/诊断）或文件指纹已被恶意篡改！当前哈希: %s..., 链上不可篡改凭证: %s...", subMatched, subChain)
 	} else {
 		r.IsTampered = false
 		r.Verified = true

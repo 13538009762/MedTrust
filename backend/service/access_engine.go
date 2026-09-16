@@ -16,6 +16,58 @@ type AccessDecision struct {
 	RiskEvaluation risk.RiskEvaluation `json:"risk_evaluation"`
 }
 
+type DBAccessHistoryProvider struct{}
+
+func (p *DBAccessHistoryProvider) GetRecentAccessCount(doctorID, patientID uint64, duration time.Duration) int {
+	if repository.DB == nil {
+		return 0
+	}
+	var count int64
+	since := time.Now().Add(-duration)
+	repository.DB.Table("audit_logs").
+		Joins("JOIN medical_records ON audit_logs.target_id = CAST(medical_records.id AS CHAR)").
+		Where("audit_logs.user_id = ? AND medical_records.patient_id = ? AND audit_logs.operation_type = 'ACCESS' AND audit_logs.result = 'SUCCESS' AND audit_logs.created_at >= ?", doctorID, patientID, since).
+		Count(&count)
+	return int(count)
+}
+
+func (p *DBAccessHistoryProvider) GetDistinctPatientsAccessed(doctorID uint64, duration time.Duration) int {
+	if repository.DB == nil {
+		return 0
+	}
+	var count int64
+	since := time.Now().Add(-duration)
+	repository.DB.Table("audit_logs").
+		Joins("JOIN medical_records ON audit_logs.target_id = CAST(medical_records.id AS CHAR)").
+		Where("audit_logs.user_id = ? AND audit_logs.operation_type = 'ACCESS' AND audit_logs.result = 'SUCCESS' AND audit_logs.created_at >= ?", doctorID, since).
+		Distinct("medical_records.patient_id").
+		Count(&count)
+	return int(count)
+}
+
+func (p *DBAccessHistoryProvider) GetHistoricalViolationCount(doctorID uint64, days int) int {
+	if repository.DB == nil {
+		return 0
+	}
+	var count int64
+	since := time.Now().AddDate(0, 0, -days)
+	repository.DB.Model(&model.EmergencyAccessEvent{}).
+		Where("doctor_id = ? AND audit_status = 'CLOSED_VIOLATION' AND created_at >= ?", doctorID, since).
+		Count(&count)
+	return int(count)
+}
+
+func (p *DBAccessHistoryProvider) GetDoctorStatus(doctorID uint64) string {
+	if repository.DB == nil {
+		return "NORMAL"
+	}
+	var doc model.User
+	if err := repository.DB.Select("status").First(&doc, doctorID).Error; err != nil {
+		return "NORMAL"
+	}
+	return doc.Status
+}
+
 type AccessEngine struct {
 	riskEngine *risk.RiskEngine
 }
@@ -23,9 +75,15 @@ type AccessEngine struct {
 var DefaultAccessEngine *AccessEngine
 
 func InitAccessEngine(low, high int) {
+	eng := risk.NewRiskEngine(low, high)
+	eng.SetHistoryProvider(&DBAccessHistoryProvider{})
 	DefaultAccessEngine = &AccessEngine{
-		riskEngine: risk.NewRiskEngine(low, high),
+		riskEngine: eng,
 	}
+}
+
+func (e *AccessEngine) GetRiskEngine() *risk.RiskEngine {
+	return e.riskEngine
 }
 
 // EvaluateAccess 执行统一的权限与紧急访问评估流水线

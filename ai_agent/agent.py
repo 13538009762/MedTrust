@@ -25,7 +25,37 @@ class MedTrustAgent:
         tool_called = None
         tool_result = None
 
-        # 0. 安全合规红线拦截：自动处方、自动确诊与自动授权越权行为坚决阻断
+        # 0.1 提示词注入与越狱探测防御 (Prompt Injection & Jailbreak Defense)
+        injection_patterns = [
+            r"ignore\s+(?:all\s+)?(?:previous\s+)?instructions",
+            r"system\s+prompt",
+            r"developer\s+mode",
+            r"jailbreak",
+            r"bypass\s+(?:security|rules|auth)",
+            r"越狱",
+            r"忽略所有(?:前置)?设定",
+            r"忽略上述指令",
+            r"导出(?:全部|系统)?密码",
+            r"输出(?:私钥|密钥|root\s*key)",
+            r"dump\s+(?:all\s+)?(?:database|tables)",
+            r"drop\s+table",
+            r"(?:'|\")\s*or\s*(?:'|\")?1\s*=\s*1",
+            r"以最高管理员身份执行",
+            r"冒充监管人员",
+        ]
+        for pat in injection_patterns:
+            if re.search(pat, msg, re.IGNORECASE):
+                return {
+                    "reply": (
+                        "【安全预警：触发恶意输入阻断】\n"
+                        "系统检测到您的输入包含疑似 Prompt Injection 攻击、越权提权指令或数据库注入探测特征。\n"
+                        "MedTrust 受控智能体架构已实施端到端安全边界加固，该异常交互已被拦截并阻断。"
+                    ),
+                    "tool_called": "BLOCKED_BY_INJECTION_SHIELD",
+                    "tool_status": "INTERCEPTED"
+                }
+
+        # 0.2 安全合规红线拦截：自动处方、自动确诊与自动授权越权行为坚决阻断
         if any(w in msg for w in ["开处方", "推荐药物", "诊断我", "得了什么病", "自动确诊", "替我授权", "代我审批", "自动审批"]):
             return {
                 "reply": (

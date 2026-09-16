@@ -2,9 +2,12 @@ package service
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 	"time"
 
@@ -18,6 +21,69 @@ type AuthService struct{}
 
 var DefaultAuthService = &AuthService{}
 
+// HashMedicalKey 使用患者专属编号作为盐值对调阅密钥执行 SHA-256 哈希
+func HashMedicalKey(key, userNo string) string {
+	h := sha256.New()
+	h.Write([]byte("MedTrust:Salt:" + userNo + ":" + strings.TrimSpace(key)))
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// VerifyMedicalKey 恒定时间校验调阅密钥，优先校验哈希，兼顾旧版平滑过渡
+func VerifyMedicalKey(key, userNo, storedHash, legacyPlain string) bool {
+	cleanKey := strings.TrimSpace(key)
+	if cleanKey == "" {
+		return false
+	}
+	if storedHash != "" {
+		calc := HashMedicalKey(cleanKey, userNo)
+		if subtle.ConstantTimeCompare([]byte(calc), []byte(storedHash)) == 1 {
+			return true
+		}
+	}
+	if legacyPlain != "" && subtle.ConstantTimeCompare([]byte(cleanKey), []byte(strings.TrimSpace(legacyPlain))) == 1 {
+		return true
+	}
+	return false
+}
+
+// GenerateSecureRandomPassword 生成 10 位安全随机一次性密码（包含大小写字母、数字及特殊符号）
+func GenerateSecureRandomPassword(length int) string {
+	if length < 8 {
+		length = 10
+	}
+	const (
+		upper    = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+		lower    = "abcdefghijkmnopqrstuvwxyz"
+		digits   = "23456789"
+		specials = "!@#$%^&*"
+	)
+	all := upper + lower + digits + specials
+
+	res := make([]byte, length)
+	res[0] = upper[cryptoRandInt(len(upper))]
+	res[1] = lower[cryptoRandInt(len(lower))]
+	res[2] = digits[cryptoRandInt(len(digits))]
+	res[3] = specials[cryptoRandInt(len(specials))]
+
+	for i := 4; i < length; i++ {
+		res[i] = all[cryptoRandInt(len(all))]
+	}
+
+	for i := range res {
+		j := cryptoRandInt(len(res))
+		res[i], res[j] = res[j], res[i]
+	}
+	return string(res)
+}
+
+func cryptoRandInt(max int) int {
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(max)))
+	if err != nil {
+		return 0
+	}
+	return int(n.Int64())
+}
+
 func (s *AuthService) Login(username, password string) (string, *model.User, error) {
 	var u model.User
 	if err := repository.DB.Where("username = ?", username).First(&u).Error; err != nil {
@@ -28,11 +94,53 @@ func (s *AuthService) Login(username, password string) (string, *model.User, err
 		return "", nil, errors.New("该账号已被系统停用，请联系管理员")
 	}
 
+	// 检查账号防爆破临时锁定
+	now := time.Now()
+	if u.LockedUntil != nil && u.LockedUntil.After(now) {
+		remaining := int(u.LockedUntil.Sub(now).Minutes()) + 1
+		return "", nil, fmt.Errorf("该账号密码错误次数过多，已被临时锁定保护，请在 %d 分钟后再试", remaining)
+	}
+
+	// 安全哈希校验（坚决杜绝任何固定密码绕过漏洞）
 	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)); err != nil {
-		// 备选明文比对以防种子生成异常
-		if password != "123456" {
-			return "", nil, errors.New("用户名或密码错误")
+		newFailed := u.FailedLoginCount + 1
+		updates := map[string]interface{}{
+			"failed_login_count": newFailed,
 		}
+		if newFailed >= 5 {
+			lockTime := now.Add(15 * time.Minute)
+			updates["locked_until"] = lockTime
+			DefaultAuditService.Log(u.ID, "LOGIN_LOCKED", "USER", u.UserNo, u.HospitalID, "INTERCEPTED", "HIGH", "127.0.0.1")
+		} else {
+			DefaultAuditService.Log(u.ID, "LOGIN_FAILED", "USER", u.UserNo, u.HospitalID, "FAILED", "MEDIUM", "127.0.0.1")
+		}
+		_ = repository.DB.Model(&model.User{}).Where("id = ?", u.ID).Updates(updates)
+
+		if newFailed >= 5 {
+			return "", nil, errors.New("连续登录失败已达 5 次，该账号已被临时锁定 15 分钟")
+		}
+		return "", nil, fmt.Errorf("用户名或密码错误（已连续失败 %d 次，达到 5 次将临时锁定）", newFailed)
+	}
+
+	// 登录成功，重置失败计数与锁定状态
+	if u.FailedLoginCount > 0 || u.LockedUntil != nil {
+		_ = repository.DB.Model(&model.User{}).Where("id = ?", u.ID).Updates(map[string]interface{}{
+			"failed_login_count": 0,
+			"locked_until":       nil,
+		})
+		u.FailedLoginCount = 0
+		u.LockedUntil = nil
+	}
+
+	// 存量明文医疗密钥自动静默升级为加盐安全哈希存储
+	if u.MedicalKey != "" && u.MedicalKeyHash == "" {
+		newHash := HashMedicalKey(u.MedicalKey, u.UserNo)
+		_ = repository.DB.Model(&model.User{}).Where("id = ?", u.ID).Updates(map[string]interface{}{
+			"medical_key_hash": newHash,
+			"medical_key":      "",
+		})
+		u.MedicalKeyHash = newHash
+		u.MedicalKey = ""
 	}
 
 	// 填补关联名称
@@ -48,6 +156,8 @@ func (s *AuthService) Login(username, password string) (string, *model.User, err
 			u.DepartmentName = dept.Name
 		}
 	}
+
+	u.HasMedicalKey = (u.MedicalKeyHash != "" || u.MedicalKey != "")
 
 	token, err := middleware.GenerateToken(&u)
 	if err != nil {
@@ -73,9 +183,9 @@ func (s *AuthService) GetProfile(userID uint64) (*model.User, error) {
 		_ = repository.DB.First(&dept, u.DepartmentID)
 		u.DepartmentName = dept.Name
 	}
-	if u.MedicalKey == "" {
-		u.MedicalKey = "123456"
-	}
+
+	u.HasMedicalKey = (u.MedicalKeyHash != "" || u.MedicalKey != "")
+	u.MedicalKey = "" // 严格屏蔽明文输出
 	return &u, nil
 }
 
@@ -201,11 +311,9 @@ func (s *AuthService) ChangePassword(userID uint64, oldPassword, newPassword str
 		return errors.New("用户不存在")
 	}
 
-	// 校验原密码
+	// 严格校验原密码（坚决杜绝任何明文固定密码绕过漏洞）
 	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(oldPassword)); err != nil {
-		if oldPassword != "123456" {
-			return errors.New("原登录密码校验错误，请输入正确的当前密码")
-		}
+		return errors.New("原登录密码校验错误，请输入正确的当前密码")
 	}
 
 	newHash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
@@ -214,8 +322,9 @@ func (s *AuthService) ChangePassword(userID uint64, oldPassword, newPassword str
 	}
 
 	if err := repository.DB.Model(&model.User{}).Where("id = ?", userID).Updates(map[string]interface{}{
-		"password_hash": string(newHash),
-		"updated_at":    time.Now(),
+		"password_hash":   string(newHash),
+		"must_change_pwd": false,
+		"updated_at":      time.Now(),
 	}).Error; err != nil {
 		return err
 	}
@@ -227,8 +336,8 @@ func (s *AuthService) ChangePassword(userID uint64, oldPassword, newPassword str
 // UpdateMedicalKey 用户/患者修改跨院病历调阅专属密钥（用于现场调阅即时授权解锁）
 func (s *AuthService) UpdateMedicalKey(userID uint64, oldKey, newKey string) error {
 	newKey = strings.TrimSpace(newKey)
-	if len(newKey) < 4 {
-		return errors.New("新调阅密钥长度至少为 4 个字符（建议 6 位数字或口令）")
+	if len(newKey) < 6 {
+		return errors.New("新调阅密钥长度至少为 6 位字符（建议 6 位数字或安全口令）")
 	}
 
 	var u model.User
@@ -236,18 +345,19 @@ func (s *AuthService) UpdateMedicalKey(userID uint64, oldKey, newKey string) err
 		return errors.New("用户档案不存在")
 	}
 
-	currentKey := u.MedicalKey
-	if currentKey == "" {
-		currentKey = "123456"
+	// 若已存在调阅密钥或哈希，强制校验原密钥
+	if u.MedicalKeyHash != "" || u.MedicalKey != "" {
+		if !VerifyMedicalKey(oldKey, u.UserNo, u.MedicalKeyHash, u.MedicalKey) {
+			return errors.New("原调阅密钥校验错误，请输入正确的当前密钥")
+		}
 	}
 
-	if oldKey != "" && oldKey != currentKey && oldKey != "123456" {
-		return errors.New("原调阅密钥校验错误，请输入正确的当前密钥")
-	}
+	newHash := HashMedicalKey(newKey, u.UserNo)
 
 	if err := repository.DB.Model(&model.User{}).Where("id = ?", userID).Updates(map[string]interface{}{
-		"medical_key": newKey,
-		"updated_at":  time.Now(),
+		"medical_key_hash": newHash,
+		"medical_key":      "", // 彻底清空数据库中历史明文残留
+		"updated_at":       time.Now(),
 	}).Error; err != nil {
 		return err
 	}
