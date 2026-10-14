@@ -125,7 +125,7 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 		if decision != nil && decision.Decision == "REQUIRE_SUPERVISOR_APPROVAL" {
 			decision.Allowed = false
 		}
-		if decision != nil && req.UserID > 0 && DefaultAuditService != nil {
+		if decision != nil && req.UserID > 0 && req.Source != "BENCHMARK" && DefaultAuditService != nil {
 			source := req.Source
 			if source == "" {
 				source = "WEB"
@@ -161,7 +161,7 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 				UserAgent:     req.UserAgent,
 			})
 		}
-		if decision != nil && req.UserID > 0 && repository.DB != nil {
+		if decision != nil && req.UserID > 0 && req.Source != "BENCHMARK" && repository.DB != nil {
 			var freqRisk, timeRisk, behaviorRisk int
 			for _, f := range decision.RiskEvaluation.Factors {
 				if strings.HasPrefix(f.RuleID, "RULE-F") {

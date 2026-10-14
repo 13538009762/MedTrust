@@ -62,6 +62,13 @@ func InitDB() (*gorm.DB, error) {
 		return nil, fmt.Errorf("failed to connect to MySQL database: %w", err)
 	}
 
+	// 配置连接池参数，防止高并发场景下耗尽系统 TCP 端口与 MySQL 最大连接数
+	if sqlDB, err := DB.DB(); err == nil {
+		sqlDB.SetMaxIdleConns(20)
+		sqlDB.SetMaxOpenConns(40)
+		sqlDB.SetConnMaxLifetime(10 * time.Minute)
+	}
+
 	// 自动迁移 9 张核心表 + 扩展表
 	err = DB.AutoMigrate(
 		&model.User{},

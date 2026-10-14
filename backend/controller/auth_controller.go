@@ -2,8 +2,15 @@ package controller
 
 import (
 	"net/http"
+	"strings"
+	"time"
+
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
+	"medtrust-backend/config"
+	"medtrust-backend/middleware"
 	"medtrust-backend/model"
+	"medtrust-backend/repository"
 	"medtrust-backend/service"
 )
 
@@ -154,4 +161,62 @@ func (ctrl *AuthController) ChangeMedicalKey(c *gin.Context) {
 		Data:    nil,
 	})
 }
+
+// Logout 处理用户登出请求，将当前 JWT 加入 Redis / 内存降级黑名单中实现即时失效
+func (ctrl *AuthController) Logout(c *gin.Context) {
+	authHeader := c.GetHeader("Authorization")
+	tokenStr := ""
+	if authHeader != "" {
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) == 2 && parts[0] == "Bearer" {
+			tokenStr = parts[1]
+		}
+	}
+	if tokenStr == "" {
+		tokenStr = c.Query("token")
+	}
+
+	if tokenStr == "" {
+		c.JSON(http.StatusBadRequest, model.Response{
+			Code:    400,
+			Message: "未提供需要注销的 Token",
+		})
+		return
+	}
+
+	// 解析 Token 剩余有效期，动态设置黑名单 TTL
+	claims := &middleware.CustomClaims{}
+	ttl := 24 * time.Hour
+	token, _ := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
+		return []byte(config.AppConfig.Server.JWTSecret), nil
+	})
+	if token != nil && claims.ExpiresAt != nil {
+		remaining := time.Until(claims.ExpiresAt.Time)
+		if remaining > 0 {
+			ttl = remaining
+		}
+	}
+
+	// 写入 Redis 与 MemoryCache 双写黑名单
+	_ = repository.BlacklistToken(tokenStr, ttl)
+
+	// 获取操作人信息并记录登出审计日志
+	userID := c.GetUint64("user_id")
+	userNo := c.GetString("user_no")
+	hospitalID := c.GetUint64("hospital_id")
+	if userID == 0 && claims.UserID > 0 {
+		userID = claims.UserID
+		userNo = claims.UserNo
+		hospitalID = claims.HospitalID
+	}
+
+	service.DefaultAuditService.Log(userID, "LOGOUT", "USER", userNo, hospitalID, "SUCCESS", "LOW", c.ClientIP())
+
+	c.JSON(http.StatusOK, model.Response{
+		Code:    200,
+		Message: "登出成功，身份令牌已加入黑名单失效",
+		Data:    nil,
+	})
+}
+
 

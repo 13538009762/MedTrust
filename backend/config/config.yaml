@@ -33,3 +33,10 @@ security:
 risk:
   low_threshold: 30
   high_threshold: 60
+
+# Redis 高性能缓存与 Token 黑名单服务 (无 Redis 时自动平滑降级至 MemoryCache 内存缓存)
+redis:
+  addr: "127.0.0.1:6379"
+  password: ""
+  db: 0
+

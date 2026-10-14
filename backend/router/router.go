@@ -29,6 +29,7 @@ func SetupRouter() *gin.Engine {
 		authGroup := v1.Group("")
 		authGroup.Use(middleware.JWTAuthMiddleware())
 		{
+			authGroup.POST("/auth/logout", controller.DefaultAuthController.Logout)
 			authGroup.GET("/auth/profile", controller.DefaultAuthController.Profile)
 			authGroup.PUT("/auth/profile", controller.DefaultAuthController.UpdateProfile)
 			authGroup.PUT("/auth/password", controller.DefaultAuthController.ChangePassword)

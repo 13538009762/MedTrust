@@ -46,7 +46,10 @@ func main() {
 		}
 	}
 
-	// 2. 双模驱动初始化 (Blockchain: Fabric Live vs. Local Mock, IPFS: Kubo Live vs. Local Mock)
+	// 2. 初始化 Redis 客户端并检测连通性 (若无 Redis 则自动平滑降级至 MemoryCache 内存缓存)
+	repository.InitRedis()
+
+	// 3. 双模驱动初始化 (Blockchain: Fabric Live vs. Local Mock, IPFS: Kubo Live vs. Local Mock)
 	blockchain.InitBlockchainService(cfg.Blockchain.LedgerDir, blockchain.FabricGatewayConfig{
 		Mode:         cfg.Blockchain.Mode,
 		Enabled:      cfg.Blockchain.Fabric.Enabled,
@@ -62,7 +65,10 @@ func main() {
 	service.InitMedicalService(cfg.IPFS.Mode, cfg.IPFS.APIURL, cfg.IPFS.StorageDir)
 	service.InitAccessEngine(cfg.Risk.LowThreshold, cfg.Risk.HighThreshold)
 	service.StartAccessRequestCleanup()
-	go service.EnsureBaselineLedgerAnchored()
+
+	// 4. 固化标准种子病历至 Fabric 账本并清理孤立历史文件
+	service.EnsureBaselineLedgerAnchored()
+	_, _, _ = service.CleanOrphanedIPFSFiles()
 	fmt.Println("[MedTrust] Fabric Ledger & IPFS Engine Initialized with Baseline Assets")
 
 	r := router.SetupRouter()

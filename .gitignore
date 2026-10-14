@@ -51,8 +51,10 @@ Thumbs.db
 *.sln
 *.sw?
 scratch/
-backend/data/uploads/
-backend/data/ipfs_storage/
+backend/data/uploads/*
+!backend/data/uploads/.gitkeep
+backend/data/ipfs_storage/*
+!backend/data/ipfs_storage/.gitkeep
 backend/ipfs_storage/
 backend/ledger_data/
 task_content.txt

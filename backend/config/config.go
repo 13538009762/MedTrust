@@ -45,6 +45,12 @@ type Config struct {
 		LowThreshold  int `yaml:"low_threshold"`
 		HighThreshold int `yaml:"high_threshold"`
 	} `yaml:"risk"`
+
+	Redis struct {
+		Addr     string `yaml:"addr"`
+		Password string `yaml:"password"`
+		DB       int    `yaml:"db"`
+	} `yaml:"redis"`
 }
 
 func (c *Config) GetAESMasterKey() []byte {

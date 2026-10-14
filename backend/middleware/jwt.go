@@ -9,6 +9,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"medtrust-backend/config"
 	"medtrust-backend/model"
+	"medtrust-backend/repository"
 )
 
 type CustomClaims struct {
@@ -65,6 +66,15 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, model.Response{
 				Code:    401,
 				Message: "未提供认证 Token，请先登录",
+			})
+			return
+		}
+
+		// 检查当前 Token 是否已被注销并加入黑名单 (Redis / MemoryCache 容灾黑名单)
+		if repository.IsTokenBlacklisted(tokenStr) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, model.Response{
+				Code:    401,
+				Message: "身份令牌已登出失效，请重新登录",
 			})
 			return
 		}

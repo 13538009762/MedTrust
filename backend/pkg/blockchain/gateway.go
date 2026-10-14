@@ -102,7 +102,13 @@ func (m *MockLedgerService) QueryMedicalAsset(recordNo string) (*MedicalAssetPay
 		if err := json.Unmarshal([]byte(data), &cr); err == nil && cr.Payload != nil {
 			pb, _ := json.Marshal(cr.Payload)
 			var payload MedicalAssetPayload
-			if err := json.Unmarshal(pb, &payload); err == nil && payload.RecordID != "" {
+			_ = json.Unmarshal(pb, &payload)
+			if payload.RecordID == "" {
+				if rNo, ok := cr.Payload["record_no"].(string); ok {
+					payload.RecordID = rNo
+				}
+			}
+			if payload.RecordID != "" {
 				return &payload, nil
 			}
 		}
