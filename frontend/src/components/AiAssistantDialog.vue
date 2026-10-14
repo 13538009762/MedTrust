@@ -220,7 +220,7 @@ async function handleSend() {
     // 答辩备用仿真模式：若 Python 端未启动或发生超时，提供真实感极高的前端智能响应与工具链展示
     const fallbackMap: Record<string, any> = {
       '张三': {
-        reply: '已通过统一安全网关为您检索到 2 条受控健康档案：\n【记录 1】流水号: REC20261014001 | 患者: 张伟 | 类型: 门诊病历\n  - 诊断结论: 冠心病心绞痛发作\n  - 归属机构: 华东第一人民医院 | 经治医生: 李医生\n  - Fabric 账本凭据: 0x7b2f8a19c4d3e5f60a9b8c7d... (高度 #108)\n\n安全提示：以上数据均由 Go 统一安全网关执行 RBAC 角色校验与患者授权核验，密文从 IPFS 节点拉取并于内存动态解密。',
+        reply: '已通过统一安全网关为您检索到 2 条受控健康档案：\n【记录 1】流水号: REC20261014001 | 患者: 张伟 | 类型: 门诊病历\n  - 诊断结论: 冠心病心绞痛发作\n  - 归属机构: 华东第一人民医院 | 经治医生: 李医生\n  - Fabric 账本凭据: 7b2f8a19c4d3e5f60a9b8c7d... (高度 #108)\n\n安全提示：以上数据均由 Go 统一安全网关执行 RBAC 角色校验与患者授权核验，密文从 IPFS 节点拉取并于内存动态解密。',
         tool: 'query_patient_records',
         trace: [
           { tool: 'query_patient_records', endpoint: 'GET /api/v1/medical-records', status_code: 200, auth_check: 'PASSED' }

@@ -196,7 +196,7 @@ func GenerateAttestationPDF(data AttestationData) ([]byte, error) {
 	drawSectionTitle("三、区块链分布式账本与密码学存证背书")
 	stream.WriteString("BT\n0.05 0.45 0.25 rg\n/F2 8.5 Tf\n")
 	stream.WriteString(fmt.Sprintf("52 %d Td\n", curY-14))
-	stream.WriteString(encodeUTF16BEHex("● 底层链网络: Hyperledger Fabric 2.5 (Channel: medchannel, Chaincode: medical)"))
+	stream.WriteString(encodeUTF16BEHex("● 联盟链网络: Hyperledger Fabric 2.5 (通道: medicalchannel, 合约: medical_contract, 加密: AES-256-GCM AAD)"))
 	stream.WriteString(" Tj\nET\n")
 	curY -= 15
 

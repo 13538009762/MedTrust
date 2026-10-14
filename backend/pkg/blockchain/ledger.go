@@ -123,7 +123,7 @@ func (l *MockLedgerService) CommitAsset(assetType, assetID string, payload map[s
 	nowStr := time.Now().Format(time.RFC3339)
 	h := sha256.New()
 	h.Write([]byte(fmt.Sprintf("%s-%s-%d-%s", assetType, assetID, l.currentHeight, nowStr)))
-	txID = "0x" + hex.EncodeToString(h.Sum(nil))
+	txID = hex.EncodeToString(h.Sum(nil))
 
 	rec := ChainRecord{
 		TxID:        txID,

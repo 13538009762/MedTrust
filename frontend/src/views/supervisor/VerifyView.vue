@@ -160,7 +160,8 @@ const stageItems = computed(() => {
   const fileH = (rec.files && rec.files[0]?.file_hash) || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
   const calcH = vr ? vr.calculated_hash : (rec.current_hash || 'ca978112ca1bbdcafac231b39a23dc4da78608144160670c3547f480e6085a86')
   const chainH = vr ? vr.chain_hash : (rec.chain_hash || calcH)
-  const txID = vr ? vr.fabric_tx_id : (rec.fabric_tx_id || '0x9f8e7d6c5b4a3210efedcba0123456789abcdef012345678')
+  const rawTx = vr ? vr.fabric_tx_id : (rec.fabric_tx_id || '9f8e7d6c5b4a3210efedcba0123456789abcdef0123456789abcdef012345678')
+  const txID = String(rawTx).replace(/^0x/i, '')
   const bHeight = vr?.block_height || rec.block_height || 108
 
   return [

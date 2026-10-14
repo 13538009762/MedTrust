@@ -552,9 +552,9 @@ async function fetchBlockchainTransactions() {
     console.warn('fetchBlockchainTransactions fallback error', err)
     if (!blockchainTransactions.value.length) {
       blockchainTransactions.value = [
-        { id: 1, tx_id: '7b2f8a19c4d3e5f60a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f', block_height: 108, channel_name: 'medchannel', chaincode_name: 'medical', function_name: 'UploadMedicalRecord', payload_hash: '3a5f8b9c...d4e1', status: 'CONFIRMED', created_at: new Date().toISOString() },
-        { id: 2, tx_id: '4c8e1a7b2d9f0c3e5a6b7d8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b', block_height: 107, channel_name: 'medchannel', chaincode_name: 'medical', function_name: 'GrantConsentPolicy', payload_hash: '9e2b1c4a...7f3d', status: 'CONFIRMED', created_at: new Date().toISOString() },
-        { id: 3, tx_id: '1f3a5b7c9e0d2f4a6b8c0d2e4f6a8b0c2d4e6f8a0b2c4d6e8f0a2b4c6d8e0f2a', block_height: 106, channel_name: 'medchannel', chaincode_name: 'medical', function_name: 'BreakGlassEmergencyAccess', payload_hash: '5d8e2f0a...1c4b', status: 'CONFIRMED', created_at: new Date().toISOString() }
+        { id: 1, tx_id: '7b2f8a19c4d3e5f60a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f', block_height: 108, channel_name: 'medicalchannel', chaincode_name: 'medical_contract', function_name: 'UploadMedicalRecord', payload_hash: '3a5f8b9c...d4e1', status: 'CONFIRMED', created_at: new Date().toISOString() },
+        { id: 2, tx_id: '4c8e1a7b2d9f0c3e5a6b7d8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b', block_height: 107, channel_name: 'medicalchannel', chaincode_name: 'medical_contract', function_name: 'GrantConsentPolicy', payload_hash: '9e2b1c4a...7f3d', status: 'CONFIRMED', created_at: new Date().toISOString() },
+        { id: 3, tx_id: '1f3a5b7c9e0d2f4a6b8c0d2e4f6a8b0c2d4e6f8a0b2c4d6e8f0a2b4c6d8e0f2a', block_height: 106, channel_name: 'medicalchannel', chaincode_name: 'medical_contract', function_name: 'BreakGlassEmergencyAccess', payload_hash: '5d8e2f0a...1c4b', status: 'CONFIRMED', created_at: new Date().toISOString() }
       ]
     }
   } finally {
@@ -563,9 +563,10 @@ async function fetchBlockchainTransactions() {
 }
 
 function formatTxId(txId?: string) {
-  if (!txId) return '0x7b2f...8e7f'
-  if (txId.length <= 20) return txId
-  return `${txId.slice(0, 10)}...${txId.slice(-8)}`
+  if (!txId) return '7b2f...8e7f'
+  const clean = String(txId).replace(/^0x/i, '')
+  if (clean.length <= 20) return clean
+  return `${clean.slice(0, 10)}...${clean.slice(-8)}`
 }
 
 function formatPayloadHash(hash?: string) {

@@ -524,8 +524,8 @@ const completedCount = computed(() => orders.value.filter(o => o.status === 'COM
 
 function formatHospName(hId?: number) {
   if (hId === 1) return '第一人民医院'
-  if (hId === 2) return '第二人民医院'
-  if (hId === 3) return '第三人民医院'
+  if (hId === 2) return '省立中心医院'
+  if (hId === 3) return '协和医学中心'
   return '医疗中心'
 }
 
@@ -605,7 +605,7 @@ function formatTime(t?: string) {
 function openProcessDialog(row: any) {
   currentOrder.value = row
   const currentHospital = auth.user?.hospital_name || formatHospName(auth.user?.hospital_id)
-  const defaultTechName = auth.user?.real_name ? `${auth.user.real_name} (${currentHospital})` : '医技主管'
+  const defaultTechName = auth.user?.real_name ? `${auth.user.real_name}（${currentHospital}·检验科）` : '刘主管（省立中心医院·检验科）'
   const defaultFileTitle = row.report_file_name || `【${row.exam_item}】检查单据扫描件/原始影像`
   reportForm.value = {
     exam_result: row.exam_result || '',

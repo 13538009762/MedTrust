@@ -219,8 +219,8 @@ const steps = computed(() => {
       desc: '提交交易至 medchannel 通道，Org1/Org2 节点背书并出块。',
       techSpec: 'Hyperledger Fabric 2.5 + Raft 共识',
       details: [
-        { label: 'Fabric TxID', val: r.fabric_tx_id || '0x9f8e7d6c5b4a3210efedcba0123456789abcdef0123456789abcdef012345678' },
-        { label: '区块高度', val: `#${r.block_height || 108} (medchannel 通道)` },
+        { label: 'Fabric TxID', val: String(r.fabric_tx_id || '9f8e7d6c5b4a3210efedcba0123456789abcdef0123456789abcdef012345678').replace(/^0x/i, '') },
+        { label: '区块高度', val: `#${r.block_height || 108} (medicalchannel 通道)` },
       ]
     },
     {

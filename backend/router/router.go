@@ -101,6 +101,7 @@ func SetupRouter() *gin.Engine {
 			authGroup.GET("/audit-logs", middleware.RequireRoles("supervisor", "admin", "patient"), controller.DefaultSupervisorController.ListAuditLogs)
 			authGroup.POST("/supervisor/lift-doctor-restriction", middleware.RequireRoles("supervisor", "admin"), controller.DefaultSupervisorController.LiftDoctorRestriction)
 			authGroup.POST("/verification/:record_id", middleware.RequireRoles("supervisor", "admin", "doctor", "patient"), controller.DefaultSupervisorController.VerifyRecord)
+			authGroup.GET("/verification/:record_id", middleware.RequireRoles("supervisor", "admin", "doctor", "patient"), controller.DefaultSupervisorController.VerifyRecord)
 			authGroup.POST("/verification/simulate-tamper/:record_id", middleware.RequireRoles("supervisor", "admin", "doctor"), controller.DefaultSupervisorController.SimulateTamper)
 			authGroup.POST("/supervisor/simulate-tamper/:record_id", middleware.RequireRoles("supervisor", "admin", "doctor"), controller.DefaultSupervisorController.SimulateTamper)
 			authGroup.POST("/verification/restore/:record_id", middleware.RequireRoles("supervisor", "admin", "doctor"), controller.DefaultSupervisorController.RestoreTamperedRecord)
