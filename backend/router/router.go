@@ -83,10 +83,13 @@ func SetupRouter() *gin.Engine {
 			authGroup.POST("/medical-records/:id/access-policy", middleware.RequireRoles("patient"), controller.DefaultAccessController.SetRecordAccessPolicy)
 			authGroup.POST("/medical-records/batch-access-policy", middleware.RequireRoles("patient"), controller.DefaultAccessController.BatchSetAccessPolicy)
 
-			// 实时通知模块 (SSE 长连接推送，所有登录用户均可建立长连接)
+			// 实时通知模块 (SSE 长连接推送与离线待办)
 			authGroup.GET("/notifications/stream", controller.DefaultNotificationController.Stream)
+			authGroup.GET("/notifications", controller.DefaultNotificationController.ListNotifications)
 
-			// 监管看板模块
+			// 监管看板模块与区块链浏览器
+			authGroup.GET("/blockchain/transactions", middleware.RequireRoles("supervisor", "admin"), controller.DefaultSupervisorController.ListBlockchainTransactions)
+			authGroup.GET("/supervisor/blockchain-transactions", middleware.RequireRoles("supervisor", "admin"), controller.DefaultSupervisorController.ListBlockchainTransactions)
 			authGroup.GET("/supervisor/overview", middleware.RequireRoles("supervisor", "admin"), controller.DefaultSupervisorController.Overview)
 			authGroup.GET("/supervisor/dashboard-stats", middleware.RequireRoles("supervisor", "admin"), controller.DefaultSupervisorController.Overview)
 			authGroup.GET("/supervisor/access-heatmap", middleware.RequireRoles("supervisor", "admin"), controller.DefaultSupervisorController.AccessHeatmap)
@@ -103,7 +106,11 @@ func SetupRouter() *gin.Engine {
 
 			// 系统管理员模块
 			authGroup.GET("/system/users", middleware.RequireRoles("admin", "supervisor"), controller.DefaultSystemController.ListUsers)
+			authGroup.GET("/users", middleware.RequireRoles("admin", "supervisor"), controller.DefaultSystemController.ListUsers)
 			authGroup.PUT("/system/users/:id/status", middleware.RequireRoles("admin"), controller.DefaultSystemController.UpdateUserStatus)
+			authGroup.PATCH("/system/users/:id/status", middleware.RequireRoles("admin"), controller.DefaultSystemController.UpdateUserStatus)
+			authGroup.PUT("/users/:id/status", middleware.RequireRoles("admin"), controller.DefaultSystemController.UpdateUserStatus)
+			authGroup.PATCH("/users/:id/status", middleware.RequireRoles("admin"), controller.DefaultSystemController.UpdateUserStatus)
 			authGroup.POST("/system/users", middleware.RequireRoles("admin"), controller.DefaultSystemController.CreateUser)
 			authGroup.GET("/system/hospitals", controller.DefaultSystemController.ListHospitals)
 			authGroup.GET("/system/departments", controller.DefaultSystemController.ListDepartments)

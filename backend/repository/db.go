@@ -74,6 +74,8 @@ func InitDB() (*gorm.DB, error) {
 		&model.AccessRequest{},
 		&model.EmergencyAccessEvent{},
 		&model.AuditLog{},
+		&model.RiskRecord{},
+		&model.BlockchainTransaction{},
 	)
 	if err != nil {
 		log.Printf("[DB] AutoMigrate warning: %v", err)

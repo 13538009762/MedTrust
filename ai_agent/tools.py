@@ -136,13 +136,15 @@ class ControlledMedicalTools:
         }
         self.trace_logs = []
 
-    def query_patient_records(self, patient_id: int = 0, data_type: str = "") -> Dict[str, Any]:
+    def query_patient_records(self, patient_id: int = 0, data_type: str = "", keyword: str = "") -> Dict[str, Any]:
         """受控工具1：查询当前登录用户有权查看的医疗记录列表"""
         params = {}
         if patient_id > 0:
             params["patient_id"] = patient_id
         if data_type:
             params["data_type"] = data_type
+        if keyword:
+            params["keyword"] = keyword
         try:
             resp = requests.get(f"{GO_BACKEND_URL}/medical-records", headers=self.headers, params=params, timeout=10)
             result = resp.json() if resp.status_code == 200 else {"code": resp.status_code, "message": "权限拦截"}

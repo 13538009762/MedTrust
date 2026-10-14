@@ -2,6 +2,7 @@ import uvicorn
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import Optional
 from agent import MedTrustAgent
 
 app = FastAPI(
@@ -22,16 +23,28 @@ agent = MedTrustAgent()
 
 class ChatRequest(BaseModel):
     message: str
+    token: Optional[str] = None
 
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "MedTrust AI Agent"}
 
 @app.post("/api/v1/ai/chat")
-def chat(req: ChatRequest, authorization: str = Header(None)):
-    if not authorization or not authorization.startswith("Bearer "):
+@app.post("/api/ai/chat")
+def chat(req: ChatRequest, authorization: Optional[str] = Header(None)):
+    token = ""
+    if authorization:
+        auth_str = authorization.strip()
+        if auth_str.startswith("Bearer "):
+            token = auth_str[7:].strip()
+        else:
+            token = auth_str
+    if not token and req.token:
+        token = req.token.strip()
+
+    if not token:
         raise HTTPException(status_code=401, detail="Missing or invalid Bearer authorization token")
-    token = authorization.split(" ")[1]
+
     res = agent.run(req.message, token)
     return {
         "code": 200,

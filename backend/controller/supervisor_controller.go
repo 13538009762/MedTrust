@@ -439,4 +439,48 @@ func (ctrl *SupervisorController) AuthFunnel(c *gin.Context) {
 	})
 }
 
+// ListBlockchainTransactions 获取区块链浏览器存证交易列表 (支撑监管端区块链浏览器真实流水)
+func (ctrl *SupervisorController) ListBlockchainTransactions(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
+	businessType := c.Query("business_type")
+	txID := c.Query("tx_id")
+	status := c.Query("status")
+
+	query := repository.DB.Model(&model.BlockchainTransaction{})
+	if businessType != "" {
+		query = query.Where("business_type = ?", businessType)
+	}
+	if txID != "" {
+		query = query.Where("tx_id LIKE ?", "%"+txID+"%")
+	}
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+
+	var total int64
+	query.Count(&total)
+
+	var list []model.BlockchainTransaction
+	query.Order("id desc").Offset((page - 1) * pageSize).Limit(pageSize).Find(&list)
+
+	c.JSON(http.StatusOK, model.Response{
+		Code:    200,
+		Message: "获取区块链浏览器存证交易流水成功",
+		Data: gin.H{
+			"total":     total,
+			"page":      page,
+			"page_size": pageSize,
+			"list":      list,
+		},
+	})
+}
+
 

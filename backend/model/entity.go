@@ -291,3 +291,37 @@ type AuditLog struct {
 func (AuditLog) TableName() string {
 	return "audit_logs"
 }
+
+// RiskRecord 10. 访问风险评估记录表 (risk_records，对应大论文 4.3.2 节)
+type RiskRecord struct {
+	ID              uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
+	AccessRequestID uint64    `gorm:"default:0;index" json:"access_request_id"`
+	AccessFrequency int       `gorm:"default:0" json:"access_frequency"`
+	TimeRisk        int       `gorm:"default:0" json:"time_risk"`
+	BehaviorRisk    int       `gorm:"default:0" json:"behavior_risk"`
+	TotalScore      int       `gorm:"default:0" json:"total_score"`
+	AnomalyFlag     int8      `gorm:"default:0" json:"anomaly_flag"` // 0-正常, 1-异常
+	AnalysisResult  string    `gorm:"size:255;default:''" json:"analysis_result"`
+	CreatedAt       time.Time `gorm:"index" json:"created_at"`
+}
+
+func (RiskRecord) TableName() string {
+	return "risk_records"
+}
+
+// BlockchainTransaction 11. 区块链交易存证表 (blockchain_transactions，对应大论文 4.3.2 节)
+type BlockchainTransaction struct {
+	ID            uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
+	BusinessType  string    `gorm:"size:50;index" json:"business_type"` // RECORD_COMMIT, AUTH_POLICY, EMERGENCY_ACCESS, AUDIT_ANCHOR, etc.
+	BusinessID    string    `gorm:"size:64;index" json:"business_id"`
+	TxID          string    `gorm:"size:128;uniqueIndex" json:"tx_id"`
+	BlockNo       uint64    `gorm:"default:0;index" json:"block_no"`
+	ChannelName   string    `gorm:"size:64;default:'medchannel'" json:"channel_name"`
+	ChaincodeName string    `gorm:"size:64;default:'medical_contract'" json:"chaincode_name"`
+	Status        string    `gorm:"size:20;default:'VALID'" json:"status"` // VALID, INVALID
+	CreatedAt     time.Time `gorm:"index" json:"created_at"`
+}
+
+func (BlockchainTransaction) TableName() string {
+	return "blockchain_transactions"
+}

@@ -24,9 +24,24 @@ type MedicalService struct {
 
 var DefaultMedicalService *MedicalService
 
-func InitMedicalService(apiURL, storageDir string) {
+func InitMedicalService(args ...string) {
+	mode := "live"
+	apiURL := "http://127.0.0.1:5001"
+	storageDir := "./ipfs_storage"
+
+	if len(args) == 1 {
+		mode = args[0]
+	} else if len(args) == 2 {
+		apiURL = args[0]
+		storageDir = args[1]
+	} else if len(args) >= 3 {
+		mode = args[0]
+		apiURL = args[1]
+		storageDir = args[2]
+	}
+
 	DefaultMedicalService = &MedicalService{
-		ipfsService: ipfs.NewIPFSService(apiURL, storageDir),
+		ipfsService: ipfs.CreateIPFSService(mode, apiURL, storageDir),
 	}
 }
 
@@ -340,12 +355,210 @@ func (s *MedicalService) VerifyRecord(r *model.MedicalRecord) {
 
 // EnsureBaselineLedgerAnchored 初始化或补充链上初始资产存证，确保种子病历在数据库被攻击篡改前已将基准哈希固化在 Fabric 账本中
 func EnsureBaselineLedgerAnchored() {
+	if repository.DB == nil || blockchain.DefaultService == nil {
+		return
+	}
+
+	// 1. 自动注入与更新 3 份标准种子病历 (REC20250501001, REC20250502002, REC20250503003)
+	seedRecordDefinitions := []struct {
+		RecordNo       string
+		PatientUserNo  string
+		DoctorUserNo   string
+		HospitalID     uint64
+		DepartmentName string
+		DataType       string
+		EncounterType  string
+		OnsetTime      string
+		Duration       string
+		Symptoms       string
+		ChiefComplaint string
+		Etiology       string
+		Diagnosis      string
+		TreatmentPlan  string
+		FileContent    string
+	}{
+		{
+			RecordNo:       "REC20250501001",
+			PatientUserNo:  "pat_zhang",
+			DoctorUserNo:   "doc_li",
+			HospitalID:     1,
+			DepartmentName: "心内科",
+			DataType:       "EMR",
+			EncounterType:  "OUTPATIENT",
+			OnsetTime:      "2025-04-10",
+			Duration:       "2周",
+			Symptoms:       "反复心前区闷痛伴胸闷",
+			ChiefComplaint: "活动后胸痛胸闷6月，加重1周",
+			Etiology:       "劳累及情绪激动诱发",
+			Diagnosis:      "冠状动脉粥样硬化性心脏病 劳力性心绞痛",
+			TreatmentPlan:  "单硝酸异山梨酯缓释片 30mg qd, 阿托伐他汀 20mg qn",
+			FileContent:    "广州第一附属医院 门诊电子病历 [REC20250501001]\n患者: 张三\n经治医生: 李建国 (主任医师)\n诊断: 冠状动脉粥样硬化性心脏病 劳力性心绞痛\n医嘱: 规范抗心肌缺血与降脂稳定斑块治疗。",
+		},
+		{
+			RecordNo:       "REC20250502002",
+			PatientUserNo:  "pat_zhang",
+			DoctorUserNo:   "doc_wang",
+			HospitalID:     2,
+			DepartmentName: "心内科",
+			DataType:       "EMR",
+			EncounterType:  "OUTPATIENT",
+			OnsetTime:      "2025-04-15",
+			Duration:       "1个月",
+			Symptoms:       "间歇性头晕、颈项发胀伴睡眠不佳",
+			ChiefComplaint: "血压升高伴头胀2周，最高达 180/110 mmHg",
+			Etiology:       "高盐饮食及工作熬夜",
+			Diagnosis:      "原发性高血压 3级 (很高危组)",
+			TreatmentPlan:  "苯磺酸氨氯地平片 5mg qd, 替米沙坦片 40mg qd",
+			FileContent:    "深圳中心医院 门诊电子病历 [REC20250502002]\n患者: 张三\n经治医生: 王明德 (主治医师)\n诊断: 原发性高血压 3级 (很高危组)\n医嘱: 规律服用降压药，严格监测晨起与晚间血压。",
+		},
+		{
+			RecordNo:       "REC20250503003",
+			PatientUserNo:  "pat_zhang",
+			DoctorUserNo:   "doc_chen",
+			HospitalID:     2,
+			DepartmentName: "急诊科",
+			DataType:       "EMR",
+			EncounterType:  "EMERGENCY",
+			OnsetTime:      "2025-05-03 08:30",
+			Duration:       "2小时",
+			Symptoms:       "突发剧烈胸骨后压榨样疼痛，向左肩放射，面色苍白大汗",
+			ChiefComplaint: "突发持续剧烈胸痛2小时伴大汗",
+			Etiology:       "急性心肌缺血坏死",
+			Diagnosis:      "急性广泛前壁心肌梗死 (AMI) Killip II级",
+			TreatmentPlan:  "急诊冠脉造影(CAG)及经皮冠状动脉介入治疗(PCI)，植入DES支架1枚",
+			FileContent:    "深圳中心医院 急诊抢救记录 [REC20250503003]\n患者: 张三\n经治医生: 陈建明 (主治医师)\n诊断: 急性广泛前壁心肌梗死 (AMI) Killip II级\n抢救处置: 紧急开通绿色通道行急诊PCI开通闭塞前降支。",
+		},
+	}
+
+	masterKey := config.AppConfig.GetAESMasterKey()
+	ipfsSvc := DefaultMedicalService.GetIPFSService()
+
+	for _, seed := range seedRecordDefinitions {
+		var pat, doc model.User
+		if err := repository.DB.Where("username = ? OR user_no = ?", seed.PatientUserNo, seed.PatientUserNo).First(&pat).Error; err != nil {
+			continue
+		}
+		if err := repository.DB.Where("username = ? OR user_no = ?", seed.DoctorUserNo, seed.DoctorUserNo).First(&doc).Error; err != nil {
+			continue
+		}
+
+		var existing model.MedicalRecord
+		recFound := (repository.DB.Where("record_no = ?", seed.RecordNo).First(&existing).Error == nil)
+
+		fileData := []byte(seed.FileContent)
+		cipherData, encDEK, ivNonce, fileHash, err := crypto.EncryptMedicalFile(fileData, pat.ID, seed.RecordNo, masterKey)
+		if err != nil {
+			log.Printf("[EnsureBaselineLedgerAnchored] 加密种子病历失败 %s: %v", seed.RecordNo, err)
+			continue
+		}
+
+		cid, err := ipfsSvc.Add(cipherData)
+		if err != nil {
+			log.Printf("[EnsureBaselineLedgerAnchored] 存储种子病历至IPFS失败 %s: %v", seed.RecordNo, err)
+			continue
+		}
+
+		clinicalHash := crypto.ComputeSHA256([]byte(fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s",
+			seed.RecordNo, seed.DataType, seed.OnsetTime, seed.Duration, seed.Symptoms, seed.Etiology, seed.TreatmentPlan, seed.Diagnosis, fileHash)))
+
+		txID, height, _ := blockchain.DefaultService.CommitAsset("MEDICAL_RECORD", seed.RecordNo, map[string]interface{}{
+			"record_no":      seed.RecordNo,
+			"patient_id":     pat.ID,
+			"doctor_id":      doc.ID,
+			"hospital_id":    seed.HospitalID,
+			"cid":            cid,
+			"file_hash":      fileHash,
+			"clinical_hash":  clinicalHash,
+			"data_type":      seed.DataType,
+			"encounter_type": seed.EncounterType,
+			"create_time":    time.Now().Format(time.RFC3339),
+		})
+
+		if !recFound {
+			record := model.MedicalRecord{
+				RecordNo:         seed.RecordNo,
+				PatientID:        pat.ID,
+				DoctorID:         doc.ID,
+				HospitalID:       seed.HospitalID,
+				DataType:         seed.DataType,
+				EncounterType:    seed.EncounterType,
+				DepartmentName:   seed.DepartmentName,
+				OnsetTime:        seed.OnsetTime,
+				Duration:         seed.Duration,
+				Symptoms:         seed.Symptoms,
+				ChiefComplaint:   seed.ChiefComplaint,
+				Etiology:         seed.Etiology,
+				Diagnosis:        seed.Diagnosis,
+				TreatmentPlan:    seed.TreatmentPlan,
+				FabricTxID:       txID,
+				BlockHeight:      height,
+				Status:           "COMPLETED",
+				SyncStatus:       SyncStatusCompleted,
+				CreatedAt:        time.Now(),
+			}
+			repository.DB.Create(&record)
+			fileRec := model.MedicalFile{
+				RecordID:     record.ID,
+				FileName:     fmt.Sprintf("规范诊疗记录_%s.pdf", seed.RecordNo),
+				FileType:     "pdf",
+				FileSize:     uint64(len(fileData)),
+				IPFSCID:      cid,
+				EncryptedDEK: encDEK,
+				IVNonce:      ivNonce,
+				FileHash:     fileHash,
+				CreatedAt:    time.Now(),
+			}
+			repository.DB.Create(&fileRec)
+		} else {
+			repository.DB.Model(&existing).Updates(map[string]interface{}{
+				"fabric_tx_id":     txID,
+				"block_height":     height,
+				"diagnosis":        seed.Diagnosis,
+				"symptoms":         seed.Symptoms,
+				"chief_complaint":  seed.ChiefComplaint,
+				"etiology":         seed.Etiology,
+				"treatment_plan":   seed.TreatmentPlan,
+				"onset_time":       seed.OnsetTime,
+				"duration":         seed.Duration,
+				"encounter_type":   seed.EncounterType,
+				"department_name":  seed.DepartmentName,
+			})
+			var existingFile model.MedicalFile
+			if repository.DB.Where("record_id = ?", existing.ID).First(&existingFile).Error == nil {
+				repository.DB.Model(&existingFile).Updates(map[string]interface{}{
+					"ipfs_cid":      cid,
+					"encrypted_dek": encDEK,
+					"iv_nonce":      ivNonce,
+					"file_hash":     fileHash,
+				})
+			} else {
+				fileRec := model.MedicalFile{
+					RecordID:     existing.ID,
+					FileName:     fmt.Sprintf("规范诊疗记录_%s.pdf", seed.RecordNo),
+					FileType:     "pdf",
+					FileSize:     uint64(len(fileData)),
+					IPFSCID:      cid,
+					EncryptedDEK: encDEK,
+					IVNonce:      ivNonce,
+					FileHash:     fileHash,
+					CreatedAt:    time.Now(),
+				}
+				repository.DB.Create(&fileRec)
+			}
+		}
+		log.Printf("[EnsureBaselineLedgerAnchored] ✅ 种子病历 %s 已真实加密注入 IPFS 并锚定账本: TxID=%s, Height=%d", seed.RecordNo, txID, height)
+	}
+
+	// 2. 检查其余动态上传的病历并确保上链锚定
 	var list []model.MedicalRecord
 	if err := repository.DB.Preload("Files").Find(&list).Error; err != nil {
 		return
 	}
 
 	for _, rec := range list {
+		if strings.HasPrefix(rec.RecordNo, "REC202505") {
+			continue // 已在上方处理
+		}
 		fileHash := ""
 		cid := ""
 		if len(rec.Files) > 0 {
@@ -358,7 +571,6 @@ func EnsureBaselineLedgerAnchored() {
 		needCommit := !exists
 		if exists && chainData != nil {
 			currChainHash := fmt.Sprintf("%v", chainData["file_hash"])
-			// 如果链上存的是旧的单纯附件文件哈希 (currChainHash == fileHash)，而非临床数据综合指纹 (clinicalHash)
 			if currChainHash != "" && fileHash != "" && currChainHash == fileHash && currChainHash != clinicalHash {
 				needCommit = true
 			}
@@ -381,8 +593,6 @@ func EnsureBaselineLedgerAnchored() {
 					"fabric_tx_id": txID,
 					"block_height": height,
 				})
-				log.Printf("[EnsureBaselineLedgerAnchored] ✅ 成功固化病历 %s 综合临床指纹至账本: TxID=%s, BlockHeight=%d, Hash=%s",
-					rec.RecordNo, txID, height, clinicalHash)
 			}
 		}
 	}

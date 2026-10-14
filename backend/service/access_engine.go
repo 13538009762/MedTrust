@@ -161,6 +161,36 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 				UserAgent:     req.UserAgent,
 			})
 		}
+		if decision != nil && req.UserID > 0 && repository.DB != nil {
+			var freqRisk, timeRisk, behaviorRisk int
+			for _, f := range decision.RiskEvaluation.Factors {
+				if strings.HasPrefix(f.RuleID, "RULE-F") {
+					freqRisk += f.Score
+				} else if strings.HasPrefix(f.RuleID, "RULE-T") {
+					timeRisk += f.Score
+				} else {
+					behaviorRisk += f.Score
+				}
+			}
+			if len(decision.RiskEvaluation.Factors) == 0 {
+				behaviorRisk = decision.RiskScore
+			}
+			var anomalyFlag int8
+			if decision.RiskLevel == "HIGH" || decision.RiskScore >= 60 {
+				anomalyFlag = 1
+			}
+			riskRec := model.RiskRecord{
+				AccessRequestID: req.RecordID,
+				AccessFrequency: freqRisk,
+				TimeRisk:        timeRisk,
+				BehaviorRisk:    behaviorRisk,
+				TotalScore:      decision.RiskScore,
+				AnomalyFlag:     anomalyFlag,
+				AnalysisResult:  decision.Reason,
+				CreatedAt:       time.Now(),
+			}
+			_ = repository.DB.Create(&riskRec).Error
+		}
 	}()
 
 	if req.UserID == 0 {

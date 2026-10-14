@@ -68,3 +68,6 @@ type BlockchainService interface {
 // DefaultService 全局单例区块链服务实例
 var DefaultService BlockchainService
 
+// TxRecorder 交易落库钩子函数 (支持链上链下双重校验与区块链交易存证表记录)
+var TxRecorder func(businessType, businessID, txID string, blockNo uint64, channelName, chaincodeName, status string)
+

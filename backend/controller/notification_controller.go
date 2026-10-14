@@ -4,10 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"medtrust-backend/model"
+	"medtrust-backend/pkg/blockchain"
 	"medtrust-backend/pkg/sse"
+	"medtrust-backend/repository"
+	"medtrust-backend/service"
 )
 
 type NotificationController struct{}
@@ -64,3 +69,137 @@ func (ctrl *NotificationController) Stream(c *gin.Context) {
 		}
 	}
 }
+
+// ConfirmAccessRequest 患者在线确认加急访问申请 (POST /api/v1/access-requests/:req_no/confirm)
+func (ctrl *NotificationController) ConfirmAccessRequest(c *gin.Context) {
+	patientID := c.GetUint64("user_id")
+	reqNo := c.Param("req_no")
+	if reqNo == "" {
+		reqNo = c.Param("id")
+	}
+
+	var req model.AccessRequest
+	var err error
+	if id, parseErr := strconv.ParseUint(reqNo, 10, 64); parseErr == nil && id > 0 {
+		err = repository.DB.Where("(id = ? OR request_no = ?) AND patient_id = ?", id, reqNo, patientID).First(&req).Error
+	} else {
+		err = repository.DB.Where("request_no = ? AND patient_id = ?", reqNo, patientID).First(&req).Error
+	}
+
+	if err != nil {
+		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "未找到待确认的加急访问申请记录"})
+		return
+	}
+
+	if req.Status == "APPROVED" {
+		c.JSON(http.StatusOK, model.Response{Code: 200, Message: "该申请已确认同意授权", Data: req})
+		return
+	}
+
+	// 自动颁发生效授权策略
+	now := time.Now()
+	startTime := now
+	endTime := now.Add(24 * time.Hour)
+	authNo := fmt.Sprintf("AUTH%s%04d", now.Format("20060102150405"), req.ID%10000)
+
+	txID, _, _ := blockchain.DefaultService.CommitAsset("AUTHORIZATION", authNo, map[string]interface{}{
+		"auth_no":     authNo,
+		"patient_id":  patientID,
+		"target_type": "DOCTOR",
+		"target_id":   req.DoctorID,
+		"scope":       req.ScopeType,
+		"record_id":   req.RecordID,
+		"status":      "ACTIVE",
+		"timestamp":   now.Format(time.RFC3339),
+	})
+
+	auth := model.Authorization{
+		AuthNo:         authNo,
+		PatientID:      patientID,
+		AuthTargetType: "DOCTOR",
+		AuthTargetID:   req.DoctorID,
+		ScopeType:      req.ScopeType,
+		RecordID:       req.RecordID,
+		StartTime:      startTime,
+		EndTime:        endTime,
+		Status:         "ACTIVE",
+		FabricTxID:     txID,
+		CreatedAt:      now,
+	}
+	repository.DB.Create(&auth)
+
+	req.Status = "APPROVED"
+	req.Decision = "ALLOWED"
+	repository.DB.Save(&req)
+
+	if service.DefaultAuditService != nil {
+		service.DefaultAuditService.Log(patientID, "APPROVE_CONSENT", "AUTH", authNo, 0, "SUCCESS", "LOW", c.ClientIP())
+	}
+
+	// SSE 实时推送到医生工作台
+	sse.Default.Publish(req.DoctorID, sse.NotifyEvent{
+		Type:    "request_approved",
+		Title:   "加急访问申请已获患者确认同意",
+		Message: fmt.Sprintf("申请单 %s 已获患者在线核准同意，临时调阅凭据已生效并在区块链存证", req.RequestNo),
+		Payload: map[string]interface{}{
+			"request_id": req.ID,
+			"request_no": req.RequestNo,
+			"auth_no":    authNo,
+			"record_id":  req.RecordID,
+		},
+	})
+
+	c.JSON(http.StatusOK, model.Response{
+		Code:    200,
+		Message: "患者已在线确认同意加急访问，授权凭证已在区块链存证激活",
+		Data:    auth,
+	})
+}
+
+// EmergencyFeedback 患者对 Break-Glass 紧急访问的知情确认或投诉异议反馈接口
+func (ctrl *NotificationController) EmergencyFeedback(c *gin.Context) {
+	DefaultAccessController.PatientFeedback(c)
+}
+
+// ListNotifications 获取当前用户的实时通知/待办事项列表 (GET /api/v1/notifications)
+func (ctrl *NotificationController) ListNotifications(c *gin.Context) {
+	userID := c.GetUint64("user_id")
+	userRole := c.GetString("role")
+
+	var list []map[string]interface{}
+
+	if userRole == "patient" {
+		var reqs []model.AccessRequest
+		repository.DB.Where("patient_id = ? AND status = 'PENDING'", userID).Order("id desc").Limit(10).Find(&reqs)
+		for _, r := range reqs {
+			list = append(list, map[string]interface{}{
+				"id":         r.ID,
+				"type":       "access_request",
+				"title":      "待确认的加急访问申请",
+				"message":    fmt.Sprintf("医生发起了关于就诊记录 #%d 的跨院调阅申请，等待您的确认", r.RecordID),
+				"created_at": r.CreatedAt,
+				"payload":    r,
+			})
+		}
+
+		var emgs []model.EmergencyAccessEvent
+		repository.DB.Where("patient_id = ? AND patient_feedback = 'PENDING'", userID).Order("id desc").Limit(10).Find(&emgs)
+		for _, e := range emgs {
+			list = append(list, map[string]interface{}{
+				"id":         e.ID,
+				"type":       "break_glass_alert",
+				"title":      "紧急救治调阅事后知情通知",
+				"message":    fmt.Sprintf("您的就诊记录发生紧急破窗调阅（原因：%s），请核实并提供反馈", e.EmergencyReason),
+				"created_at": e.CreatedAt,
+				"payload":    e,
+			})
+		}
+	}
+
+	c.JSON(http.StatusOK, model.Response{
+		Code:    200,
+		Message: "获取通知列表成功",
+		Data:    list,
+	})
+}
+

@@ -7,7 +7,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -68,12 +67,17 @@ func initE2EEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("加载配置文件失败: %v", err)
 	}
-	_, err = repository.InitDB()
+	db, err := repository.InitDB()
 	if err != nil {
 		t.Fatalf("初始化数据库失败: %v", err)
 	}
+	repository.SeedInitialData(db)
 
-	blockchain.InitBlockchainService("../data/fabric_ledger", blockchain.FabricGatewayConfig{
+	tempDir := t.TempDir()
+	ledgerDir := filepath.Join(tempDir, "fabric_ledger")
+	ipfsDir := filepath.Join(tempDir, "ipfs_storage")
+
+	blockchain.InitBlockchainService(ledgerDir, blockchain.FabricGatewayConfig{
 		Mode:         "mock", // 单测统一使用 mock 稳定仿真
 		Enabled:      false,
 		PeerEndpoint: cfg.Blockchain.Fabric.PeerEndpoint,
@@ -85,8 +89,9 @@ func initE2EEnvironment(t *testing.T) {
 		CertPath:     cfg.Blockchain.Fabric.CertPath,
 		KeyPath:      cfg.Blockchain.Fabric.KeyPath,
 	})
-	service.InitMedicalService(cfg.IPFS.APIURL, "../data/ipfs_storage")
+	service.InitMedicalService("mock", cfg.IPFS.APIURL, ipfsDir)
 	service.InitAccessEngine(cfg.Risk.LowThreshold, cfg.Risk.HighThreshold)
+	service.EnsureBaselineLedgerAnchored()
 }
 
 // TestE2E_AcceptanceFlow 执行 updatev1.txt 第九节要求的全部 6 项核心验收测试用例
@@ -187,8 +192,7 @@ func TestE2E_AcceptanceFlow(t *testing.T) {
 		}
 
 		// 检查本地 ipfs_storage/ 下的文件内容确系密文，严禁包含明文字符串
-		ipfsFilePath := filepath.Join("../data/ipfs_storage", ipfsCID)
-		diskCipher, readErr := os.ReadFile(ipfsFilePath)
+		diskCipher, readErr := service.DefaultMedicalService.GetIPFSService().Cat(ipfsCID)
 		if readErr != nil {
 			t.Fatalf("读取 IPFS 存储密文文件失败: %v", readErr)
 		}
@@ -444,4 +448,51 @@ func TestE2E_AcceptanceFlow(t *testing.T) {
 
 		t.Logf("✅ Test 6 通过：AI Agent 严格受限于 Go 后端 Single Gatekeeper 安全守门人边界")
 	})
+
+	// -------------------------------------------------------------
+	// Test 7: 种子病历预置真实加密与 100% 动态防篡改核验通过
+	// 针对系统初始化的 3 份种子病历 (REC20250501001, REC20250502002, REC20250503003) 逐一执行闭环验真
+	// -------------------------------------------------------------
+	t.Run("Test7_SeedMedicalRecordsIntegrity100Percent", func(t *testing.T) {
+		rSup := buildE2ETestEngine(supZhao.ID, "supervisor", "sup_zhao")
+		seedNos := []string{"REC20250501001", "REC20250502002", "REC20250503003"}
+
+		for _, recNo := range seedNos {
+			var rec model.MedicalRecord
+			if err := repository.DB.Where("record_no = ?", recNo).First(&rec).Error; err != nil {
+				t.Fatalf("未找到种子病历 %s: %v", recNo, err)
+			}
+
+			reqVer := httptest.NewRequest("POST", fmt.Sprintf("/api/v1/verification/%d", rec.ID), nil)
+			wVer := httptest.NewRecorder()
+			rSup.ServeHTTP(wVer, reqVer)
+
+			if wVer.Code != http.StatusOK {
+				t.Fatalf("种子病历 %s 核验请求失败: status=%d, body=%s", recNo, wVer.Code, wVer.Body.String())
+			}
+
+			var verResp struct {
+				Code int `json:"code"`
+				Data struct {
+					Verified bool                            `json:"verified"`
+					Stages   []service.VerificationStageItem `json:"stages"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(wVer.Body.Bytes(), &verResp); err != nil {
+				t.Fatalf("解析核验响应失败 %s: %v", recNo, err)
+			}
+
+			if !verResp.Data.Verified {
+				t.Fatalf("种子病历 %s 初始状态验真未通过 (报哈希不匹配或篡改): %s", recNo, wVer.Body.String())
+			}
+
+			for _, st := range verResp.Data.Stages {
+				if !st.Passed {
+					t.Fatalf("种子病历 %s 阶段 [%s] 核验未通过: local=%s, chain=%s", recNo, st.StageName, st.LocalVal, st.ChainVal)
+				}
+			}
+			t.Logf("✅ 种子病历 %s 三阶段动态验真全部 100%% 通过", recNo)
+		}
+	})
 }
+

@@ -53,24 +53,48 @@ type UpdateStatusReq struct {
 }
 
 func (ctrl *SystemController) UpdateUserStatus(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	paramID := c.Param("id")
+	id, _ := strconv.ParseUint(paramID, 10, 64)
 	var req UpdateStatusReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "参数错误"})
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "参数错误: 缺少或无效的 status 字段"})
+		return
+	}
+
+	status := strings.ToUpper(strings.TrimSpace(req.Status))
+	if status != "NORMAL" && status != "RESTRICTED" && status != "DISABLED" {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "状态值无效，仅支持 NORMAL, RESTRICTED, DISABLED"})
 		return
 	}
 
 	var u model.User
-	if err := repository.DB.First(&u, id).Error; err != nil {
+	var err error
+	if id > 0 {
+		err = repository.DB.First(&u, id).Error
+	} else {
+		err = repository.DB.Where("user_no = ? OR username = ?", paramID, paramID).First(&u).Error
+	}
+	if err != nil {
 		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "用户不存在"})
 		return
 	}
 
-	u.Status = req.Status
-	repository.DB.Model(&model.User{}).Where("id = ?", id).Update("status", req.Status)
+	u.Status = status
+	repository.DB.Model(&model.User{}).Where("id = ?", u.ID).Update("status", status)
 
-	service.DefaultAuditService.Log(c.GetUint64("user_id"), "UPDATE_USER", "USER", u.UserNo, u.HospitalID, "SUCCESS", "LOW", c.ClientIP())
-	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "账号状态变更成功"})
+	if service.DefaultAuditService != nil {
+		service.DefaultAuditService.Log(c.GetUint64("user_id"), "UPDATE_USER_STATUS", "USER", u.UserNo, u.HospitalID, "SUCCESS", "LOW", c.ClientIP())
+	}
+	c.JSON(http.StatusOK, model.Response{
+		Code:    200,
+		Message: fmt.Sprintf("用户 %s 账号状态已成功变更为 %s", u.Username, status),
+		Data: gin.H{
+			"id":       u.ID,
+			"user_no":  u.UserNo,
+			"username": u.Username,
+			"status":   status,
+		},
+	})
 }
 
 type CreateUserDTO struct {

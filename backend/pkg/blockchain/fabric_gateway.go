@@ -389,6 +389,10 @@ func (s *FabricGatewayService) CommitAsset(assetType, assetID string, payload ma
 	log.Printf("[FabricGateway] ✅ 交易已成功上链: TxID=%s, BlockHeight=%d, Contract=%s, Method=%s",
 		txID, height, s.cfg.ChaincodeID, methodName)
 
+	if TxRecorder != nil {
+		TxRecorder(assetType, assetID, txID, height, s.cfg.ChannelID, s.cfg.ChaincodeID, "VALID")
+	}
+
 	return txID, height, nil
 }
 

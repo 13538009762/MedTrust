@@ -139,6 +139,10 @@ func (l *MockLedgerService) CommitAsset(assetType, assetID string, payload map[s
 	l.stateStore[assetID] = string(payloadBytes)
 	l.persist()
 
+	if TxRecorder != nil {
+		TxRecorder(assetType, assetID, txID, l.currentHeight, "medchannel", "medical_contract", "VALID")
+	}
+
 	return txID, l.currentHeight, nil
 }
 

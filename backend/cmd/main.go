@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"medtrust-backend/config"
+	"medtrust-backend/model"
 	"medtrust-backend/pkg/blockchain"
 	"medtrust-backend/repository"
 	"medtrust-backend/router"
@@ -17,14 +19,34 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// 初始化数据库
-	_, err = repository.InitDB()
+	// 1. 初始化数据库与自动迁移
+	db, err := repository.InitDB()
 	if err != nil {
 		log.Fatalf("Failed to init DB: %v", err)
 	}
 	fmt.Println("[MedTrust] MySQL Database Connected & AutoMigrated Successfully")
 
-	// 初始化区块链与 IPFS 服务
+	// 显式执行标准测试种子数据注入
+	repository.SeedInitialData(db)
+
+	// 注册区块链底层存证交易与本地数据双写记录器 (支持论文 4.3.2 节 blockchain_transactions)
+	blockchain.TxRecorder = func(bType, bID, txID string, blockNo uint64, channel, cc, status string) {
+		if repository.DB != nil {
+			rec := model.BlockchainTransaction{
+				BusinessType:  bType,
+				BusinessID:    bID,
+				TxID:          txID,
+				BlockNo:       blockNo,
+				ChannelName:   channel,
+				ChaincodeName: cc,
+				Status:        status,
+				CreatedAt:     time.Now(),
+			}
+			_ = repository.DB.Create(&rec).Error
+		}
+	}
+
+	// 2. 双模驱动初始化 (Blockchain: Fabric Live vs. Local Mock, IPFS: Kubo Live vs. Local Mock)
 	blockchain.InitBlockchainService(cfg.Blockchain.LedgerDir, blockchain.FabricGatewayConfig{
 		Mode:         cfg.Blockchain.Mode,
 		Enabled:      cfg.Blockchain.Fabric.Enabled,
@@ -37,7 +59,7 @@ func main() {
 		CertPath:     cfg.Blockchain.Fabric.CertPath,
 		KeyPath:      cfg.Blockchain.Fabric.KeyPath,
 	})
-	service.InitMedicalService(cfg.IPFS.APIURL, cfg.IPFS.StorageDir)
+	service.InitMedicalService(cfg.IPFS.Mode, cfg.IPFS.APIURL, cfg.IPFS.StorageDir)
 	service.InitAccessEngine(cfg.Risk.LowThreshold, cfg.Risk.HighThreshold)
 	service.StartAccessRequestCleanup()
 	go service.EnsureBaselineLedgerAnchored()

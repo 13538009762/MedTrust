@@ -1,10 +1,7 @@
 import re
 from typing import Dict, Any
 from tools import (
-    tool_query_medical_records,
-    tool_query_authorizations,
-    tool_verify_integrity,
-    tool_query_audit_logs,
+    ControlledMedicalTools,
     extract_jwt_claims,
     is_tool_allowed_for_role,
 )
@@ -33,7 +30,7 @@ class MedTrustAgent:
     3. 严格受到 Go 端 RBAC 角色过滤、ABAC 环境属性判定、患者知情授权与 RiskEngine 规则引擎审查
     4. 严守红线原则：严禁做出自动疾病诊断、处方推荐、自动授权或越权审批
     5. 工具调用前严格实施角色-工具白名单准入控制与参数模式校验
-    6. 输出结果全面执行敏感信息过滤脱敏
+    6. 输出结果全面执行敏感信息过滤脱敏与审计链路跟踪 (tool_trace)
     """
     def __init__(self):
         pass
@@ -43,6 +40,9 @@ class MedTrustAgent:
         msg_lower = msg.lower()
         tool_called = None
         tool_result = None
+
+        # 实例化受控医疗工具集 (注入当前调用者 Bearer Token)
+        tools = ControlledMedicalTools(token)
 
         # 0.0 解析 JWT 提取调用者身份角色与上下文
         claims = extract_jwt_claims(token)
@@ -77,7 +77,8 @@ class MedTrustAgent:
                         "MedTrust 受控智能体架构已实施端到端安全边界加固，该异常交互已被拦截并阻断。"
                     ),
                     "tool_called": "BLOCKED_BY_INJECTION_SHIELD",
-                    "tool_status": "INTERCEPTED"
+                    "tool_status": "INTERCEPTED",
+                    "tool_trace": tools.trace_logs
                 }
 
         # 0.2 安全合规红线拦截：自动处方、自动确诊与自动授权越权行为坚决阻断
@@ -90,7 +91,8 @@ class MedTrustAgent:
                     "临床诊断与用药方案必须由合法执业医师在医生工作台当面查体评估后下达。"
                 ),
                 "tool_called": "BLOCKED_BY_SAFETY_GUARDRAIL",
-                "tool_status": "INTERCEPTED"
+                "tool_status": "INTERCEPTED",
+                "tool_trace": tools.trace_logs
             }
 
         # 1. 动态防篡改完整性核验
@@ -100,15 +102,16 @@ class MedTrustAgent:
                 return {
                     "reply": f"【角色权限拦截 (403 Forbidden)】当前角色「{user_role}」在受控智能体策略中无权调用防篡改核验工具（仅医生与监管员可用）。",
                     "tool_called": tool_name,
-                    "tool_status": "INTERCEPTED"
+                    "tool_status": "INTERCEPTED",
+                    "tool_trace": tools.trace_logs
                 }
 
             rec_id = 1
             m = re.search(r'(\d+)', msg)
             if m:
                 rec_id = int(m.group(1))
-            tool_called = f"{tool_name}(record_id={rec_id})"
-            tool_result = tool_verify_integrity(token, record_id=rec_id)
+            tool_called = f"verify_record_integrity(record_id={rec_id})"
+            tool_result = tools.verify_record_integrity(rec_id)
             if tool_result.get("code") == 200:
                 v = tool_result.get("data", {})
                 is_verified = v.get("verified", False)
@@ -131,7 +134,8 @@ class MedTrustAgent:
                 return {
                     "reply": f"【角色权限拦截 (403 Forbidden)】当前角色「{user_role}」在受控智能体策略中无权调用审计日志工具。",
                     "tool_called": tool_name,
-                    "tool_status": "INTERCEPTED"
+                    "tool_status": "INTERCEPTED",
+                    "tool_trace": tools.trace_logs
                 }
 
             risk_level = ""
@@ -142,8 +146,8 @@ class MedTrustAgent:
             elif "低风险" in msg or "low" in msg_lower:
                 risk_level = "LOW"
 
-            tool_called = f"{tool_name}(risk_level='{risk_level}')"
-            tool_result = tool_query_audit_logs(token, risk_level=risk_level)
+            tool_called = f"analyze_audit_anomalies(risk_level='{risk_level}')"
+            tool_result = tools.analyze_audit_anomalies(risk_level=risk_level or "HIGH")
             if tool_result.get("code") == 200:
                 logs = tool_result.get("data", [])
                 if not logs:
@@ -167,11 +171,12 @@ class MedTrustAgent:
                 return {
                     "reply": f"【角色权限拦截 (403 Forbidden)】当前角色「{user_role}」在受控智能体策略中无权调用授权策略查询工具（仅患者本人可用）。",
                     "tool_called": tool_name,
-                    "tool_status": "INTERCEPTED"
+                    "tool_status": "INTERCEPTED",
+                    "tool_trace": tools.trace_logs
                 }
 
-            tool_called = f"{tool_name}()"
-            tool_result = tool_query_authorizations(token)
+            tool_called = "query_my_authorizations()"
+            tool_result = tools.query_my_authorizations()
             if tool_result.get("code") == 200:
                 auths = tool_result.get("data", [])
                 if not auths:
@@ -194,7 +199,8 @@ class MedTrustAgent:
                 return {
                     "reply": f"【角色权限拦截 (403 Forbidden)】当前角色「{user_role}」在受控智能体策略中无权直接检索临床病历。",
                     "tool_called": tool_name,
-                    "tool_status": "INTERCEPTED"
+                    "tool_status": "INTERCEPTED",
+                    "tool_trace": tools.trace_logs
                 }
 
             # 动态抽取患者姓名或业务单号
@@ -226,11 +232,12 @@ class MedTrustAgent:
                         "以便系统准确定位档案，并在 Go 统一安全网关校验您的调阅权限与知情同意策略。"
                     ),
                     "tool_called": "NEED_PARAMETER",
-                    "tool_status": "PROMPT_USER"
+                    "tool_status": "PROMPT_USER",
+                    "tool_trace": tools.trace_logs
                 }
 
-            tool_called = f"{tool_name}(keyword='{keyword}')"
-            tool_result = tool_query_medical_records(token, keyword=keyword)
+            tool_called = f"query_patient_records(keyword='{keyword}')"
+            tool_result = tools.query_patient_records(keyword=keyword)
 
             if tool_result.get("code") == 200:
                 records = tool_result.get("data", [])
@@ -265,8 +272,10 @@ class MedTrustAgent:
 
         sanitized_reply = sanitize_agent_output(reply)
 
+        status = "EXECUTED" if (tool_called and tool_called != "NEED_PARAMETER") else "SKIPPED"
         return {
             "reply": sanitized_reply,
             "tool_called": tool_called,
-            "tool_status": "SUCCESS" if tool_result and tool_result.get("code") == 200 else ("INTERCEPTED" if tool_result and tool_result.get("code") == 403 else "SKIPPED")
+            "tool_status": status,
+            "tool_trace": tools.trace_logs
         }

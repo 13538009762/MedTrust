@@ -93,5 +93,39 @@ class TestAIAgentSecurity(unittest.TestCase):
         self.assertEqual(validate_risk_level("high"), "HIGH")
         self.assertEqual(validate_risk_level("unknown"), "")
 
+    def test_controlled_medical_tools_execution_and_trace(self):
+        """测试受控工具执行链路与审计追踪日志(tool_trace)输出"""
+        # 1. 医生查询病历 -> 触发 tool_query_medical_records
+        res_doc = self.agent.run("查询患者李雷的病历", self.doctor_token)
+        self.assertTrue(res_doc["tool_called"].startswith("query_patient_records"))
+        self.assertEqual(res_doc["tool_status"], "EXECUTED")
+        self.assertIn("tool_trace", res_doc)
+        self.assertTrue(len(res_doc["tool_trace"]) > 0)
+        trace_item = res_doc["tool_trace"][0]
+        self.assertEqual(trace_item["tool"], "query_patient_records")
+        self.assertIn("endpoint", trace_item)
+        self.assertIn("auth_check", trace_item)
+
+        # 2. 患者查询授权策略 -> 触发 tool_query_authorizations
+        res_pat = self.agent.run("查看我的授权策略列表", self.patient_token)
+        self.assertTrue(res_pat["tool_called"].startswith("query_my_authorizations"))
+        self.assertEqual(res_pat["tool_status"], "EXECUTED")
+        self.assertTrue(len(res_pat["tool_trace"]) > 0)
+        self.assertEqual(res_pat["tool_trace"][0]["tool"], "query_my_authorizations")
+
+        # 3. 监管员查询高风险告警 -> 触发 tool_query_audit_logs
+        res_sup = self.agent.run("查询高风险安全告警", self.supervisor_token)
+        self.assertTrue(res_sup["tool_called"].startswith("analyze_audit_anomalies"))
+        self.assertEqual(res_sup["tool_status"], "EXECUTED")
+        self.assertTrue(len(res_sup["tool_trace"]) > 0)
+        self.assertEqual(res_sup["tool_trace"][0]["tool"], "analyze_audit_anomalies")
+
+        # 4. 医生核验数据完整性 -> 触发 tool_verify_integrity
+        res_verify = self.agent.run("核验病历1的数据真实完整性", self.doctor_token)
+        self.assertTrue(res_verify["tool_called"].startswith("verify_record_integrity"))
+        self.assertEqual(res_verify["tool_status"], "EXECUTED")
+        self.assertTrue(len(res_verify["tool_trace"]) > 0)
+        self.assertEqual(res_verify["tool_trace"][0]["tool"], "verify_record_integrity")
+
 if __name__ == "__main__":
     unittest.main()

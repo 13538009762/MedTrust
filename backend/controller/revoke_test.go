@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -51,6 +52,7 @@ func TestRevocationConsistency_FabricFailureAndIdempotency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InitDB failed: %v", err)
 	}
+	blockchain.InitBlockchainService(filepath.Join(t.TempDir(), "ledger_data"), blockchain.FabricGatewayConfig{Mode: "mock"})
 
 	// 1. 创建测试患者
 	patient := model.User{
@@ -292,7 +294,7 @@ func (c *countedBlockchainService) CommitAsset(assetType, assetID string, payloa
 func TestRevocation_100GoroutinesConcurrency(t *testing.T) {
 	_, _ = config.LoadConfig("../config/config.yaml")
 	_, _ = repository.InitDB()
-	blockchain.InitBlockchainService("../ledger_data", blockchain.FabricGatewayConfig{Mode: "local"})
+	blockchain.InitBlockchainService(filepath.Join(t.TempDir(), "ledger_data"), blockchain.FabricGatewayConfig{Mode: "mock"})
 
 	origBC := blockchain.DefaultService
 	mockBC := &countedBlockchainService{
@@ -378,7 +380,7 @@ func TestRevocation_100GoroutinesConcurrency(t *testing.T) {
 func TestRevocation_FabricSuccessDbFailure_Reconciliation(t *testing.T) {
 	_, _ = config.LoadConfig("../config/config.yaml")
 	_, _ = repository.InitDB()
-	blockchain.InitBlockchainService("../ledger_data", blockchain.FabricGatewayConfig{Mode: "local"})
+	blockchain.InitBlockchainService(filepath.Join(t.TempDir(), "ledger_data"), blockchain.FabricGatewayConfig{Mode: "mock"})
 
 	patient := model.User{
 		UserNo:   fmt.Sprintf("PAT_RECON_%d", time.Now().UnixNano()),
@@ -494,13 +496,13 @@ func setupMedicalFullRouter(userID uint64, role string, hospID uint64) *gin.Engi
 func TestMedicalData_AccessEngineUnifiedCoverage(t *testing.T) {
 	_, _ = config.LoadConfig("../config/config.yaml")
 	_, _ = repository.InitDB()
-	blockchain.InitBlockchainService("../ledger_data", blockchain.FabricGatewayConfig{Mode: "local"})
+	blockchain.InitBlockchainService(filepath.Join(t.TempDir(), "ledger_data"), blockchain.FabricGatewayConfig{Mode: "mock"})
 	service.InitAccessEngine(20, 60)
 	service.GetInfectionService()
 
 	// 1. 创建机构与测试用户
-	hospA := model.Hospital{Name: "医院A"}
-	hospB := model.Hospital{Name: "医院B"}
+	hospA := model.Hospital{HospitalNo: fmt.Sprintf("HOSP_A_%d", time.Now().UnixNano()), Name: "医院A"}
+	hospB := model.Hospital{HospitalNo: fmt.Sprintf("HOSP_B_%d", time.Now().UnixNano()+1), Name: "医院B"}
 	repository.DB.Create(&hospA)
 	repository.DB.Create(&hospB)
 	defer repository.DB.Delete(&hospA)
