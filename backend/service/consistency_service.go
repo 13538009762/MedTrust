@@ -222,7 +222,7 @@ func (s *ConsistencyService) CreateRecordWithConsistency(p UploadRecordParams, i
 		})
 		uploadIP := p.ClientIP
 		if uploadIP == "" {
-			uploadIP = "127.0.0.1"
+			uploadIP = "SYSTEM_INTERNAL"
 		}
 		DefaultAuditService.Log(p.DoctorID, "UPLOAD", "RECORD", recordNo, doc.HospitalID, "SUCCESS", "LOW", uploadIP)
 	}

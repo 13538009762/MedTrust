@@ -85,12 +85,12 @@ func cryptoRandInt(max int) int {
 }
 
 func (s *AuthService) Login(username, password string) (string, *model.User, error) {
-	return s.LoginWithContext(username, password, "127.0.0.1", "Internal")
+	return s.LoginWithContext(username, password, "SYSTEM_INTERNAL", "Internal")
 }
 
 func (s *AuthService) LoginWithContext(username, password, clientIP, userAgent string) (string, *model.User, error) {
 	if clientIP == "" {
-		clientIP = "127.0.0.1"
+		clientIP = "UNKNOWN"
 	}
 	if userAgent == "" {
 		userAgent = "Unknown"
@@ -281,12 +281,12 @@ func (s *AuthService) GetProfile(userID uint64) (*model.User, error) {
 }
 
 func (s *AuthService) RegisterPatient(username, password, realName, idCard, phone string) (*model.User, error) {
-	return s.RegisterPatientWithContext(username, password, realName, idCard, phone, "127.0.0.1", "Internal")
+	return s.RegisterPatientWithContext(username, password, realName, idCard, phone, "SYSTEM_INTERNAL", "Internal")
 }
 
 func (s *AuthService) RegisterPatientWithContext(username, password, realName, idCard, phone, clientIP, userAgent string) (*model.User, error) {
 	if clientIP == "" {
-		clientIP = "127.0.0.1"
+		clientIP = "UNKNOWN"
 	}
 	if userAgent == "" {
 		userAgent = "Unknown"
@@ -357,12 +357,12 @@ func (s *AuthService) RegisterPatientWithContext(username, password, realName, i
 
 // UpdateProfile 修改个人基本信息（真实姓名、手机号、身份证号、职称）
 func (s *AuthService) UpdateProfile(userID uint64, realName, phone, idCard, title string) (*model.User, error) {
-	return s.UpdateProfileWithContext(userID, realName, phone, idCard, title, "127.0.0.1", "Internal")
+	return s.UpdateProfileWithContext(userID, realName, phone, idCard, title, "SYSTEM_INTERNAL", "Internal")
 }
 
 func (s *AuthService) UpdateProfileWithContext(userID uint64, realName, phone, idCard, title, clientIP, userAgent string) (*model.User, error) {
 	if clientIP == "" {
-		clientIP = "127.0.0.1"
+		clientIP = "UNKNOWN"
 	}
 	if userAgent == "" {
 		userAgent = "Unknown"
@@ -432,12 +432,12 @@ func (s *AuthService) UpdateProfileWithContext(userID uint64, realName, phone, i
 
 // ChangePassword 用户自主修改登录密码
 func (s *AuthService) ChangePassword(userID uint64, oldPassword, newPassword string) error {
-	return s.ChangePasswordWithContext(userID, oldPassword, newPassword, "127.0.0.1", "Internal")
+	return s.ChangePasswordWithContext(userID, oldPassword, newPassword, "SYSTEM_INTERNAL", "Internal")
 }
 
 func (s *AuthService) ChangePasswordWithContext(userID uint64, oldPassword, newPassword, clientIP, userAgent string) error {
 	if clientIP == "" {
-		clientIP = "127.0.0.1"
+		clientIP = "UNKNOWN"
 	}
 	if userAgent == "" {
 		userAgent = "Unknown"
@@ -502,12 +502,12 @@ func (s *AuthService) ChangePasswordWithContext(userID uint64, oldPassword, newP
 
 // UpdateMedicalKey 用户/患者修改跨院病历调阅专属密钥（用于现场调阅即时授权解锁）
 func (s *AuthService) UpdateMedicalKey(userID uint64, oldKey, newKey string) error {
-	return s.UpdateMedicalKeyWithContext(userID, oldKey, newKey, "127.0.0.1", "Internal")
+	return s.UpdateMedicalKeyWithContext(userID, oldKey, newKey, "SYSTEM_INTERNAL", "Internal")
 }
 
 func (s *AuthService) UpdateMedicalKeyWithContext(userID uint64, oldKey, newKey, clientIP, userAgent string) error {
 	if clientIP == "" {
-		clientIP = "127.0.0.1"
+		clientIP = "UNKNOWN"
 	}
 	if userAgent == "" {
 		userAgent = "Unknown"

@@ -17,7 +17,7 @@ var DefaultEmergencyService = &EmergencyService{}
 
 // SubmitEmergencyAccess 提交 Break-Glass 紧急访问申请并直接生成事件上链
 func (s *EmergencyService) SubmitEmergencyAccess(doctorID, recordID uint64, reason, desc string, confirmed bool, clientIP ...string) (*model.EmergencyAccessEvent, error) {
-	ip := "127.0.0.1"
+	ip := "SYSTEM_INTERNAL"
 	if len(clientIP) > 0 && clientIP[0] != "" {
 		ip = clientIP[0]
 	}
@@ -97,7 +97,7 @@ func (s *EmergencyService) SubmitEmergencyAccess(doctorID, recordID uint64, reas
 
 // SubmitPatientFeedback 患者对紧急调阅做出知情确认或投诉
 func (s *EmergencyService) SubmitPatientFeedback(patientID uint64, eventNo, feedback, comment string, clientIP ...string) error {
-	ip := "127.0.0.1"
+	ip := "SYSTEM_INTERNAL"
 	if len(clientIP) > 0 && clientIP[0] != "" {
 		ip = clientIP[0]
 	}
@@ -112,7 +112,9 @@ func (s *EmergencyService) SubmitPatientFeedback(patientID uint64, eventNo, feed
 		event.Description = fmt.Sprintf("%s | [患者反馈: %s]", event.Description, comment)
 	}
 	event.UpdatedAt = time.Now()
-	repository.DB.Save(&event)
+	if err := repository.DB.Save(&event).Error; err != nil {
+		return fmt.Errorf("更新事件反馈失败: %w", err)
+	}
 
 	DefaultAuditService.Log(patientID, "FEEDBACK", "EVENT", eventNo, event.TargetHospitalID, "SUCCESS", "LOW", ip)
 	return nil
@@ -120,7 +122,7 @@ func (s *EmergencyService) SubmitPatientFeedback(patientID uint64, eventNo, feed
 
 // AuditEvent 监管人员执行审核裁决并执行阶梯式惩戒
 func (s *EmergencyService) AuditEvent(supervisorID uint64, eventNo, auditStatus, comment, punishment string, clientIP ...string) error {
-	ip := "127.0.0.1"
+	ip := "SYSTEM_INTERNAL"
 	if len(clientIP) > 0 && clientIP[0] != "" {
 		ip = clientIP[0]
 	}
@@ -134,7 +136,9 @@ func (s *EmergencyService) AuditEvent(supervisorID uint64, eventNo, auditStatus,
 	event.SupervisorID = supervisorID
 	event.AuditComment = comment
 	event.UpdatedAt = time.Now()
-	repository.DB.Save(&event)
+	if err := repository.DB.Save(&event).Error; err != nil {
+		return fmt.Errorf("保存审核结果失败: %w", err)
+	}
 
 	// 更新 Fabric 链上状态
 	_, _, _ = blockchain.DefaultService.CommitAsset("EMERGENCY_AUDIT", eventNo, map[string]interface{}{
@@ -148,7 +152,7 @@ func (s *EmergencyService) AuditEvent(supervisorID uint64, eventNo, auditStatus,
 
 	// 执行惩戒联动 (NORMAL, RESTRICTED, DISABLED)
 	if punishment != "" && punishment != "NORMAL" {
-		repository.DB.Model(&model.User{}).Where("id = ?", event.DoctorID).Update("status", punishment)
+		_ = repository.DB.Model(&model.User{}).Where("id = ?", event.DoctorID).Update("status", punishment).Error
 	}
 
 	DefaultAuditService.Log(supervisorID, "AUDIT_CLOSE", "EVENT", eventNo, 0, "SUCCESS", "LOW", ip)
@@ -157,7 +161,7 @@ func (s *EmergencyService) AuditEvent(supervisorID uint64, eventNo, auditStatus,
 
 // LiftDoctorRestriction 监管人员一键解除对医生的处罚限制，恢复正常执业状态
 func (s *EmergencyService) LiftDoctorRestriction(supervisorID, doctorID uint64, comment string, clientIP ...string) error {
-	ip := "127.0.0.1"
+	ip := "SYSTEM_INTERNAL"
 	if len(clientIP) > 0 && clientIP[0] != "" {
 		ip = clientIP[0]
 	}

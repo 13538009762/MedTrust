@@ -153,36 +153,30 @@ func (ctrl *MedicalController) GetByID(c *gin.Context) {
 	currentUserID := c.GetUint64("user_id")
 	role := c.GetString("role")
 
-	if role == "patient" {
-		if rec.PatientID != currentUserID {
-			c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "无权查阅非本人的病历档案"})
-			return
-		}
-	} else if role == "doctor" {
-		decision, err := service.DefaultAccessEngine.Evaluate(service.AccessRequest{
-			UserID:      currentUserID,
-			Role:        role,
-			PatientID:   rec.PatientID,
-			RecordID:    rec.ID,
-			Action:      "READ",
-			Purpose:     "DIAGNOSIS",
-			Source:      c.GetHeader("X-Source"),
-			IPAddress:   c.ClientIP(),
-			UserAgent:   c.Request.UserAgent(),
-			IsEmergency: false,
+	// 统一由 DefaultAccessEngine.Evaluate 鉴权并进行风险与合规控制 (RBAC + ABAC + 患者授权 + IDOR 防御)
+	decision, err := service.DefaultAccessEngine.Evaluate(service.AccessRequest{
+		UserID:      currentUserID,
+		Role:        role,
+		PatientID:   rec.PatientID,
+		RecordID:    rec.ID,
+		Action:      "READ",
+		Purpose:     "DIAGNOSIS",
+		Source:      c.GetHeader("X-Source"),
+		IPAddress:   c.ClientIP(),
+		UserAgent:   c.Request.UserAgent(),
+		IsEmergency: false,
+	})
+	if err != nil || !decision.Allowed {
+		c.JSON(http.StatusForbidden, model.Response{
+			Code:    403,
+			Message: fmt.Sprintf("调阅权限拦截 (403 Forbidden): %s", decision.Reason),
+			Data:    decision,
 		})
-		if err != nil || !decision.Allowed {
-			c.JSON(http.StatusForbidden, model.Response{
-				Code:    403,
-				Message: fmt.Sprintf("调阅权限拦截 (403 Forbidden): %s", decision.Reason),
-				Data:    decision,
-			})
-			return
-		}
-		service.DefaultAccessEngine.RecordSuccessfulAccess(currentUserID, rec.PatientID)
-	} else if role == "admin" {
-		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "系统管理员角色无权直接查阅患者临床诊疗机密"})
 		return
+	}
+
+	if role == "doctor" {
+		service.DefaultAccessEngine.RecordSuccessfulAccess(currentUserID, rec.PatientID)
 	} else if role == "supervisor" {
 		// 监管人员进行治理与审计核验，执行严格字段脱敏，分离治理权限与医疗数据查阅权限
 		rec.Diagnosis = "【监管审计脱敏屏蔽】"
@@ -212,36 +206,30 @@ func (ctrl *MedicalController) Download(c *gin.Context) {
 	currentUserID := c.GetUint64("user_id")
 	role := c.GetString("role")
 
-	if role == "patient" {
-		if rec.PatientID != currentUserID {
-			c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "无权下载非本人的就诊凭据"})
-			return
-		}
-	} else if role == "doctor" {
-		decision, err := service.DefaultAccessEngine.Evaluate(service.AccessRequest{
-			UserID:      currentUserID,
-			Role:        role,
-			PatientID:   rec.PatientID,
-			RecordID:    rec.ID,
-			Action:      "DOWNLOAD",
-			Purpose:     "EVIDENCE_EXPORT",
-			Source:      c.GetHeader("X-Source"),
-			IPAddress:   c.ClientIP(),
-			UserAgent:   c.Request.UserAgent(),
-			IsEmergency: false,
+	// 统一由 DefaultAccessEngine.Evaluate 鉴权 (针对 patient 校验 IDOR，针对 admin/supervisor 校验下载禁令，针对 doctor 校验授权与风控)
+	decision, err := service.DefaultAccessEngine.Evaluate(service.AccessRequest{
+		UserID:      currentUserID,
+		Role:        role,
+		PatientID:   rec.PatientID,
+		RecordID:    rec.ID,
+		Action:      "DOWNLOAD",
+		Purpose:     "EVIDENCE_EXPORT",
+		Source:      c.GetHeader("X-Source"),
+		IPAddress:   c.ClientIP(),
+		UserAgent:   c.Request.UserAgent(),
+		IsEmergency: false,
+	})
+	if err != nil || !decision.Allowed {
+		c.JSON(http.StatusForbidden, model.Response{
+			Code:    403,
+			Message: fmt.Sprintf("凭据下载拦截 (403 Forbidden): %s", decision.Reason),
+			Data:    decision,
 		})
-		if err != nil || !decision.Allowed {
-			c.JSON(http.StatusForbidden, model.Response{
-				Code:    403,
-				Message: fmt.Sprintf("凭据下载拦截 (403 Forbidden): %s", decision.Reason),
-				Data:    decision,
-			})
-			return
-		}
-		service.DefaultAccessEngine.RecordSuccessfulAccess(currentUserID, rec.PatientID)
-	} else if role == "admin" || role == "supervisor" {
-		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "监管与管理人员无权直接下载临床诊疗凭据原件，请使用区块链完整性核验功能验证"})
 		return
+	}
+
+	if role == "doctor" {
+		service.DefaultAccessEngine.RecordSuccessfulAccess(currentUserID, rec.PatientID)
 	}
 
 	var pat model.User
@@ -533,31 +521,43 @@ func (ctrl *MedicalController) ViewMedicalFile(c *gin.Context) {
 		_ = repository.DB.First(&rec, file.RecordID)
 	}
 
-	// 统一访问控制鉴权 (RBAC + ABAC + 患者授权)
+	// 统一访问控制鉴权 (通过 DefaultAccessEngine.Evaluate 集中管控)
 	currentUserID := c.GetUint64("user_id")
 	role := c.GetString("role")
 
-	if role == "patient" {
-		if rec.PatientID > 0 && rec.PatientID != currentUserID {
-			c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "无权预览非本人的医疗附件及影像"})
+	if rec.ID > 0 {
+		decision, err := service.DefaultAccessEngine.Evaluate(service.AccessRequest{
+			UserID:      currentUserID,
+			Role:        role,
+			PatientID:   rec.PatientID,
+			RecordID:    rec.ID,
+			Action:      "VIEW",
+			Purpose:     "FILE_PREVIEW",
+			Source:      c.GetHeader("X-Source"),
+			IPAddress:   c.ClientIP(),
+			UserAgent:   c.Request.UserAgent(),
+			IsEmergency: false,
+		})
+		if err != nil || !decision.Allowed {
+			c.JSON(http.StatusForbidden, model.Response{
+				Code:    403,
+				Message: fmt.Sprintf("医疗附件调阅拦截 (403 Forbidden): %s", decision.Reason),
+				Data:    decision,
+			})
 			return
 		}
-	} else if role == "doctor" {
-		if rec.ID > 0 {
-			decision, err := service.DefaultAccessEngine.EvaluateAccess(currentUserID, rec.PatientID, rec.ID, false)
-			if err != nil || !decision.Allowed {
-				c.JSON(http.StatusForbidden, model.Response{
-					Code:    403,
-					Message: fmt.Sprintf("医疗附件调阅拦截 (403 Forbidden): %s", decision.Reason),
-					Data:    decision,
-				})
-				return
-			}
-			service.DefaultAccessEngine.RecordSuccessfulAccess(currentUserID, rec.PatientID)
-		}
-	} else if role == "admin" || role == "supervisor" {
+	} else if role == "patient" {
+		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "无法关联所属病历记录"})
+		return
+	}
+
+	if role == "admin" || role == "supervisor" {
 		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "系统管理员与监管人员角色无权直接查阅临床医疗影像及附件原始数据"})
 		return
+	}
+
+	if role == "doctor" {
+		service.DefaultAccessEngine.RecordSuccessfulAccess(currentUserID, rec.PatientID)
 	}
 
 	// 1. 优先从 IPFS 分布式节点拉取 AES-256-GCM 密文并在内存动态解密
@@ -613,27 +613,35 @@ func (ctrl *MedicalController) DownloadMedicalFile(c *gin.Context) {
 	currentUserID := c.GetUint64("user_id")
 	role := c.GetString("role")
 
-	if role == "patient" {
-		if rec.PatientID > 0 && rec.PatientID != currentUserID {
-			c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "无权下载非本人的医疗附件及影像"})
+	// 统一访问控制鉴权 (通过 DefaultAccessEngine.Evaluate 集中管控)
+	if rec.ID > 0 {
+		decision, err := service.DefaultAccessEngine.Evaluate(service.AccessRequest{
+			UserID:      currentUserID,
+			Role:        role,
+			PatientID:   rec.PatientID,
+			RecordID:    rec.ID,
+			Action:      "DOWNLOAD",
+			Purpose:     "FILE_DOWNLOAD",
+			Source:      c.GetHeader("X-Source"),
+			IPAddress:   c.ClientIP(),
+			UserAgent:   c.Request.UserAgent(),
+			IsEmergency: false,
+		})
+		if err != nil || !decision.Allowed {
+			c.JSON(http.StatusForbidden, model.Response{
+				Code:    403,
+				Message: fmt.Sprintf("医疗附件下载拦截 (403 Forbidden): %s", decision.Reason),
+				Data:    decision,
+			})
 			return
 		}
-	} else if role == "doctor" {
-		if rec.ID > 0 {
-			decision, err := service.DefaultAccessEngine.EvaluateAccess(currentUserID, rec.PatientID, rec.ID, false)
-			if err != nil || !decision.Allowed {
-				c.JSON(http.StatusForbidden, model.Response{
-					Code:    403,
-					Message: fmt.Sprintf("医疗附件下载拦截 (403 Forbidden): %s", decision.Reason),
-					Data:    decision,
-				})
-				return
-			}
-			service.DefaultAccessEngine.RecordSuccessfulAccess(currentUserID, rec.PatientID)
-		}
-	} else if role == "admin" || role == "supervisor" {
-		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "系统管理员与监管人员角色无权直接下载临床医疗影像及附件原始数据"})
+	} else if role == "patient" {
+		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "无法关联所属病历记录"})
 		return
+	}
+
+	if role == "doctor" {
+		service.DefaultAccessEngine.RecordSuccessfulAccess(currentUserID, rec.PatientID)
 	}
 
 	if file.IPFSCID != "" {
@@ -752,23 +760,28 @@ func (ctrl *MedicalController) GetRecordInfectionRisks(c *gin.Context) {
 	currentUserID := c.GetUint64("user_id")
 	role := c.GetString("role")
 
-	if role == "patient" {
-		if rec.PatientID != currentUserID {
-			c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "无权查看非本人的传染病风险分析"})
-			return
-		}
-	} else if role == "doctor" {
-		decision, err := service.DefaultAccessEngine.EvaluateAccess(currentUserID, rec.PatientID, rec.ID, false)
-		if err != nil || !decision.Allowed {
-			c.JSON(http.StatusForbidden, model.Response{
-				Code:    403,
-				Message: fmt.Sprintf("权限拦截 (403 Forbidden): %s", decision.Reason),
-			})
-			return
-		}
-	} else if role == "admin" {
-		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "系统管理员无权查看患者临床传染病档案"})
+	decision, err := service.DefaultAccessEngine.Evaluate(service.AccessRequest{
+		UserID:      currentUserID,
+		Role:        role,
+		PatientID:   rec.PatientID,
+		RecordID:    rec.ID,
+		Action:      "READ",
+		Purpose:     "INFECTION_ALERT",
+		Source:      c.GetHeader("X-Source"),
+		IPAddress:   c.ClientIP(),
+		UserAgent:   c.Request.UserAgent(),
+		IsEmergency: false,
+	})
+	if err != nil || !decision.Allowed {
+		c.JSON(http.StatusForbidden, model.Response{
+			Code:    403,
+			Message: fmt.Sprintf("权限拦截 (403 Forbidden): %s", decision.Reason),
+		})
 		return
+	}
+
+	if role == "doctor" {
+		service.DefaultAccessEngine.RecordSuccessfulAccess(currentUserID, rec.PatientID)
 	}
 
 	alert, err := service.GetInfectionService().AnalyzeRecordRisks(recordID)

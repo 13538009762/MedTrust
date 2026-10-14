@@ -80,8 +80,14 @@ func SetupRouter() *gin.Engine {
 			authGroup.POST("/medical-records/:id/access-policy", middleware.RequireRoles("patient"), controller.DefaultAccessController.SetRecordAccessPolicy)
 			authGroup.POST("/medical-records/batch-access-policy", middleware.RequireRoles("patient"), controller.DefaultAccessController.BatchSetAccessPolicy)
 
+			// 实时通知模块 (SSE 长连接推送，所有登录用户均可建立长连接)
+			authGroup.GET("/notifications/stream", controller.DefaultNotificationController.Stream)
+
 			// 监管看板模块
 			authGroup.GET("/supervisor/overview", middleware.RequireRoles("supervisor", "admin"), controller.DefaultSupervisorController.Overview)
+			authGroup.GET("/supervisor/access-heatmap", middleware.RequireRoles("supervisor", "admin"), controller.DefaultSupervisorController.AccessHeatmap)
+			authGroup.GET("/supervisor/hospital-flow", middleware.RequireRoles("supervisor", "admin"), controller.DefaultSupervisorController.HospitalFlow)
+			authGroup.GET("/supervisor/auth-funnel", middleware.RequireRoles("supervisor", "admin"), controller.DefaultSupervisorController.AuthFunnel)
 			authGroup.GET("/supervisor/emergency-events", middleware.RequireRoles("supervisor", "admin", "patient"), controller.DefaultSupervisorController.ListEmergencyEvents)
 			authGroup.POST("/supervisor/emergency-events/:event_no/audit", middleware.RequireRoles("supervisor"), controller.DefaultSupervisorController.AuditEmergencyEvent)
 			authGroup.GET("/audit-logs", middleware.RequireRoles("supervisor", "admin", "patient"), controller.DefaultSupervisorController.ListAuditLogs)

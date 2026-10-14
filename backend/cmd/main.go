@@ -39,6 +39,7 @@ func main() {
 	})
 	service.InitMedicalService(cfg.IPFS.APIURL, cfg.IPFS.StorageDir)
 	service.InitAccessEngine(cfg.Risk.LowThreshold, cfg.Risk.HighThreshold)
+	service.StartAccessRequestCleanup()
 	go service.EnsureBaselineLedgerAnchored()
 	fmt.Println("[MedTrust] Fabric Ledger & IPFS Engine Initialized with Baseline Assets")
 

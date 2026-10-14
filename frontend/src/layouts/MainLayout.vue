@@ -157,6 +157,14 @@
             </div>
           </el-tooltip>
 
+          <!-- 实时消息通知信道状态微件 (SSE 长连接) -->
+          <el-tooltip :content="isSSEConnected ? 'SSE 实时双向业务通知通道已在线' : 'SSE 通知通道正在重连中...'" placement="bottom">
+            <div class="header-sse-badge" :class="isSSEConnected ? 'sse-online' : 'sse-offline'">
+              <span class="sse-pulse-dot" :class="isSSEConnected ? 'dot-green' : 'dot-amber'"></span>
+              <span class="sse-badge-text">{{ isSSEConnected ? '实时推送在线' : '推送连接中' }}</span>
+            </div>
+          </el-tooltip>
+
           <!-- 角色标签 -->
           <el-tag
             :type="getRoleTagType(auth.user?.role)"
@@ -215,6 +223,7 @@ import { useAuthStore } from '../stores/auth'
 import AiAssistantDialog from '../components/AiAssistantDialog.vue'
 import DefenseDemoGuideModal from '../components/DefenseDemoGuideModal.vue'
 import api from '../api/client'
+import { useSSE } from '../composables/useSSE'
 
 const defenseModalVisible = ref(false)
 const isCollapse = ref(false)
@@ -222,6 +231,8 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const pendingCount = ref(0)
+
+const { isConnected: isSSEConnected, connect: connectSSE, disconnect: disconnectSSE, addEventListener: addSSEListener } = useSSE()
 
 interface BlockchainStatus {
   mode: string
@@ -309,11 +320,28 @@ async function checkPendingConsent() {
 onMounted(() => {
   checkPendingConsent()
   fetchChainStatus()
+
+  // 启动 SSE 实时业务通知通道
+  const token = sessionStorage.getItem('token') || (auth as any).token
+  if (token) {
+    connectSSE(token)
+  }
+
+  // 注册全局事件监听器：当收到新的调阅申请时，实时刷新待处理徽章
+  addSSEListener((event) => {
+    if (event.type === 'access_request' && auth.user?.role === 'patient') {
+      checkPendingConsent()
+    }
+  })
 })
 
 watch(() => route.path, () => {
   checkPendingConsent()
   fetchChainStatus()
+  const token = sessionStorage.getItem('token') || (auth as any).token
+  if (token && !isSSEConnected.value) {
+    connectSSE(token)
+  }
 })
 
 function getRoleTagType(role?: string) {
@@ -333,6 +361,7 @@ function getRoleName(role?: string) {
 }
 
 function onLogout() {
+  disconnectSSE()
   auth.logout()
   router.push('/login')
 }
@@ -513,6 +542,33 @@ function onLogout() {
   padding: 1px 6px;
   border-radius: 10px;
   background: rgba(0, 0, 0, 0.06);
+}
+
+.header-sse-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  user-select: none;
+  transition: all 0.2s ease;
+}
+.sse-online {
+  background: rgba(59, 130, 246, 0.08);
+  color: #2563eb;
+  border: 1px solid rgba(59, 130, 246, 0.25);
+}
+.sse-offline {
+  background: rgba(148, 163, 184, 0.1);
+  color: #64748b;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+.sse-pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
 }
 
 @keyframes pulse-green {

@@ -208,7 +208,7 @@ func (s *MedicalService) UploadRecord(p UploadRecordParams) (*model.MedicalRecor
 	// 严格遵循链下密文存储规范，服务端本地磁盘零明文落地，数据均以 AES-256-GCM 密文托管于 IPFS
 	uploadIP := p.ClientIP
 	if uploadIP == "" {
-		uploadIP = "127.0.0.1"
+		uploadIP = "SYSTEM_INTERNAL"
 	}
 	DefaultAuditService.Log(p.DoctorID, "UPLOAD", "RECORD", recordNo, doc.HospitalID, "SUCCESS", "LOW", uploadIP)
 	return &record, nil
@@ -247,6 +247,16 @@ func (s *MedicalService) VerifyRecord(r *model.MedicalRecord) {
 		if err := repository.DB.Where("record_id = ?", r.ID).Order("id asc").Find(&files).Error; err == nil {
 			r.Files = files
 		}
+	}
+
+	if blockchain.DefaultService == nil {
+		currentHash := ComputeRecordHash(r)
+		r.CurrentHash = currentHash
+		r.Verified = false
+		r.IsTampered = true
+		r.ChainHash = ""
+		r.TamperReason = "【区块链安全告警】区块链存证服务未就绪，无法比对账本指纹"
+		return
 	}
 
 	chainData, exists := blockchain.DefaultService.QueryAsset(r.RecordNo)

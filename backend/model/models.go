@@ -244,7 +244,7 @@ type Authorization struct {
 	RecordID       uint64    `gorm:"default:0" json:"record_id"`
 	StartTime      time.Time `json:"start_time"`
 	EndTime        time.Time `json:"end_time"`
-	Status         string    `gorm:"size:20;default:'ACTIVE';index:idx_patient_target" json:"status"` // ACTIVE, REVOKED, REVOKE_PENDING, FABRIC_REVOKED, REVOKE_FAILED
+	Status         string    `gorm:"size:32;default:'ACTIVE';index:idx_patient_target" json:"status"` // ACTIVE, REVOKED, REVOKE_PENDING, FABRIC_REVOKED, REVOKE_FAILED, NEEDS_RECONCILIATION
 	FabricTxID     string    `gorm:"size:128;default:''" json:"fabric_tx_id"`
 	RevokeTxID     string    `gorm:"size:128;default:''" json:"revoke_tx_id,omitempty"`
 	RevokeError    string    `gorm:"size:255;default:''" json:"revoke_error,omitempty"`
@@ -279,6 +279,7 @@ type AccessRequest struct {
 	Status           string    `gorm:"size:20;default:'PENDING'" json:"status"` // PENDING, APPROVED, REJECTED
 	ScopeType        string    `gorm:"size:20;default:'SINGLE'" json:"scope_type"` // SINGLE, ALL
 	Days             int       `gorm:"default:7" json:"days"`
+	ExpireAt         time.Time `gorm:"index" json:"expire_at"`
 	CreatedAt        time.Time `json:"created_at"`
 
 	// 辅助展示

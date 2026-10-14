@@ -696,12 +696,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Plus, View, Download, Printer, WarningFilled, CircleCheckFilled, Key, Hide } from '@element-plus/icons-vue'
 import { ElMessage, ElNotification } from 'element-plus'
 import api from '../../api/client'
 import { useAuthStore } from '../../stores/auth'
+import { useSSE } from '../../composables/useSSE'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -911,9 +912,26 @@ function openSelectedRecordDetail() {
   }
 }
 
+const { addEventListener: addSSEListener } = useSSE()
+let removeSSEListener: (() => void) | null = null
+
 onMounted(() => {
   loadAuths()
   loadPending()
+
+  // 监听实时 SSE 通知：收到医生新的申请时，无感自动刷新待审批卡片列表
+  removeSSEListener = addSSEListener((event) => {
+    if (event.type === 'access_request') {
+      loadPending()
+    }
+  })
+})
+
+onUnmounted(() => {
+  if (removeSSEListener) {
+    removeSSEListener()
+    removeSSEListener = null
+  }
 })
 
 async function loadPending() {

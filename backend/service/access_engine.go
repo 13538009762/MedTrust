@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -110,10 +111,20 @@ func (e *AccessEngine) GetRiskEngine() *risk.RiskEngine {
 
 // Evaluate 执行统一的访问控制与动态风控综合评估决策流水线 (RBAC + ABAC + Consent + Risk + Break-Glass + Audit)
 func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, err error) {
+	if e == nil {
+		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "访问控制引擎未初始化"}, errors.New("access engine is nil")
+	}
+	if repository.DB == nil {
+		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "底层数据库未初始化"}, errors.New("database connection is nil")
+	}
+
 	var user model.User
 	var record model.MedicalRecord
 
 	defer func() {
+		if decision != nil && decision.Decision == "REQUIRE_SUPERVISOR_APPROVAL" {
+			decision.Allowed = false
+		}
 		if decision != nil && req.UserID > 0 && DefaultAuditService != nil {
 			source := req.Source
 			if source == "" {
@@ -121,7 +132,11 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 			}
 			ip := req.IPAddress
 			if ip == "" {
-				ip = "127.0.0.1"
+				if req.Source == "SYSTEM" || req.Source == "INTERNAL" || req.Source == "CRON" {
+					ip = "SYSTEM_INTERNAL"
+				} else {
+					ip = "UNKNOWN"
+				}
 			}
 			resStr := "ALLOWED"
 			if !decision.Allowed {
@@ -223,7 +238,7 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 		// 监管员调阅详情由上层执行脱敏屏蔽
 		return &AccessDecision{
 			Allowed:        true,
-			Decision:       "REQUIRE_SUPERVISOR_APPROVAL",
+			Decision:       "ALLOWED",
 			Reason:         "监管审计治理调阅核验通过（临床数据需脱敏）",
 			RiskEvaluation: risk.RiskEvaluation{Level: "LOW", TotalScore: 5},
 		}, nil
@@ -446,6 +461,9 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 
 // EvaluateAccess 执行统一的权限与紧急访问评估流水线 (兼容旧版调用入口)
 func (e *AccessEngine) EvaluateAccess(doctorID, patientID, recordID uint64, isEmergency bool) (*AccessDecision, error) {
+	if e == nil {
+		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "访问控制引擎未初始化"}, errors.New("access engine is nil")
+	}
 	return e.Evaluate(AccessRequest{
 		UserID:      doctorID,
 		Role:        "doctor",
@@ -458,7 +476,8 @@ func (e *AccessEngine) EvaluateAccess(doctorID, patientID, recordID uint64, isEm
 
 // RecordSuccessfulAccess 记录一次真实且成功的病历调阅行为至时间窗口
 func (e *AccessEngine) RecordSuccessfulAccess(doctorID, patientID uint64) {
-	if e.riskEngine != nil {
-		e.riskEngine.RecordSuccessfulAccess(doctorID, patientID)
+	if e == nil || e.riskEngine == nil {
+		return
 	}
+	e.riskEngine.RecordSuccessfulAccess(doctorID, patientID)
 }
