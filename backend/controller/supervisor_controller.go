@@ -156,8 +156,10 @@ func (ctrl *SupervisorController) ListEmergencyEvents(c *gin.Context) {
 }
 
 type AuditEmergencyRequest struct {
-	AuditStatus  string `json:"audit_status" binding:"required"` // CLOSED_APPROVED, UNDER_INVESTIGATION, CLOSED_VIOLATION
+	AuditStatus  string `json:"audit_status"`
+	Decision     string `json:"decision"`
 	AuditComment string `json:"audit_comment"`
+	Comment      string `json:"comment"`
 	Punishment   string `json:"punishment"` // NORMAL, RESTRICTED, DISABLED
 }
 
@@ -171,7 +173,25 @@ func (ctrl *SupervisorController) AuditEmergencyEvent(c *gin.Context) {
 		return
 	}
 
-	if err := service.DefaultEmergencyService.AuditEvent(supervisorID, eventNo, req.AuditStatus, req.AuditComment, req.Punishment, c.ClientIP()); err != nil {
+	status := req.AuditStatus
+	if status == "" {
+		status = req.Decision
+	}
+	comment := req.AuditComment
+	if comment == "" {
+		comment = req.Comment
+	}
+	if status == "" {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "缺少审核裁决状态 (audit_status 或 decision)"})
+		return
+	}
+
+	punishment := req.Punishment
+	if punishment == "" && status == "CLOSED_VIOLATION" {
+		punishment = "RESTRICTED"
+	}
+
+	if err := service.DefaultEmergencyService.AuditEvent(supervisorID, eventNo, status, comment, punishment, c.ClientIP()); err != nil {
 		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: err.Error()})
 		return
 	}

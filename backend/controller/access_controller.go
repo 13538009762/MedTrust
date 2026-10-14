@@ -53,6 +53,7 @@ func (ctrl *AccessController) RequestAccess(c *gin.Context) {
 	_, _ = rand.Read(randBytes)
 	reqNo := fmt.Sprintf("REQ%s%s", time.Now().Format("20060102"), hex.EncodeToString(randBytes))
 
+	now := time.Now()
 	accessRec := model.AccessRequest{
 		RequestNo:        reqNo,
 		DoctorID:         doctorID,
@@ -64,7 +65,11 @@ func (ctrl *AccessController) RequestAccess(c *gin.Context) {
 		RiskScore:        decision.RiskEvaluation.TotalScore,
 		RiskLevel:        decision.RiskEvaluation.Level,
 		Decision:         decision.Decision,
-		CreatedAt:        time.Now(),
+		Status:           "PENDING",
+		ScopeType:        "SINGLE",
+		Days:             7,
+		ExpireAt:         now.Add(24 * time.Hour),
+		CreatedAt:        now,
 	}
 	repository.DB.Create(&accessRec)
 
@@ -74,6 +79,15 @@ func (ctrl *AccessController) RequestAccess(c *gin.Context) {
 		}
 		return "INTERCEPTED"
 	}(), decision.RiskEvaluation.Level, c.ClientIP())
+
+	if !decision.Allowed {
+		c.JSON(http.StatusForbidden, model.Response{
+			Code:    403,
+			Message: decision.Reason,
+			Data:    decision,
+		})
+		return
+	}
 
 	c.JSON(http.StatusOK, model.Response{
 		Code:    200,
@@ -588,17 +602,34 @@ func (ctrl *AccessController) RejectRequest(c *gin.Context) {
 }
 
 type BreakGlassRequest struct {
-	RecordID        uint64 `json:"record_id" binding:"required"`
-	EmergencyReason string `json:"emergency_reason" binding:"required"` // RESCUE, COMA, CRITICAL, OTHER
-	Description     string `json:"description" binding:"required"`
-	DoctorConfirmed bool   `json:"doctor_confirmed" binding:"required"`
+	RecordID        uint64      `json:"record_id"`
+	EmergencyReason string      `json:"emergency_reason"` // RESCUE, COMA, CRITICAL, OTHER
+	Description     string      `json:"description"`
+	DoctorConfirmed interface{} `json:"doctor_confirmed"`
 }
 
 // BreakGlass 医生发起紧急抢救调阅
 func (ctrl *AccessController) BreakGlass(c *gin.Context) {
 	doctorID := c.GetUint64("user_id")
 	var req BreakGlassRequest
-	if err := c.ShouldBindJSON(&req); err != nil || !req.DoctorConfirmed {
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "必须如实填写抢救说明并勾选临床法律责任免责声明"})
+		return
+	}
+
+	isConfirmed := false
+	switch v := req.DoctorConfirmed.(type) {
+	case bool:
+		isConfirmed = v
+	case float64:
+		isConfirmed = (v == 1)
+	case int:
+		isConfirmed = (v == 1)
+	case string:
+		isConfirmed = (v == "1" || strings.EqualFold(v, "true"))
+	}
+
+	if !isConfirmed || req.RecordID == 0 || req.EmergencyReason == "" || len([]rune(req.Description)) < 10 {
 		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "必须如实填写抢救说明并勾选临床法律责任免责声明"})
 		return
 	}
@@ -617,7 +648,7 @@ func (ctrl *AccessController) BreakGlass(c *gin.Context) {
 	}
 
 	// 生成事件单并上链
-	event, err := service.DefaultEmergencyService.SubmitEmergencyAccess(doctorID, req.RecordID, req.EmergencyReason, req.Description, req.DoctorConfirmed, c.ClientIP())
+	event, err := service.DefaultEmergencyService.SubmitEmergencyAccess(doctorID, req.RecordID, req.EmergencyReason, req.Description, isConfirmed, c.ClientIP())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: err.Error()})
 		return
@@ -642,15 +673,33 @@ func (ctrl *AccessController) BreakGlass(c *gin.Context) {
 		Code:    200,
 		Message: "紧急访问申请已核准放行，生成待审核事件单并全量存证",
 		Data: gin.H{
-			"event":  event,
-			"record": fullRecord,
+			"id":                 event.ID,
+			"event_no":           event.EventNo,
+			"doctor_id":          event.DoctorID,
+			"patient_id":         event.PatientID,
+			"record_id":          event.RecordID,
+			"source_hospital_id": event.SourceHospitalID,
+			"target_hospital_id": event.TargetHospitalID,
+			"emergency_reason":   event.EmergencyReason,
+			"description":        event.Description,
+			"doctor_confirmed":   event.DoctorConfirmed,
+			"patient_feedback":   event.PatientFeedback,
+			"patient_comment":    event.PatientComment,
+			"audit_status":       event.AuditStatus,
+			"supervisor_id":      event.SupervisorID,
+			"audit_comment":      event.AuditComment,
+			"fabric_tx_id":       event.FabricTxID,
+			"created_at":         event.CreatedAt,
+			"updated_at":         event.UpdatedAt,
+			"event":              event,
+			"record":             fullRecord,
 		},
 	})
 }
 
 type PatientFeedbackRequest struct {
-	EventNo  string `json:"event_no" binding:"required"`
-	Feedback string `json:"feedback" binding:"required"` // CONFIRMED, OBJECTED
+	EventNo  string `json:"event_no"`
+	Feedback string `json:"feedback"` // CONFIRMED, OBJECTED
 	Comment  string `json:"comment"`
 }
 
@@ -658,7 +707,15 @@ func (ctrl *AccessController) PatientFeedback(c *gin.Context) {
 	patientID := c.GetUint64("user_id")
 	var req PatientFeedbackRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "参数错误"})
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "参数错误: " + err.Error()})
+		return
+	}
+
+	if req.EventNo == "" {
+		req.EventNo = c.Param("event_no")
+	}
+	if req.EventNo == "" || req.Feedback == "" {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "参数错误：缺少事件单号或反馈意见"})
 		return
 	}
 

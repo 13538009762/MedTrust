@@ -99,6 +99,46 @@ func TestCalculateSHA256(t *testing.T) {
 	}
 }
 
+func TestEncryptDecryptMedicalFile_Success(t *testing.T) {
+	masterKey := []byte("12345678901234567890123456789012") // 32 bytes
+	plain := []byte("信封加密测试：患者心电图检查结论正常。")
+	patientID := uint64(1005)
+	recordNo := "REC20260901001"
+
+	cipherData, encDEK, ivNonce, hash, err := EncryptMedicalFile(plain, patientID, recordNo, masterKey)
+	if err != nil {
+		t.Fatalf("信封加密失败: %v", err)
+	}
+
+	if encDEK == "" || ivNonce == "" || hash == "" {
+		t.Fatalf("加密元数据不完整: dek=%s, iv=%s, hash=%s", encDEK, ivNonce, hash)
+	}
+
+	decrypted, err := DecryptMedicalFile(cipherData, encDEK, ivNonce, patientID, recordNo, masterKey)
+	if err != nil {
+		t.Fatalf("信封解密失败: %v", err)
+	}
+
+	if !bytes.Equal(decrypted, plain) {
+		t.Fatalf("解密后明文不一致: got %s, want %s", string(decrypted), string(plain))
+	}
+
+	// 测试 AAD 不一致防篡改 (更换 patientID)
+	_, err = DecryptMedicalFile(cipherData, encDEK, ivNonce, uint64(9999), recordNo, masterKey)
+	if err == nil {
+		t.Fatalf("预期 AAD patientID 不一致时解密报错，但未报错")
+	}
+
+	// 测试密文被篡改 1 字节
+	tamperedCipher := make([]byte, len(cipherData))
+	copy(tamperedCipher, cipherData)
+	tamperedCipher[len(tamperedCipher)-1] ^= 0x01
+	_, err = DecryptMedicalFile(tamperedCipher, encDEK, ivNonce, patientID, recordNo, masterKey)
+	if err == nil {
+		t.Fatalf("预期密文篡改后解密报错，但未报错")
+	}
+}
+
 func BenchmarkEncryptRecordFile(b *testing.B) {
 	data := bytes.Repeat([]byte("A"), 1024*64) // 64KB 典型结构化病历与检验报告
 	patientID := uint64(2001)

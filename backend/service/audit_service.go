@@ -45,22 +45,41 @@ func (s *AuditService) Log(userID uint64, opType, targetType, targetID string, h
 }
 
 func (s *AuditService) LogDetailed(entry AuditEntry) {
-	go func() {
-		uuidBytes := make([]byte, 8)
-		_, _ = rand.Read(uuidBytes)
-		logID := fmt.Sprintf("LOG-%s-%d", hex.EncodeToString(uuidBytes), time.Now().Unix())
+	uuidBytes := make([]byte, 8)
+	_, _ = rand.Read(uuidBytes)
+	logID := fmt.Sprintf("LOG-%s-%d", hex.EncodeToString(uuidBytes), time.Now().UnixNano())
 
-		if entry.Source == "" {
-			entry.Source = "WEB"
-		}
-		if entry.RiskLevel == "" {
-			entry.RiskLevel = "LOW"
-		}
+	if entry.Source == "" {
+		entry.Source = "WEB"
+	}
+	if entry.RiskLevel == "" {
+		entry.RiskLevel = "LOW"
+	}
 
-		// 上链存证
-		var txID string
+	log := model.AuditLog{
+		LogID:         logID,
+		UserID:        entry.UserID,
+		OperationType: entry.OperationType,
+		TargetType:    entry.TargetType,
+		TargetID:      entry.TargetID,
+		HospitalID:    entry.HospitalID,
+		Result:        entry.Result,
+		RiskLevel:     entry.RiskLevel,
+		RiskScore:     entry.RiskScore,
+		Source:        entry.Source,
+		Reason:        entry.Reason,
+		IPAddress:     entry.IPAddress,
+		UserAgent:     entry.UserAgent,
+		CreatedAt:     time.Now(),
+	}
+	if repository.DB != nil {
+		repository.DB.Create(&log)
+	}
+
+	// 区块链存证异步推进并回填 fabric_tx_id
+	go func(logRecordID uint64, lID string) {
 		if blockchain.DefaultService != nil {
-			txID, _, _ = blockchain.DefaultService.CommitAsset("AUDIT", logID, map[string]interface{}{
+			txID, _, _ := blockchain.DefaultService.CommitAsset("AUDIT", lID, map[string]interface{}{
 				"user_id":     entry.UserID,
 				"op_type":     entry.OperationType,
 				"target_type": entry.TargetType,
@@ -73,27 +92,9 @@ func (s *AuditService) LogDetailed(entry AuditEntry) {
 				"reason":      entry.Reason,
 				"timestamp":   time.Now().Format(time.RFC3339),
 			})
+			if txID != "" && repository.DB != nil {
+				repository.DB.Model(&model.AuditLog{}).Where("id = ?", logRecordID).Update("fabric_tx_id", txID)
+			}
 		}
-
-		log := model.AuditLog{
-			LogID:         logID,
-			UserID:        entry.UserID,
-			OperationType: entry.OperationType,
-			TargetType:    entry.TargetType,
-			TargetID:      entry.TargetID,
-			HospitalID:    entry.HospitalID,
-			Result:        entry.Result,
-			RiskLevel:     entry.RiskLevel,
-			RiskScore:     entry.RiskScore,
-			Source:        entry.Source,
-			Reason:        entry.Reason,
-			IPAddress:     entry.IPAddress,
-			UserAgent:     entry.UserAgent,
-			FabricTxID:    txID,
-			CreatedAt:     time.Now(),
-		}
-		if repository.DB != nil {
-			repository.DB.Create(&log)
-		}
-	}()
+	}(log.ID, logID)
 }

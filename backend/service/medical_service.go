@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"medtrust-backend/config"
 	"medtrust-backend/model"
 	"medtrust-backend/pkg/blockchain"
 	"medtrust-backend/pkg/crypto"
@@ -18,7 +19,7 @@ import (
 )
 
 type MedicalService struct {
-	ipfsService *ipfs.IPFSService
+	ipfsService ipfs.IPFSService
 }
 
 var DefaultMedicalService *MedicalService
@@ -29,7 +30,7 @@ func InitMedicalService(apiURL, storageDir string) {
 	}
 }
 
-func (s *MedicalService) GetIPFSService() *ipfs.IPFSService {
+func (s *MedicalService) GetIPFSService() ipfs.IPFSService {
 	if s == nil || s.ipfsService == nil {
 		return ipfs.NewIPFSService("http://127.0.0.1:5001", "./ipfs_storage")
 	}
@@ -125,16 +126,17 @@ func (s *MedicalService) UploadRecord(p UploadRecordParams) (*model.MedicalRecor
 		p.FileType = "pdf"
 	}
 
-	// 2. 使用 AES-256-GCM 流式加密原始明文，绑定 AAD (患者ID:病历编号)，生成 SHA-256 指纹
-	pack, fileHash, err := crypto.EncryptRecordFile(p.FileData, p.PatientID, recordNo)
+	// 2. 使用 AES-256-GCM 信封加密原始明文，绑定 AAD (patient:ID|record:NO)，生成 SHA-256 指纹
+	masterKey := config.AppConfig.GetAESMasterKey()
+	cipherData, encDEK, ivNonce, fileHash, err := crypto.EncryptMedicalFile(p.FileData, p.PatientID, recordNo, masterKey)
 	if err != nil {
 		return nil, fmt.Errorf("AES-256-GCM 加密失败: %w", err)
 	}
-	clinicalHash := crypto.CalculateSHA256([]byte(fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s",
+	clinicalHash := crypto.ComputeSHA256([]byte(fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s",
 		recordNo, p.DataType, p.OnsetTime, p.Duration, p.Symptoms, p.Etiology, p.TreatmentPlan, p.Diagnosis, fileHash)))
 
 	// 3. 密文存储至 IPFS 节点获取唯一 CID (严禁明文磁盘落地)
-	cid, err := s.ipfsService.PutData(pack)
+	cid, err := s.ipfsService.Add(cipherData)
 	if err != nil {
 		return nil, fmt.Errorf("IPFS 存储失败: %w", err)
 	}
@@ -193,13 +195,15 @@ func (s *MedicalService) UploadRecord(p UploadRecordParams) (*model.MedicalRecor
 	}
 
 	fileRecord := model.MedicalFile{
-		RecordID:  record.ID,
-		FileName:  p.FileName,
-		FileType:  p.FileType,
-		FileSize:  uint64(len(p.FileData)),
-		IPFSCID:   cid,
-		FileHash:  fileHash,
-		CreatedAt: time.Now(),
+		RecordID:     record.ID,
+		FileName:     p.FileName,
+		FileType:     p.FileType,
+		FileSize:     uint64(len(p.FileData)),
+		IPFSCID:      cid,
+		FileHash:     fileHash,
+		EncryptedDEK: encDEK,
+		IVNonce:      ivNonce,
+		CreatedAt:    time.Now(),
 	}
 	if err := repository.DB.Create(&fileRecord).Error; err != nil {
 		return nil, fmt.Errorf("保存病历附件记录失败: %w", err)

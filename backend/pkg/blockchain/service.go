@@ -54,6 +54,15 @@ type BlockchainService interface {
 	GetHistory(assetID string) ([]ChainRecord, error)
 	IsLiveFabric() bool
 	GetBlockchainStatus() BlockchainStatusDTO
+
+	// 高阶规范方法 (updatev1.txt Section 5.2)
+	CreateMedicalAsset(asset MedicalAssetPayload) (txID string, blockHeight uint64, err error)
+	QueryMedicalAsset(recordNo string) (*MedicalAssetPayload, error)
+	CreateAuthorizationRecord(auth AuthorizationPayload) (txID string, err error)
+	RevokeAuthorizationRecord(authNo string) (txID string, err error)
+	CreateEmergencyRecord(ev EmergencyPayload) (txID string, err error)
+	UpdateEmergencyStatus(eventNo string, newStatus string) (txID string, err error)
+	CreateAuditRecord(audit AuditPayload) (txID string, err error)
 }
 
 // DefaultService 全局单例区块链服务实例

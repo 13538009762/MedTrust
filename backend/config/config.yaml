@@ -8,6 +8,7 @@ database:
 
 # 分布式链下密文存储服务 (支持真实 IPFS 守护进程与 LocalStorageAdapter 容灾模式)
 ipfs:
+  mode: "live" # "live" 或 "mock"
   api_url: "http://127.0.0.1:5001" # IPFS RPC API 端点
   storage_dir: "./data/ipfs_storage" # 本地密文持久化存储与加速缓存目录
 
@@ -26,7 +27,8 @@ blockchain:
     cert_path: "./fabric_crypto/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp/signcerts/Admin@org1.example.com-cert.pem"
     key_path: "./fabric_crypto/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp/keystore"
 
-
+security:
+  aes_master_key: "MedTrustMasterKeyAES256GCM2026!" # 32-byte 主密钥
 
 risk:
   low_threshold: 30

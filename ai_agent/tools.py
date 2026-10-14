@@ -124,3 +124,89 @@ def tool_verify_integrity(token: str, record_id: int) -> Dict[str, Any]:
         return resp.json()
     except Exception as e:
         return {"code": 500, "message": f"调用后端核验接口失败: {str(e)}", "data": None}
+
+
+class ControlledMedicalTools:
+    """受控医疗工具集类 (严格按照 updatev1.txt 第七节规范实现，全程携带 JWT，记录审计轨迹)"""
+    def __init__(self, bearer_token: str):
+        self.headers = {
+            "Authorization": bearer_token if bearer_token.startswith("Bearer ") else f"Bearer {bearer_token}",
+            "Content-Type": "application/json",
+            "X-Source": "AI_AGENT"
+        }
+        self.trace_logs = []
+
+    def query_patient_records(self, patient_id: int = 0, data_type: str = "") -> Dict[str, Any]:
+        """受控工具1：查询当前登录用户有权查看的医疗记录列表"""
+        params = {}
+        if patient_id > 0:
+            params["patient_id"] = patient_id
+        if data_type:
+            params["data_type"] = data_type
+        try:
+            resp = requests.get(f"{GO_BACKEND_URL}/medical-records", headers=self.headers, params=params, timeout=10)
+            result = resp.json() if resp.status_code == 200 else {"code": resp.status_code, "message": "权限拦截"}
+            status_code = resp.status_code
+        except Exception as e:
+            result = {"code": 500, "message": str(e)}
+            status_code = 500
+        self.trace_logs.append({
+            "tool": "query_patient_records",
+            "endpoint": "GET /api/v1/medical-records",
+            "status_code": status_code,
+            "auth_check": "PASSED" if status_code == 200 else "INTERCEPTED_BY_GATEKEEPER"
+        })
+        return result
+
+    def query_my_authorizations(self, status: str = "") -> Dict[str, Any]:
+        """受控工具2：查询患者授权策略状态列表"""
+        params = {"status": status} if status else {}
+        try:
+            resp = requests.get(f"{GO_BACKEND_URL}/authorizations", headers=self.headers, params=params, timeout=10)
+            result = resp.json() if resp.status_code == 200 else {"code": resp.status_code, "message": "权限拦截"}
+            status_code = resp.status_code
+        except Exception as e:
+            result = {"code": 500, "message": str(e)}
+            status_code = 500
+        self.trace_logs.append({
+            "tool": "query_my_authorizations",
+            "endpoint": "GET /api/v1/authorizations",
+            "status_code": status_code,
+            "auth_check": "PASSED" if status_code == 200 else "INTERCEPTED_BY_GATEKEEPER"
+        })
+        return result
+
+    def verify_record_integrity(self, record_id: int) -> Dict[str, Any]:
+        """受控工具3：触发指定病历的 IPFS 链下密文与 Fabric 链上存证 Hash 动态完整性核验"""
+        try:
+            resp = requests.post(f"{GO_BACKEND_URL}/verification/{record_id}", headers=self.headers, timeout=10)
+            result = resp.json() if resp.status_code == 200 else {"code": resp.status_code, "message": "权限拦截"}
+            status_code = resp.status_code
+        except Exception as e:
+            result = {"code": 500, "message": str(e)}
+            status_code = 500
+        self.trace_logs.append({
+            "tool": "verify_record_integrity",
+            "endpoint": f"POST /api/v1/verification/{record_id}",
+            "status_code": status_code,
+            "auth_check": "PASSED" if status_code == 200 else "INTERCEPTED_BY_GATEKEEPER"
+        })
+        return result
+
+    def analyze_audit_anomalies(self, risk_level: str = "HIGH") -> Dict[str, Any]:
+        """受控工具4：检索访问审计日志与异常高风险行为记录（仅监管员/患者本人可用）"""
+        try:
+            resp = requests.get(f"{GO_BACKEND_URL}/audit-logs", headers=self.headers, params={"risk_level": risk_level}, timeout=10)
+            result = resp.json() if resp.status_code == 200 else {"code": resp.status_code, "message": "权限拦截"}
+            status_code = resp.status_code
+        except Exception as e:
+            result = {"code": 500, "message": str(e)}
+            status_code = 500
+        self.trace_logs.append({
+            "tool": "analyze_audit_anomalies",
+            "endpoint": "GET /api/v1/audit-logs",
+            "status_code": status_code,
+            "auth_check": "PASSED" if status_code == 200 else "INTERCEPTED_BY_GATEKEEPER"
+        })
+        return result
+

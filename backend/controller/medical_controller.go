@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"medtrust-backend/config"
 	"medtrust-backend/model"
 	"medtrust-backend/pkg/crypto"
 	"medtrust-backend/pkg/pdf"
@@ -563,9 +564,16 @@ func (ctrl *MedicalController) ViewMedicalFile(c *gin.Context) {
 	// 1. 优先从 IPFS 分布式节点拉取 AES-256-GCM 密文并在内存动态解密
 	if file.IPFSCID != "" {
 		if cipherPack, err := service.DefaultMedicalService.GetIPFSData(file.IPFSCID); err == nil && len(cipherPack) > 0 {
-			plainData, decErr := crypto.DecryptRecordFile(cipherPack, rec.PatientID, rec.RecordNo)
-			if decErr != nil && file.FileName != "" {
-				plainData, decErr = crypto.DecryptRecordFile(cipherPack, rec.PatientID, "")
+			var plainData []byte
+			var decErr error
+			if file.EncryptedDEK != "" && file.IVNonce != "" {
+				masterKey := config.AppConfig.GetAESMasterKey()
+				plainData, decErr = crypto.DecryptMedicalFile(cipherPack, file.EncryptedDEK, file.IVNonce, rec.PatientID, rec.RecordNo, masterKey)
+			} else {
+				plainData, decErr = crypto.DecryptRecordFile(cipherPack, rec.PatientID, rec.RecordNo)
+				if decErr != nil && file.FileName != "" {
+					plainData, decErr = crypto.DecryptRecordFile(cipherPack, rec.PatientID, "")
+				}
 			}
 			if decErr == nil && len(plainData) > 0 {
 				ext := strings.ToLower(file.FileType)
@@ -646,7 +654,14 @@ func (ctrl *MedicalController) DownloadMedicalFile(c *gin.Context) {
 
 	if file.IPFSCID != "" {
 		if cipherPack, err := service.DefaultMedicalService.GetIPFSData(file.IPFSCID); err == nil && len(cipherPack) > 0 {
-			plainData, decErr := crypto.DecryptRecordFile(cipherPack, rec.PatientID, rec.RecordNo)
+			var plainData []byte
+			var decErr error
+			if file.EncryptedDEK != "" && file.IVNonce != "" {
+				masterKey := config.AppConfig.GetAESMasterKey()
+				plainData, decErr = crypto.DecryptMedicalFile(cipherPack, file.EncryptedDEK, file.IVNonce, rec.PatientID, rec.RecordNo, masterKey)
+			} else {
+				plainData, decErr = crypto.DecryptRecordFile(cipherPack, rec.PatientID, rec.RecordNo)
+			}
 			if decErr == nil && len(plainData) > 0 {
 				c.Header("Content-Disposition", "attachment; filename="+file.FileName)
 				c.Header("Content-Type", "application/octet-stream")

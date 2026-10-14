@@ -1,0 +1,1207 @@
+以下为你整理的一份《MedTrust 跨机构医疗数据安全共享平台——AI Coding 工程级全量改造指令书》。你可以直接复制以下全部内容发送给你的 AI 编程工具（如 Cursor、Windsurf、Claude Code 等），要求其按阶段逐一执行代码生成与重构。
+
+---
+
+# 🛠️ Project MedTrust 工程级全量重构与实现规范（AI Coding 专用指令书）
+
+## 一、 全局改造目标与架构红线约束（System Constraints）
+
+你现在是一名资深 Go/Python/Vue 全栈架构师与区块链工程师，需要对当前处于单机原型阶段的 `MedTrust` 项目进行标准化工程重构。在编写与修改任何代码时，必须严格遵守以下 **6 条架构红线**：
+
+1. **彻底解耦扁平 Controller，强制落地四层架构**：严禁在 `backend/controller/` 中直接编写文件读写、SQL 查询或复杂权限判断。必须重构为 `Controller（参数校验与响应） -> Service（核心业务逻辑） -> Repository（GORM 数据持久化） -> Pkg（加密/IPFS/Fabric/风险引擎基础设施）` 的四层结构。
+
+
+2. **消灭明文落盘，强制执行 AES-256-GCM + AAD 认证加密**：严禁将未加密的明文医疗文件直接写入 `ipfs_storage/`。所有上传文件必须先计算原始明文的 `SHA-256` 摘要（`file_hash`），再使用 `AES-256-GCM` 算法（将 `patient_id` 与 `record_no` 组合注入 `AAD` 附加认证数据防重放）生成密文后存入 IPFS。
+
+
+3. **双模驱动设计（Live 真实容器 + Mock 本地降级）**：`IPFSService` 与 `BlockchainService` 必须定义为 Go `interface` 接口，并在 `config.yaml` 中通过 `mode: "live" | "mock"` 控制实现类切换。`live` 模式通过 Fabric Gateway gRPC 与 Kubo HTTP API 连接真实 Docker 容器；`mock` 模式平滑降级为操作本地 `backend/data/fabric_ledger/ledger_history.json` 与 `backend/data/ipfs_storage/`，确保开发环境与答辩演示零崩溃。
+
+
+4. **单一安全守门人（Single Gatekeeper）**：所有跨机构病历调阅请求必须收口至 `service/access_engine.go`，严格按顺序执行：**Step 1: RBAC 角色过滤 $\rightarrow$ Step 2: ABAC 属性匹配 $\rightarrow$ Step 3: 患者显式授权核验 $\rightarrow$ Step 4: RiskEngine 动态风险评分**，或走 **Break-Glass 临床急救通道**。
+
+
+5. **AI Agent 零数据库直连原则**：`ai_agent/`（Python FastAPI）严禁引入 `pymysql`、`sqlalchemy` 等任何数据库驱动，也严禁直接读取本地存储目录。`tools.py` 中的所有工具函数必须强制接收调用者的 `jwt_token`，以 HTTP Client 身份携带 `Authorization: Bearer <token>` 请求头回调 Go 后端的 `/api/v1/*` 受控接口。
+
+
+6. **锁定角色与模块边界**：系统严格固定为 4 类角色（`doctor` 医生、`patient` 患者、`admin` 管理员、`supervisor` 监管人员）与 7 大功能模块，文件仅支持 `pdf/jpg/png`，AI 仅做自然语言检索与审计分析，不开发自动诊断或开药功能。
+
+
+
+---
+
+## 二、 目标工程目录树与文件级重构映射表
+
+请将当前项目目录按以下标准结构进行创建、迁移与补全：
+
+```text
+MedTrust/
+├── chaincode/                          # 【新增】Hyperledger Fabric 2.5 Go 智能合约独立模块
+│   ├── go.mod
+│   ├── main.go                         # 链码启动入口
+│   └── medical_contract.go             # 存证、授权、紧急访问、审计四类链上资产与合约方法
+├── backend/                            # 【重构】Go + Gin + GORM 核心业务后端
+│   ├── cmd/
+│   │   └── main.go                     # 依赖注入、数据库自动迁移、双模驱动初始化、路由启动
+│   ├── config/
+│   │   ├── config.go                   # 新增 BlockchainMode、IPFSMode、AESMasterKey 配置项解析
+│   │   └── config.yaml                 # 全局配置文件
+│   ├── model/                          # 【新增】GORM 数据库实体与统一 DTO 结构体
+│   │   ├── entity.go                   # 9 张核心数据库表结构体定义
+│   │   └── dto.go                      # 请求入参、响应结构体与统一 Response 封装
+│   ├── repository/                     # 【新增】GORM 数据访问层（仅负责 CRUD）
+│   │   ├── db.go                       # MySQL & Redis 初始化与种子数据写入
+│   │   ├── user_repo.go                # 用户、医院、科室数据访问
+│   │   ├── medical_repo.go             # 病历主表与文件映射表访问
+│   │   ├── auth_policy_repo.go         # 患者授权策略与常规访问申请表访问
+│   │   ├── emergency_repo.go           # Break-Glass 紧急访问事件单表访问
+│   │   └── audit_repo.go               # 审计日志表与统计聚合查询
+│   ├── pkg/                            # 【新增】底层基础设施封装包
+│   │   ├── crypto/
+│   │   │   ├── aes_gcm.go              # AES-256-GCM 认证加解密（含 AAD 校验）
+│   │   │   └── hash.go                 # SHA-256 计算工具
+│   │   ├── ipfs/
+│   │   │   └── client.go               # IPFSService 接口 + KuboLiveClient + LocalMockClient
+│   │   ├── blockchain/
+│   │   │   └── gateway.go              # BlockchainService 接口 + FabricGatewayClient + MockLedgerClient
+│   │   └── risk/
+│   │       └── engine.go               # 动态风险评分引擎（四维白盒规则计算）
+│   ├── middleware/                     # 【新增】Gin 全局安全中间件
+│   │   ├── jwt.go                      # JWT 解析、Redis 黑名单校验与上下文注入
+│   │   └── rbac.go                     # 角色权限粗粒度拦截器
+│   ├── service/                        # 【新增】核心业务逻辑层
+│   │   ├── auth_service.go             # 登录、注册、用户与机构维护
+│   │   ├── medical_service.go          # 病历加密上传、IPFS 存储、链上存证、解密下载、动态验真
+│   │   ├── access_engine.go            # 三层复合访问控制中枢（RBAC+ABAC+患者授权+风险决策）
+│   │   ├── emergency_service.go        # 紧急访问（Break-Glass）触发、患者反馈、监管裁决与违规封禁
+│   │   └── audit_service.go            # 全局审计记账与链上锚定服务
+│   ├── controller/                     # 【瘦身重构】仅做参数绑定与调用 Service
+│   │   ├── auth_controller.go
+│   │   ├── system_controller.go
+│   │   ├── medical_controller.go
+│   │   ├── access_controller.go
+│   │   ├── notification_controller.go
+│   │   └── supervisor_controller.go
+│   └── router/
+│       └── router.go                   # 统一挂载 /api/v1 路由组
+├── ai_agent/                           # 【重构】Python FastAPI 智能辅助服务
+│   ├── main.py                         # FastAPI 入口，接收用户提问与 Bearer Token
+│   ├── agent.py                        # LLM Tool Calling 编排器与安全 Prompt 约束
+│   ├── tools.py                        # 携带 JWT 回调 Go 后端 /api/v1 的受控工具集
+│   └── requirements.txt
+└── frontend/                           # 【新增】Vue3 + TypeScript + Element Plus + ECharts 前端工程
+    ├── package.json
+    ├── vite.config.ts
+    └── src/
+        ├── api/                        # Axios 封装与全接口对接
+        ├── router/                     # 按四角色动态路由守卫
+        └── views/                      # 登录页、医生工作台、患者中心、管理员后台、监管可视化大屏
+
+```
+
+---
+
+## 三、 数据库 Schema 标准化 DDL 与 GORM 实体模型
+
+在 `backend/model/entity.go` 中严格定义以下 **9 张核心表**（并使用 GORM `AutoMigrate` 自动建表）。特别注意 `users.status` 需支持 `NORMAL`（正常）、`RESTRICTED`（限制跨院访问）、`DISABLED`（禁用），以支撑监管处罚闭环；`medical_files` 需增加 `encrypted_dek` 与 `iv_nonce` 字段以保存每份文件独立的加密参数：
+
+```sql
+-- 1. 用户核心信息表 (users)
+CREATE TABLE `users` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '用户自增主键',
+  `user_no` VARCHAR(64) NOT NULL COMMENT '用户业务编号(如 DOC_A001, PAT_001)',
+  `username` VARCHAR(50) NOT NULL COMMENT '登录账号名',
+  `password_hash` VARCHAR(255) NOT NULL COMMENT 'bcrypt密码哈希',
+  `real_name` VARCHAR(50) NOT NULL COMMENT '用户真实姓名',
+  `role` VARCHAR(20) NOT NULL COMMENT '角色枚举: doctor, patient, admin, supervisor',
+  `hospital_id` BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '所属机构ID(患者填0)',
+  `department_id` BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '所属科室ID(患者填0)',
+  `title` VARCHAR(50) NOT NULL DEFAULT '' COMMENT '医生职称(主任医师/副主任医师/主治医师/住院医师)',
+  `phone` VARCHAR(20) NOT NULL DEFAULT '' COMMENT '联系电话',
+  `status` VARCHAR(20) NOT NULL DEFAULT 'NORMAL' COMMENT '状态: NORMAL-正常, RESTRICTED-限制跨院, DISABLED-禁用',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_username` (`username`),
+  UNIQUE KEY `uk_user_no` (`user_no`),
+  KEY `idx_hosp_dept` (`hospital_id`, `department_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户核心信息表';
+
+-- 2. 医疗机构信息表 (hospitals)
+CREATE TABLE `hospitals` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `hospital_no` VARCHAR(32) NOT NULL COMMENT '机构代码(如 HOSP_A, HOSP_B, HOSP_C)',
+  `name` VARCHAR(100) NOT NULL COMMENT '医疗机构全称',
+  `level` VARCHAR(20) NOT NULL DEFAULT '三甲' COMMENT '医院等级(三甲/三乙/二甲)',
+  `address` VARCHAR(255) NOT NULL DEFAULT '',
+  `status` TINYINT NOT NULL DEFAULT 1 COMMENT '1-正常, 0-停用',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_hospital_no` (`hospital_no`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='医疗机构信息表';
+
+-- 3. 医院科室信息表 (departments)
+CREATE TABLE `departments` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `dept_no` VARCHAR(32) NOT NULL COMMENT '科室代码',
+  `hospital_id` BIGINT UNSIGNED NOT NULL COMMENT '归属医院ID',
+  `name` VARCHAR(64) NOT NULL COMMENT '科室名称(心内科/急诊科/放射科/内科等)',
+  `description` VARCHAR(255) NOT NULL DEFAULT '',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_hospital_id` (`hospital_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='医院科室表';
+
+-- 4. 医疗数据记录主表 (medical_records)
+CREATE TABLE `medical_records` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `record_no` VARCHAR(64) NOT NULL COMMENT '全局唯一病历编号(如 REC20260901001)',
+  `patient_id` BIGINT UNSIGNED NOT NULL COMMENT '关联患者User.ID',
+  `doctor_id` BIGINT UNSIGNED NOT NULL COMMENT '上传医生User.ID',
+  `hospital_id` BIGINT UNSIGNED NOT NULL COMMENT '产生医疗机构ID',
+  `department_id` BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '产生科室ID',
+  `data_type` VARCHAR(32) NOT NULL COMMENT 'EMR-电子病历, REPORT-检验报告, IMAGE-医学影像',
+  `title` VARCHAR(128) NOT NULL DEFAULT '' COMMENT '病历标题',
+  `diagnosis` TEXT NULL COMMENT '临床诊断摘要',
+  `fabric_tx_id` VARCHAR(128) NOT NULL DEFAULT '' COMMENT 'Fabric存证交易ID',
+  `block_height` BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '存证区块高度',
+  `integrity_status` VARCHAR(20) NOT NULL DEFAULT 'VERIFIED' COMMENT 'VERIFIED-正常, TAMPERED-篡改告警',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_record_no` (`record_no`),
+  KEY `idx_patient_id` (`patient_id`),
+  KEY `idx_doctor_hosp` (`doctor_id`, `hospital_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='医疗数据记录主表';
+
+-- 5. 医疗文件与链下存储映射表 (medical_files)
+CREATE TABLE `medical_files` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `record_id` BIGINT UNSIGNED NOT NULL COMMENT '关联medical_records.id',
+  `file_name` VARCHAR(255) NOT NULL COMMENT '原始文件名',
+  `file_type` VARCHAR(32) NOT NULL COMMENT 'MIME或扩展名(pdf/jpg/png)',
+  `file_size` BIGINT UNSIGNED NOT NULL COMMENT '明文字节大小',
+  `ipfs_cid` VARCHAR(128) NOT NULL COMMENT 'IPFS寻址CID',
+  `file_hash` VARCHAR(64) NOT NULL COMMENT '原始明文SHA-256十六进制摘要',
+  `encrypted_dek` VARCHAR(255) NOT NULL COMMENT '经系统主密钥加密后的文件对称密钥(Base64)',
+  `iv_nonce` VARCHAR(64) NOT NULL COMMENT 'AES-GCM 96位初始化向量(Base64)',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_record_id` (`record_id`),
+  KEY `idx_ipfs_cid` (`ipfs_cid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='医疗文件与链下存储映射表';
+
+-- 6. 患者自主授权策略表 (authorizations)
+CREATE TABLE `authorizations` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `auth_no` VARCHAR(64) NOT NULL COMMENT '授权流水号(如 AUTH20260001)',
+  `patient_id` BIGINT UNSIGNED NOT NULL COMMENT '授权患者User.ID',
+  `auth_target_type` VARCHAR(20) NOT NULL COMMENT 'DOCTOR 或 HOSPITAL',
+  `auth_target_id` BIGINT UNSIGNED NOT NULL COMMENT '目标医生User.ID或医院Hospital.ID',
+  `scope_type` VARCHAR(20) NOT NULL COMMENT 'ALL-全部病历, SINGLE-单份病历',
+  `record_id` BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'SINGLE时的指定病历ID',
+  `start_time` DATETIME NOT NULL COMMENT '生效时间',
+  `end_time` DATETIME NOT NULL COMMENT '失效时间',
+  `status` VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE-生效, REVOKED-已撤销',
+  `fabric_tx_id` VARCHAR(128) NOT NULL DEFAULT '' COMMENT '授权上链TxID',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_auth_no` (`auth_no`),
+  KEY `idx_patient_target` (`patient_id`, `auth_target_type`, `auth_target_id`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='患者自主授权策略表';
+
+-- 7. 跨机构常规访问申请与风险决策表 (access_requests)
+CREATE TABLE `access_requests` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `request_no` VARCHAR(64) NOT NULL COMMENT '申请流水号(如 REQ20260001)',
+  `doctor_id` BIGINT UNSIGNED NOT NULL COMMENT '申请医生User.ID',
+  `patient_id` BIGINT UNSIGNED NOT NULL COMMENT '目标患者User.ID',
+  `record_id` BIGINT UNSIGNED NOT NULL COMMENT '目标病历ID',
+  `source_hospital_id` BIGINT UNSIGNED NOT NULL COMMENT '申请方医院ID',
+  `target_hospital_id` BIGINT UNSIGNED NOT NULL COMMENT '数据持有方医院ID',
+  `purpose` VARCHAR(255) NOT NULL COMMENT '访问目的(门诊复诊/跨院转诊/联合会诊)',
+  `risk_score` INT NOT NULL DEFAULT 0 COMMENT '动态风险评分(0-100)',
+  `risk_level` VARCHAR(20) NOT NULL DEFAULT 'LOW' COMMENT 'LOW(0-30), MEDIUM(31-70), HIGH(71-100)',
+  `risk_detail` VARCHAR(512) NOT NULL DEFAULT '' COMMENT '各维度风险扣分明细JSON',
+  `decision` VARCHAR(20) NOT NULL COMMENT 'ALLOWED, PENDING_CONFIRM, REJECTED',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_request_no` (`request_no`),
+  KEY `idx_doctor_patient` (`doctor_id`, `patient_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='跨机构常规访问申请与决策表';
+
+-- 8. 紧急访问事件单表 (emergency_access_events)
+CREATE TABLE `emergency_access_events` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `event_no` VARCHAR(64) NOT NULL COMMENT '紧急事件编号(如 EA20260001)',
+  `doctor_id` BIGINT UNSIGNED NOT NULL COMMENT '调阅医生User.ID',
+  `patient_id` BIGINT UNSIGNED NOT NULL COMMENT '被调阅患者User.ID',
+  `record_id` BIGINT UNSIGNED NOT NULL COMMENT '目标病历ID',
+  `source_hospital_id` BIGINT UNSIGNED NOT NULL,
+  `target_hospital_id` BIGINT UNSIGNED NOT NULL,
+  `emergency_reason` VARCHAR(50) NOT NULL COMMENT 'RESCUE(急诊抢救), COMA(意识昏迷), CRITICAL(生命体征危重)',
+  `description` TEXT NOT NULL COMMENT '临床急救详细说明(不少于15字)',
+  `doctor_confirmed` TINYINT NOT NULL DEFAULT 1 COMMENT '是否勾选法律责任声明(1-是)',
+  `patient_feedback` VARCHAR(20) NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING-待确认, CONFIRMED-无异议, OBJECTED-有异议投诉',
+  `patient_comment` VARCHAR(255) NOT NULL DEFAULT '' COMMENT '患者反馈说明',
+  `audit_status` VARCHAR(30) NOT NULL DEFAULT 'PENDING_AUDIT' COMMENT 'PENDING_AUDIT-待审, CLOSED_APPROVED-合规结案, CLOSED_VIOLATION-违规惩戒',
+  `supervisor_id` BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '裁决监管员User.ID',
+  `audit_comment` VARCHAR(255) NOT NULL DEFAULT '' COMMENT '监管裁决意见',
+  `fabric_tx_id` VARCHAR(128) NOT NULL DEFAULT '' COMMENT '紧急调阅上链TxID',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_event_no` (`event_no`),
+  KEY `idx_doc_pat` (`doctor_id`, `patient_id`),
+  KEY `idx_audit_status` (`audit_status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='紧急访问(Break-Glass)事件单表';
+
+-- 9. 系统全量可信审计日志表 (audit_logs)
+CREATE TABLE `audit_logs` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `log_id` VARCHAR(64) NOT NULL COMMENT '审计UUID',
+  `user_id` BIGINT UNSIGNED NOT NULL COMMENT '操作人User.ID',
+  `operation_type` VARCHAR(50) NOT NULL COMMENT 'UPLOAD, ACCESS, AUTHORIZE, REVOKE, BREAK_GLASS, VERIFY, AUDIT_DECISION',
+  `target_type` VARCHAR(50) NOT NULL COMMENT 'RECORD, AUTH, EVENT, USER',
+  `target_id` VARCHAR(64) NOT NULL COMMENT '目标业务编号',
+  `hospital_id` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  `result` VARCHAR(20) NOT NULL COMMENT 'SUCCESS, FAILED, INTERCEPTED',
+  `risk_score` INT NOT NULL DEFAULT 0,
+  `risk_level` VARCHAR(20) NOT NULL DEFAULT 'LOW',
+  `ip_address` VARCHAR(50) NOT NULL DEFAULT '',
+  `detail` VARCHAR(512) NOT NULL DEFAULT '' COMMENT '操作详情或拦截原因',
+  `fabric_tx_id` VARCHAR(128) NOT NULL DEFAULT '' COMMENT '链上审计TxID',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_log_id` (`log_id`),
+  KEY `idx_user_op` (`user_id`, `operation_type`),
+  KEY `idx_hospital_time` (`hospital_id`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统全量可信审计日志表';
+
+```
+
+---
+
+## 四、 核心算法与底层基础设施实现规范（含完整代码逻辑）
+
+### 算法 1：链上链下协同加密存储算法（`backend/pkg/crypto/aes_gcm.go`）
+
+* **数学与密码学原理**：
+1. 原始医疗文件记为 $\text{PlainData}$，计算原始明文哈希：$H_{\text{raw}} = \text{SHA-256}(\text{PlainData})$。
+
+
+2. 随机生成 32 字节（256 位）数据加密密钥 $K_{\text{DEK}}$ 与 12 字节（96 位）随机初始化向量 $IV$。
+
+
+3. 构造附加认证数据 $\text{AAD} = \text{fmt.Sprintf}("patient:\%d\vert{}record:\%s", \text{patientID}, \text{recordNo})$，防止攻击者在 IPFS 上将患者 A 的密文文件偷换挂载到患者 B 的病历下。
+
+
+4. 执行认证加密：$(C, T) = \text{AES-256-GCM-Encrypt}(K_{\text{DEK}}, IV, \text{PlainData}, \text{AAD})$，输出包含 16 字节 AuthTag 的密文流存入 IPFS。
+
+
+5. 使用系统配置的 32 字节主密钥 $K_{\text{Master}}$ 将 $K_{\text{DEK}}$ 加密后存入 `medical_files.encrypted_dek`。
+
+
+
+```go
+package crypto
+
+import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+)
+
+// ComputeSHA256 计算字节流 SHA-256 十六进制哈希
+func ComputeSHA256(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// BuildAAD 构造绑定患者ID与病历编号的附加认证数据 (防密文替换重放攻击)
+func BuildAAD(patientID uint64, recordNo string) []byte {
+	return []byte(fmt.Sprintf("patient:%d|record:%s", patientID, recordNo))
+}
+
+// EncryptMedicalFile 生成随机 256-bit DEK 与 96-bit IV，执行带 AAD 的 AES-256-GCM 加密
+func EncryptMedicalFile(plainData []byte, patientID uint64, recordNo string, masterKey []byte) (cipherData []byte, encryptedDEK string, ivBase64 string, fileHash string, err error) {
+	if len(masterKey) != 32 {
+		return nil, "", "", "", errors.New("masterKey must be 32 bytes for AES-256")
+	}
+	// 1. 计算原始明文 SHA-256
+	fileHash = ComputeSHA256(plainData)
+
+	// 2. 生成 32 字节随机 DEK 与 12 字节随机 Nonce (IV)
+	dek := make([]byte, 32)
+	if _, err = io.ReadFull(rand.Reader, dek); err != nil {
+		return
+	}
+	iv := make([]byte, 12)
+	if _, err = io.ReadFull(rand.Reader, iv); err != nil {
+		return
+	}
+
+	// 3. 使用 DEK + IV + AAD 加密明文病历
+	block, err := aes.NewCipher(dek)
+	if err != nil {
+		return
+	}
+	aesGCM, err := cipher.NewGCM(block)
+	if err != nil {
+		return
+	}
+	aad := BuildAAD(patientID, recordNo)
+	cipherData = aesGCM.Seal(nil, iv, plainData, aad)
+
+	// 4. 使用 MasterKey 加密保護 DEK (信封加密)
+	masterBlock, err := aes.NewCipher(masterKey)
+	if err != nil {
+		return
+	}
+	masterGCM, err := cipher.NewGCM(masterBlock)
+	if err != nil {
+		return
+	}
+	dekNonce := make([]byte, 12)
+	if _, err = io.ReadFull(rand.Reader, dekNonce); err != nil {
+		return
+	}
+	sealedDEK := masterGCM.Seal(dekNonce, dekNonce, dek, nil) // 前12字节存dekNonce
+
+	encryptedDEK = base64.StdEncoding.EncodeToString(sealedDEK)
+	ivBase64 = base64.StdEncoding.EncodeToString(iv)
+	return cipherData, encryptedDEK, ivBase64, fileHash, nil
+}
+
+// DecryptMedicalFile 解封 DEK 并校验 AAD 与 AuthTag，还原病历明文
+func DecryptMedicalFile(cipherData []byte, encryptedDEK string, ivBase64 string, patientID uint64, recordNo string, masterKey []byte) ([]byte, error) {
+	sealedDEK, err := base64.StdEncoding.DecodeString(encryptedDEK)
+	if err != nil || len(sealedDEK) < 12 {
+		return nil, errors.New("invalid encrypted DEK")
+	}
+	iv, err := base64.StdEncoding.DecodeString(ivBase64)
+	if err != nil {
+		return nil, errors.New("invalid IV nonce")
+	}
+
+	// 1. 解封 DEK
+	masterBlock, err := aes.NewCipher(masterKey)
+	if err != nil {
+		return nil, err
+	}
+	masterGCM, err := cipher.NewGCM(masterBlock)
+	if err != nil {
+		return nil, err
+	}
+	dekNonce := sealedDEK[:12]
+	dek, err := masterGCM.Open(nil, dekNonce, sealedDEK[12:], nil)
+	if err != nil {
+		return nil, errors.New("failed to unseal DEK: " + err.Error())
+	}
+
+	// 2. 使用 DEK + IV + AAD 解密密文并验证 GCM AuthTag
+	block, err := aes.NewCipher(dek)
+	if err != nil {
+		return nil, err
+	}
+	aesGCM, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	aad := BuildAAD(patientID, recordNo)
+	plainData, err := aesGCM.Open(nil, iv, cipherData, aad)
+	if err != nil {
+		return nil, errors.New("ciphertext authentication failed (possible tampering or AAD mismatch)")
+	}
+	return plainData, nil
+}
+
+```
+
+---
+
+### 算法 2：动态完整性验证比对算法（`backend/service/medical_service.go`）
+
+当调用 `POST /api/v1/verification/{record_id}` 时，严格执行以下 5 步比对算法：
+
+1. 根据 `record_id` 查询 MySQL 获取 `medical_records` 与 `medical_files`（提取 `record_no`、`patient_id`、`ipfs_cid`、`encrypted_dek`、`iv_nonce` 及数据库保存的 `db_hash`）。
+
+
+2. 调用 `BlockchainService.QueryMedicalAsset(record_no)` 从 Hyperledger Fabric 账本获取不可篡改的原始存证对象 `chainAsset`（提取 $H_{\text{chain}} = \text{chainAsset.FileHash}$ 与 $CID_{\text{chain}} = \text{chainAsset.CID}$）。
+
+
+3. 调用 `IPFSService.Cat(ipfs_cid)` 从链下节点拉取当前密文流 `cipherBytes`。
+
+
+4. 调用 `crypto.DecryptMedicalFile` 尝试解密还原 $\text{PlainData}'$：
+
+
+* 若 GCM 认证解密报错（说明 IPFS 密文被破坏或替换），直接判定为 `TAMPERED`（已被篡改）；
+
+
+* 若解密成功，计算当前明文哈希 $H_{\text{calc}} = \text{ComputeSHA256}(\text{PlainData}')$。
+
+
+
+
+5. 执行三重一致性比对：
+
+$$\text{IsIntact} = (H_{\text{calc}} == H_{\text{chain}}) \land (H_{\text{db}} == H_{\text{chain}}) \land (CID_{\text{db}} == CID_{\text{chain}})$$
+
+
+* 若 `IsIntact == true`，更新 `medical_records.integrity_status = "VERIFIED"`，记入审计日志并返回绿色通过状态；
+
+
+* 若 `IsIntact == false`，更新 `medical_records.integrity_status = "TAMPERED"`，写入 `HIGH` 级高危审计告警日志，返回篡改详情（同时展示 `calc_hash`、`db_hash` 与 `chain_hash` 供前端弹窗对比）。
+
+
+
+
+
+---
+
+### 算法 3：三层复合访问控制与动态风险评分引擎（`backend/pkg/risk/engine.go` & `service/access_engine.go`）
+
+#### 3.1 动态风险评分算法（白盒加权规则引擎 `pkg/risk/engine.go`）
+
+为保证答辩时算法 100% 可解释，采用四维特征加权求和模型，总分限制在 $[0, 100]$ 区间：
+
+
+$$S_{\text{total}} = \min\left(100, \; S_{\text{time}} + S_{\text{cross}} + S_{\text{freq}} + S_{\text{batch}} + S_{\text{history}}\right)$$
+
+各维度计分规则如下：
+
+1. **访问时段风险 $S_{\text{time}}$（满分 25 分）**：
+* 常规工作时间（08:00 ~ 18:00）：$+0$ 分；
+
+
+* 夜间延长门诊时段（18:00 ~ 22:00 或 06:00 ~ 08:00）：$+10$ 分；
+* 凌晨高危非工作时段（22:00 ~ 次日 06:00）：$+25$ 分。
+
+
+
+
+2. **跨机构与科室属性风险 $S_{\text{cross}}$（满分 25 分）**：
+* 本院同科室调阅：$+0$ 分；
+* 本院跨科室调阅：$+10$ 分；
+* 跨医院同专业科室调阅：$+15$ 分；
+
+
+* 跨医院且跨专业科室调阅（如骨科医生调阅外院精神科/妇产科病历）：$+25$ 分。
+
+
+
+
+3. **短时高频访问风险 $S_{\text{freq}}$（满分 25 分）**：
+* 统计该医生过去 10 分钟内的访问请求次数 $N_{10\text{m}}$（通过 Redis 滑动窗口或 SQL 聚合查询）：
+
+
+* $N_{10\text{m}} \le 5$ 次：$+0$ 分；
+
+
+* $6 \le N_{10\text{m}} \le 15$ 次：$+15$ 分；
+* $N_{10\text{m}} > 15$ 次（疑似爬虫或批量拖库）：$+25$ 分。
+
+
+
+
+4. **单日跨患者广度与历史异常风险 $S_{\text{batch}} + S_{\text{history}}$（满分 25 分）**：
+* 统计该医生过去 1 小时内访问的不同患者数量 $P_{1\text{h}}$：$P_{1\text{h}} > 10$ 人则 $+15$ 分，否则 $+0$ 分；
+
+
+* 查询该医生过去 7 天内是否存在被拦截（`INTERCEPTED`）或违规紧急访问（`CLOSED_VIOLATION`）记录：存在则 $+15$ 分。
+
+
+
+
+
+**风险等级与决策映射规则**：
+
+* **低风险（`LOW`，$0 \le S_{\text{total}} \le 30$）**：决策为 `ALLOWED`（若已具备患者有效授权，直接自动放行并返回解密凭证）。
+
+
+* **中风险（`MEDIUM`，$31 \le S_{\text{total}} \le 70$）**：决策为 `PENDING_CONFIRM`（触发动态步进认证，挂起请求并向患者端推送二次确认通知，待患者点击允许后放行）。
+
+
+* **高风险（`HIGH`，$S_{\text{total}} > 70$）**：决策为 `REJECTED`（一票否决直接阻断访问，并在 `audit_logs` 中生成高危告警）。
+
+
+
+```go
+package risk
+
+import (
+	"encoding/json"
+	"time"
+)
+
+type RiskContext struct {
+	RequestTime        time.Time
+	DoctorHospitalID   uint64
+	TargetHospitalID   uint64
+	DoctorDeptName     string
+	TargetDeptName     string
+	Recent10mCount     int64 // 近10分钟该医生访问次数
+	Recent1hPatients   int64 // 近1小时该医生访问不同患者数
+	Recent7dViolations int64 // 近7天该医生被拦截或违规次数
+}
+
+type RiskEvaluation struct {
+	TotalScore int               `json:"total_score"`
+	RiskLevel  string            `json:"risk_level"` // LOW, MEDIUM, HIGH
+	Decision   string            `json:"decision"`   // ALLOWED, PENDING_CONFIRM, REJECTED
+	Breakdown  map[string]int    `json:"breakdown"`
+	Reasons    []string          `json:"reasons"`
+}
+
+func EvaluateAccessRisk(ctx RiskContext) *RiskEvaluation {
+	breakdown := make(map[string]int)
+	var reasons []string
+	total := 0
+
+	// 1. 时间段评估
+	hour := ctx.RequestTime.Hour()
+	if hour >= 22 || hour < 6 {
+		breakdown["time_risk"] = 25
+		total += 25
+		reasons = append(reasons, "凌晨非工作时段(22:00-06:00)敏感调阅(+25)")
+	} else if (hour >= 18 && hour < 22) || (hour >= 6 && hour < 8) {
+		breakdown["time_risk"] = 10
+		total += 10
+		reasons = append(reasons, "夜间非标准门诊时段调阅(+10)")
+	} else {
+		breakdown["time_risk"] = 0
+	}
+
+	// 2. 跨机构与科室属性评估
+	if ctx.DoctorHospitalID != ctx.TargetHospitalID {
+		if ctx.DoctorDeptName != "" && ctx.TargetDeptName != "" && ctx.DoctorDeptName != ctx.TargetDeptName {
+			breakdown["cross_org_dept_risk"] = 25
+			total += 25
+			reasons = append(reasons, "跨医疗机构且跨专业科室调阅(+25)")
+		} else {
+			breakdown["cross_org_dept_risk"] = 15
+			total += 15
+			reasons = append(reasons, "跨医疗机构同科协同调阅(+15)")
+		}
+	} else if ctx.DoctorDeptName != ctx.TargetDeptName {
+		breakdown["cross_org_dept_risk"] = 10
+		total += 10
+		reasons = append(reasons, "院内跨科室调阅(+10)")
+	}
+
+	// 3. 短时访问频率评估
+	if ctx.Recent10mCount > 15 {
+		breakdown["frequency_risk"] = 25
+		total += 25
+		reasons = append(reasons, "近10分钟高频访问超过15次(+25)")
+	} else if ctx.Recent10mCount >= 6 {
+		breakdown["frequency_risk"] = 15
+		total += 15
+		reasons = append(reasons, "近10分钟访问频次偏高(+15)")
+	}
+
+	// 4. 批量患者广度与历史违规评估
+	if ctx.Recent1hPatients > 10 {
+		breakdown["batch_patient_risk"] = 15
+		total += 15
+		reasons = append(reasons, "近1小时调阅超过10名不同患者(+15)")
+	}
+	if ctx.Recent7dViolations > 0 {
+		breakdown["history_anomaly_risk"] = 15
+		total += 15
+		reasons = append(reasons, "近7天存在异常拦截或违规记录(+15)")
+	}
+
+	if total > 100 {
+		total = 100
+	}
+
+	eval := &RiskEvaluation{
+		TotalScore: total,
+		Breakdown:  breakdown,
+		Reasons:    reasons,
+	}
+	if total <= 30 {
+		eval.RiskLevel = "LOW"
+		eval.Decision = "ALLOWED"
+	} else if total <= 70 {
+		eval.RiskLevel = "MEDIUM"
+		eval.Decision = "PENDING_CONFIRM"
+	} else {
+		eval.RiskLevel = "HIGH"
+		eval.Decision = "REJECTED"
+	}
+	return eval
+}
+
+func (e *RiskEvaluation) ToJSON() string {
+	b, _ := json.Marshal(e)
+	return string(b)
+}
+
+```
+
+#### 3.2 三层复合访问控制决策流水线（`backend/service/access_engine.go`）
+
+当医生请求调阅/下载某份病历 `record_id` 时，`AccessEngine.CheckAndRecordAccess()` 严格按以下顺序判断：
+
+* **第 1 层（RBAC 角色与账号状态过滤）**：检查操作者角色是否为 `doctor`（或患者本人 `patient_id == user.id`）。若医生 `user.status == "DISABLED"` 直接拒绝；若为跨院请求且 `user.status == "RESTRICTED"`，直接拦截并提示“账号处于跨院访问受限处罚期”。
+
+
+* **第 2 层（ABAC 属性过滤）**：校验医生所属机构 `Hospital.Status == 1`，校验医生职称 `Title` 不为空。若病历属于本院且同科室创建医生本人，直接放行；若为跨机构调阅，进入第 3 层。
+
+
+* **第 3 层（患者显式授权核验）**：查询 `authorizations` 表，检查是否存在满足以下全部条件的记录：
+
+
+1. `patient_id == record.PatientID` 且 `status == "ACTIVE"`；
+
+
+2. 当前时间 `NOW() BETWEEN start_time AND end_time`；
+
+
+3. `(auth_target_type == "DOCTOR" AND auth_target_id == doctor.ID)` 或 `(auth_target_type == "HOSPITAL" AND auth_target_id == doctor.HospitalID)`；
+
+
+4. `scope_type == "ALL"` 或 `(scope_type == "SINGLE" AND record_id == record.ID)`。
+
+
+
+
+* 若不存在有效授权，直接拒绝常规访问（返回 HTTP 403，前端引导急诊医生点击“Break-Glass 紧急访问通道”）。
+
+
+
+
+* **第 4 层（动态风险评分决策）**：调用 `risk.EvaluateAccessRisk(ctx)` 计算得分，将评估结果持久化至 `access_requests` 与 `audit_logs` 表，并按 `ALLOWED / PENDING_CONFIRM / REJECTED` 返回对应响应。
+
+
+
+---
+
+### 算法 4：临床急救“紧急访问（Break-Glass）”状态机与事后追责闭环算法（`backend/service/emergency_service.go`）
+
+针对危重昏迷患者无暇事先授权的临床痛点，构建四阶段状态机闭环：
+
+1. **阶段 1（医生端触发破窗调阅 `POST /api/v1/access/break-glass`）**：
+* 校验医生 `status == "NORMAL"`，校验必填项 `emergency_reason` $\in \{\text{RESCUE}, \text{COMA}, \text{CRITICAL}\}$、临床抢救说明 `description` 长度 $\ge 15$ 字符，且 `doctor_confirmed == 1`。
+
+
+* 生成紧急事件单号 `event_no`（如 `EA20261013001`），初始状态设为 `patient_feedback = "PENDING"`、`audit_status = "PENDING_AUDIT"`。
+
+
+* **强制上链备案**：调用 `BlockchainService.CreateEmergencyRecord()` 将事件写入 Fabric 不可篡改账本，获取 `fabric_tx_id`。
+
+
+* **临时放行解密**：立即为医生返回该病历的临时解密视图，同时在 `audit_logs` 写入 `operation_type = "BREAK_GLASS"`、`risk_level = "HIGH"` 的强审计记录。
+
+
+
+
+2. **阶段 2（患者端事后知情与异议申诉 `POST /api/v1/emergency-events/{event_no}/feedback`）**：
+* 患者登录系统后，收到弹窗/消息提醒，查看是谁、在什么时间、以什么抢救理由调阅了自己的哪份病历。
+
+
+* 患者可提交 `feedback = "CONFIRMED"`（确认急诊属实无异议）或 `feedback = "OBJECTED"`（认为属于非急诊违规窥探，发起投诉并附 `patient_comment`）。
+
+
+
+
+3. **阶段 3（监管端独立裁决与自动惩戒 `POST /api/v1/supervisor/emergency-events/{event_no}/audit`）**：
+* 监管人员查看紧急事件单、链上存证凭证与患者反馈意见，提交裁决结果 `decision`：
+
+
+* 若 `decision == "CLOSED_APPROVED"`（合规结案）：更新数据库与 Fabric 链上状态为 `CLOSED_APPROVED`；
+
+
+* 若 `decision == "CLOSED_VIOLATION"`（确认违规）：更新数据库与 Fabric 链上状态为 `CLOSED_VIOLATION`，**同时自动触发联动惩戒**：将该医生账号 `users.status` 更新为 `"RESTRICTED"`（剥夺其后续跨院调阅与发起紧急访问的权限），并写入链上审计记录。
+
+
+
+
+
+
+
+---
+
+## 五、 Hyperledger Fabric 智能合约 (Go Chaincode) 完整实现规范与双模驱动封装
+
+### 5.1 独立智能合约代码（`chaincode/medical_contract.go`）
+
+请创建 `chaincode/medical_contract.go`，基于 `[github.com/hyperledger/fabric-contract-api-go/contractapi](https://github.com/hyperledger/fabric-contract-api-go/contractapi)` 实现以下完整的链上资产结构与合约方法：
+
+```go
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"github.com/hyperledger/fabric-contract-api-go/contractapi"
+)
+
+type MedicalContract struct {
+	contractapi.Contract
+}
+
+type MedicalAsset struct {
+	DocType    string `json:"doc_type"`    // "MEDICAL_ASSET"
+	RecordID   string `json:"record_id"`   // 病历业务唯一编号
+	PatientID  string `json:"patient_id"`  // 患者编号
+	CID        string `json:"cid"`         // IPFS 密文寻址 CID
+	FileHash   string `json:"file_hash"`   // 原始明文 SHA-256 摘要
+	HospitalID string `json:"hospital_id"` // 开具医院代码
+	CreatorID  string `json:"creator_id"`  // 签署医生编号
+	CreateTime string `json:"create_time"` // 存证时间戳
+}
+
+type AuthorizationRecord struct {
+	DocType    string `json:"doc_type"`    // "AUTH_RECORD"
+	AuthID     string `json:"auth_id"`     // 授权流水号
+	PatientID  string `json:"patient_id"`  // 患者编号
+	TargetType string `json:"target_type"` // DOCTOR / HOSPITAL
+	TargetID   string `json:"target_id"`   // 被授权对象编号
+	ScopeType  string `json:"scope_type"`  // ALL / SINGLE
+	RecordID   string `json:"record_id"`   // 关联病历编号
+	StartTime  string `json:"start_time"`  // 生效时间
+	EndTime    string `json:"end_time"`    // 失效时间
+	Status     string `json:"status"`      // ACTIVE / REVOKED
+}
+
+type EmergencyAccessRecord struct {
+	DocType    string `json:"doc_type"`    // "EMERGENCY_RECORD"
+	EventNo    string `json:"event_no"`    // 紧急事件编号
+	DoctorID   string `json:"doctor_id"`   // 调阅医生编号
+	PatientID  string `json:"patient_id"`  // 患者编号
+	RecordID   string `json:"record_id"`   // 病历编号
+	HospitalID string `json:"hospital_id"` // 医生所属医院
+	Reason     string `json:"reason"`      // 急救原因简述
+	Timestamp  string `json:"timestamp"`   // 上链时间戳
+	Status     string `json:"status"`      // PENDING_AUDIT / CLOSED_APPROVED / CLOSED_VIOLATION
+}
+
+type AuditRecord struct {
+	DocType    string `json:"doc_type"`    // "AUDIT_RECORD"
+	LogID      string `json:"log_id"`      // 审计追踪UUID
+	UserID     string `json:"user_id"`     // 操作者编号
+	Action     string `json:"action"`      // UPLOAD / ACCESS / AUTHORIZE / REVOKE / BREAK_GLASS / VERIFY
+	ResourceID string `json:"resource_id"` // 目标资源标识
+	Result     string `json:"result"`      // SUCCESS / INTERCEPTED / TAMPERED
+	Timestamp  string `json:"timestamp"`   // 存证时间戳
+}
+
+func (c *MedicalContract) CreateMedicalAsset(ctx contractapi.TransactionContextInterface, assetJSON string) error {
+	var asset MedicalAsset
+	if err := json.Unmarshal([]byte(assetJSON), &asset); err != nil {
+		return err
+	}
+	asset.DocType = "MEDICAL_ASSET"
+	data, _ := json.Marshal(asset)
+	return ctx.GetStub().PutState("ASSET_"+asset.RecordID, data)
+}
+
+func (c *MedicalContract) QueryMedicalAsset(ctx contractapi.TransactionContextInterface, recordID string) (*MedicalAsset, error) {
+	data, err := ctx.GetStub().GetState("ASSET_" + recordID)
+	if err != nil || data == nil {
+		return nil, fmt.Errorf("medical asset %s not found on chain", recordID)
+	}
+	var asset MedicalAsset
+	err = json.Unmarshal(data, &asset)
+	return &asset, err
+}
+
+func (c *MedicalContract) CreateAuthorizationRecord(ctx contractapi.TransactionContextInterface, authJSON string) error {
+	var rec AuthorizationRecord
+	if err := json.Unmarshal([]byte(authJSON), &rec); err != nil {
+		return err
+	}
+	rec.DocType = "AUTH_RECORD"
+	data, _ := json.Marshal(rec)
+	return ctx.GetStub().PutState("AUTH_"+rec.AuthID, data)
+}
+
+func (c *MedicalContract) RevokeAuthorizationRecord(ctx contractapi.TransactionContextInterface, authID string) error {
+	data, err := ctx.GetStub().GetState("AUTH_" + authID)
+	if err != nil || data == nil {
+		return fmt.Errorf("auth record %s not found", authID)
+	}
+	var rec AuthorizationRecord
+	_ = json.Unmarshal(data, &rec)
+	rec.Status = "REVOKED"
+	updated, _ := json.Marshal(rec)
+	return ctx.GetStub().PutState("AUTH_"+authID, updated)
+}
+
+func (c *MedicalContract) CreateEmergencyRecord(ctx contractapi.TransactionContextInterface, eventJSON string) error {
+	var ev EmergencyAccessRecord
+	if err := json.Unmarshal([]byte(eventJSON), &ev); err != nil {
+		return err
+	}
+	ev.DocType = "EMERGENCY_RECORD"
+	data, _ := json.Marshal(ev)
+	return ctx.GetStub().PutState("EMERG_"+ev.EventNo, data)
+}
+
+func (c *MedicalContract) UpdateEmergencyStatus(ctx contractapi.TransactionContextInterface, eventNo string, newStatus string) error {
+	data, err := ctx.GetStub().GetState("EMERG_" + eventNo)
+	if err != nil || data == nil {
+		return fmt.Errorf("emergency record %s not found", eventNo)
+	}
+	var ev EmergencyAccessRecord
+	_ = json.Unmarshal(data, &ev)
+	ev.Status = newStatus
+	updated, _ := json.Marshal(ev)
+	return ctx.GetStub().PutState("EMERG_"+eventNo, updated)
+}
+
+func (c *MedicalContract) CreateAuditRecord(ctx contractapi.TransactionContextInterface, auditJSON string) error {
+	var log AuditRecord
+	if err := json.Unmarshal([]byte(auditJSON), &log); err != nil {
+		return err
+	}
+	log.DocType = "AUDIT_RECORD"
+	data, _ := json.Marshal(log)
+	return ctx.GetStub().PutState("AUDIT_"+log.LogID, data)
+}
+
+```
+
+### 5.2 Go 后端区块链与 IPFS 双模客户端接口（`pkg/blockchain/gateway.go` & `pkg/ipfs/client.go`）
+
+在 Go 后端中定义统一接口，确保支持 `live` 与 `mock` 无缝切换：
+
+* **`BlockchainService` 接口**：
+```go
+type BlockchainService interface {
+    CreateMedicalAsset(asset MedicalAssetPayload) (txID string, blockHeight uint64, err error)
+    QueryMedicalAsset(recordNo string) (*MedicalAssetPayload, error)
+    CreateAuthorizationRecord(auth AuthorizationPayload) (txID string, err error)
+    RevokeAuthorizationRecord(authNo string) (txID string, err error)
+    CreateEmergencyRecord(ev EmergencyPayload) (txID string, err error)
+    UpdateEmergencyStatus(eventNo string, newStatus string) (txID string, err error)
+    CreateAuditRecord(audit AuditPayload) (txID string, err error)
+}
+
+```
+
+
+* **`FabricGatewayClient`（Live 实现）**：使用 `[github.com/hyperledger/fabric-gateway/pkg/client](https://github.com/hyperledger/fabric-gateway/pkg/client)` 加载 `OrgA` MSP X.509 证书与私钥，通过 gRPC 连接 `peer0.orga.medical.com:7051`，在通道 `medicalchannel` 上调用 `medical_contract` 链码。
+
+
+* **`MockLedgerClient`（Mock 降级实现）**：带 `sync.RWMutex` 读写锁维护 `backend/data/fabric_ledger/ledger_history.json`，每次写入时通过 `SHA-256(payload + timestamp)` 生成 64 位真实感 `txID` 并递增 `blockHeight`，同时维护 `ASSET_`、`AUTH_`、`EMERG_`、`AUDIT_` 的键值状态字典，保证 `QueryMedicalAsset` 在离线演示时同样能精确返回链上存证 Hash。
+
+
+
+
+* **`IPFSService` 接口**：
+```go
+type IPFSService interface {
+    Add(cipherBytes []byte) (cid string, err error)
+    Cat(cid string) (cipherBytes []byte, err error)
+}
+
+```
+
+
+* **`KuboLiveClient`（Live 实现）**：通过 HTTP `multipart/form-data` 请求 `http://<ipfs_host>:5001/api/v0/add` 上传密文流并解析返回的真实 `CID`，通过 `/api/v0/cat?arg=<cid>` 下载密文流。
+
+
+* **`LocalMockIPFSClient`（Mock 降级实现）**：对 `cipherBytes` 计算 `SHA-256` 构造 `Qm` 开头的确定性内容寻址 CID，并将 **AES-256-GCM 密文二进制文件** 写入 `backend/data/ipfs_storage/<cid>`。
+
+
+
+
+
+---
+
+## 六、 核心 Controller / Service 接口改造清单与 RESTful 路由契约
+
+请将 `backend/router/router.go` 中的路由统一规范为 `/api/v1` 前缀，并改造现有 6 个 Controller：
+
+| 所属控制器 | HTTP 方法与路由路径 | 核心改造职责（下沉至对应 Service） | 权限要求 |
+| --- | --- | --- | --- |
+| `auth_controller.go` | `POST /api/v1/auth/login`<br>
+
+<br>`POST /api/v1/auth/register`<br>
+
+<br>`GET /api/v1/auth/profile` | 使用 `bcrypt` 校验密码，签发包含 `(user_id, user_no, role, hospital_id, department_id)` 的 JWT Token；支持登出加入 Redis 黑名单。
+
+ | 公开 / 登录用户 |
+| `system_controller.go` | `GET /api/v1/hospitals`<br>
+
+<br>`POST /api/v1/hospitals`<br>
+
+<br>`GET /api/v1/departments`<br>
+
+<br>`GET /api/v1/users`<br>
+
+<br>`PATCH /api/v1/users/:id/status` | 维护医院、科室字典与医护账号属性；管理员可管理基础信息，但**严禁返回任何病历内容接口**。
+
+ | `admin` / `supervisor` |
+| `medical_controller.go` | `POST /api/v1/medical-records/upload`<br>
+
+<br>`GET /api/v1/medical-records`<br>
+
+<br>`GET /api/v1/medical-records/:id/download`<br>
+
+<br>`POST /api/v1/verification/:record_id` | 1. **上传**：接收文件与元数据 $\rightarrow$ `AES-256-GCM` 加密 $\rightarrow$ 存 IPFS 得 CID $\rightarrow$ 存 MySQL $\rightarrow$ 调 `BlockchainService.CreateMedicalAsset` 上链。
+
+<br>
+
+<br>2. **下载/查看**：必须先调 `AccessEngine` 鉴权通过后，再从 IPFS 拉取密文并在内存解密返回。
+
+<br>
+
+<br>3. **完整性核验**：执行【算法 2】双向比对链下解密 Hash 与链上原始 Hash。
+
+ | `doctor` / `patient` / `supervisor` |
+| `access_controller.go` | `POST /api/v1/authorizations`<br>
+
+<br>`DELETE /api/v1/authorizations/:id`<br>
+
+<br>`GET /api/v1/authorizations`<br>
+
+<br>`POST /api/v1/access-requests`<br>
+
+<br>`POST /api/v1/access/break-glass` | 1. **患者授权与撤销**：写入/更新 `authorizations` 表，同步调用链码 `CreateAuthorizationRecord` / `RevokeAuthorizationRecord`。
+
+<br>
+
+<br>2. **跨院常规调阅**：调用 `AccessEngine` 执行三层访问控制 + `RiskEngine` 动态评分。
+
+<br>
+
+<br>3. **紧急访问**：调用 `EmergencyService` 执行【算法 4】破窗抢救上链备案与临时解密放行。
+
+ | `patient` / `doctor` |
+| `notification_controller.go` | `GET /api/v1/notifications`<br>
+
+<br>`POST /api/v1/emergency-events/:event_no/feedback`<br>
+
+<br>`POST /api/v1/access-requests/:req_no/confirm` | 1. 向患者推送中风险调阅二次确认请求与紧急访问（Break-Glass）强提醒。
+
+<br>
+
+<br>2. 患者对中风险请求点击“同意/拒绝”，或对紧急访问事件提交“无异议(`CONFIRMED`)/有异议投诉(`OBJECTED`)”。
+
+ | `patient` |
+| `supervisor_controller.go` | `GET /api/v1/audit-logs`<br>
+
+<br>`GET /api/v1/supervisor/dashboard-stats`<br>
+
+<br>`GET /api/v1/supervisor/emergency-events`<br>
+
+<br>`POST /api/v1/supervisor/emergency-events/:event_no/audit`<br>
+
+<br>`POST /api/v1/supervisor/simulate-tamper/:record_id` | 1. 聚合查询全网跨院共享次数、区块高度、高风险拦截数、紧急访问待审列表。
+
+<br>
+
+<br>2. 对紧急访问进行合规/违规裁决（违规自动将医生设为 `RESTRICTED`）。
+
+<br>
+
+<br>3. **新增答辩演示专用篡改模拟接口** `simulate-tamper`：允许在演示环境下故意修改指定病历的 IPFS 密文或数据库 Hash，以便一键演示 `verification` 标红告警与恢复。
+
+ | `supervisor` |
+
+---
+
+## 七、 Python AI Agent 安全受控 Tool Calling 改造规范（`ai_agent/`）
+
+请重构 `ai_agent/tools.py` 与 `ai_agent/agent.py`，确保 AI 严格遵循受控工具调用机制：
+
+1. **请求上下文强制透传 JWT Token**：
+`ai_agent/main.py` 中的 `POST /api/ai/chat` 接口必须从 HTTP Header 中提取调用者的 `Authorization: Bearer <token>`，并将其注入到工具执行上下文中。
+
+
+2. **标准受控工具函数定义（`ai_agent/tools.py`）**：
+只允许通过 `httpx` 或 `requests` 调用 Go 后端的 REST API，并完整返回后端的权限拦截信息（如 403 未获患者授权）及调用链路轨迹 `tool_trace`：
+
+
+
+```python
+import requests
+from typing import Dict, Any
+
+GO_BACKEND_URL = "http://localhost:8088/api/v1"
+
+class ControlledMedicalTools:
+    def __init__(self, bearer_token: str):
+        self.headers = {
+            "Authorization": bearer_token if bearer_token.startswith("Bearer ") else f"Bearer {bearer_token}",
+            "Content-Type": "application/json"
+        }
+        self.trace_logs = []
+
+    def query_patient_records(self, patient_id: int = 0, data_type: str = "") -> Dict[str, Any]:
+        """受控工具1：查询当前登录用户有权查看的医疗记录列表"""
+        params = {}
+        if patient_id > 0:
+            params["patient_id"] = patient_id
+        if data_type:
+            params["data_type"] = data_type
+        resp = requests.get(f"{GO_BACKEND_URL}/medical-records", headers=self.headers, params=params, timeout=10)
+        result = resp.json()
+        self.trace_logs.append({
+            "tool": "query_patient_records",
+            "endpoint": "GET /api/v1/medical-records",
+            "status_code": resp.status_code,
+            "auth_check": "PASSED" if resp.status_code == 200 else "INTERCEPTED_BY_GATEKEEPER"
+        })
+        return result
+
+    def query_my_authorizations(self, status: str = "") -> Dict[str, Any]:
+        """受控工具2：查询患者授权策略状态列表"""
+        params = {"status": status} if status else {}
+        resp = requests.get(f"{GO_BACKEND_URL}/authorizations", headers=self.headers, params=params, timeout=10)
+        result = resp.json()
+        self.trace_logs.append({
+            "tool": "query_my_authorizations",
+            "endpoint": "GET /api/v1/authorizations",
+            "status_code": resp.status_code,
+            "auth_check": "PASSED" if resp.status_code == 200 else "INTERCEPTED_BY_GATEKEEPER"
+        })
+        return result
+
+    def verify_record_integrity(self, record_id: int) -> Dict[str, Any]:
+        """受控工具3：触发指定病历的 IPFS 链下密文与 Fabric 链上存证 Hash 动态完整性核验"""
+        resp = requests.post(f"{GO_BACKEND_URL}/verification/{record_id}", headers=self.headers, timeout=10)
+        result = resp.json()
+        self.trace_logs.append({
+            "tool": "verify_record_integrity",
+            "endpoint": f"POST /api/v1/verification/{record_id}",
+            "status_code": resp.status_code,
+            "auth_check": "PASSED" if resp.status_code == 200 else "INTERCEPTED_BY_GATEKEEPER"
+        })
+        return result
+
+    def analyze_audit_anomalies(self, risk_level: str = "HIGH") -> Dict[str, Any]:
+        """受控工具4：检索访问审计日志与异常高风险行为记录（仅监管员/患者本人可用）"""
+        resp = requests.get(f"{GO_BACKEND_URL}/audit-logs", headers=self.headers, params={"risk_level": risk_level}, timeout=10)
+        result = resp.json()
+        self.trace_logs.append({
+            "tool": "analyze_audit_anomalies",
+            "endpoint": "GET /api/v1/audit-logs",
+            "status_code": resp.status_code,
+            "auth_check": "PASSED" if resp.status_code == 200 else "INTERCEPTED_BY_GATEKEEPER"
+        })
+        return result
+
+```
+
+---
+
+## 八、 Vue3 + TypeScript + Element Plus + ECharts 四端工作台补全清单（`frontend/`）
+
+请创建 `frontend/` 工程，采用角色驱动的动态视图布局，并提供顶栏 **“一键切换演示角色（医院A李医生 / 医院B王医生 / 患者张三 / 监管员赵主任 / 系统管理员）”** 快捷调试栏（方便答辩现场丝滑演练）：
+
+1. **医生端工作台（`views/doctor/`）**：
+
+
+* **病历加密存证上传卡片**：选择患者、数据类型（`EMR/REPORT/IMAGE`）、填写诊断说明并上传文件，提交后通过步骤条动画实时展示：`AES-256-GCM 加密完成` $\rightarrow$ `IPFS 存储成功 (显示 CID)` $\rightarrow$ `Fabric 联盟链存证成功 (显示 TxID 与区块高度)`。
+
+
+* **跨机构病历检索与调阅弹窗**：搜索外院患者病历，点击“申请常规调阅”实时展示四维风险评分仪表盘与决策结果（低风险直接解密预览、中风险提示等待患者确认、无授权弹出 403 拦截）。
+
+
+* **Break-Glass 急诊破窗通道弹窗**：当常规调阅因无授权被拒时，可点击“发起临床急救紧急调阅”，勾选法律责任承诺书、选择急救原因（`RESCUE/COMA/CRITICAL`）并填写说明后，立即解锁病历并显示链上备案交易哈希。
+
+
+
+
+2. **患者个人中心（`views/patient/`）**：
+
+
+* **我的病历与链上存证核验**：查看名下所有医院产生的病历，点击“验证数据完整性”实时展示链下计算 Hash 与链上原始 Hash 的逐位对比结果。
+
+
+* **自主授权管理**：新增授权（指定医院或指定医生、设置单份/全部病历、起止有效期），支持“一键撤销授权”并实时更新链上状态。
+
+
+* **紧急被调阅事件申诉与二次确认箱**：高亮显示名下发生的 `Break-Glass` 紧急调阅事件，提供【确认急诊属实】与【提交异议投诉】按钮。
+
+
+
+
+3. **监管与审计可视化大屏（`views/supervisor/`）**：
+
+
+* **ECharts 四象限统计图表**：① 联盟链各医院（OrgA/OrgB/OrgC）上链存证与跨院共享趋势折线图；② 访问请求风险等级（LOW/MEDIUM/HIGH）占比饼图；③ 24 小时访问行为与非工作时段异常分布柱状图；④ 实时链上交易与审计流水滚动列表。
+
+
+* **防篡改攻防演练控制台**：列表展示全院病历，提供 **【模拟篡改链下文件】** 与 **【执行区块链完整性核验】** 按钮，直观演示篡改后哈希比对不一致、触发红色高危警报的全过程。
+
+
+* **Break-Glass 事后合规裁决台**：审核急诊破窗事件及患者投诉，支持点击【裁定合规结案】或【裁定违规并限制医生跨院权限】。
+
+
+
+
+4. **AI Agent 悬浮智能助手抽屉（全局组件 `components/AiAssistantDrawer.vue`）**：
+
+
+* 支持医生、患者、监管员输入自然语言指令，并在回复气泡上方折叠展示 **`Tool Calling 受控调用链路卡片`**（清晰显示调用的 Tool 名称、携带的 JWT 角色身份、目标后端 API 路径及网关鉴权状态）。
+
+
+
+
+
+---
+
+## 九、 预置种子数据与自动化验收测试清单（Acceptance Checklist）
+
+在 `backend/repository/db.go` 启动时自动幂等写入以下标准测试种子数据，并编写单元测试 `backend/controller/e2e_flow_test.go` 验证以下 **6 个核心验收用例** 全部通过后才算改造完成：
+
+1. **内置种子账号（密码统一为 `123456`）**：
+
+
+* 医疗机构：`HOSP_A`（广州第一附属医院，ID=1）、`HOSP_B`（深圳中心医院，ID=2）、`HOSP_C`（珠海人民医院，ID=3）。
+
+
+* 账号列表：
+* `doc_li`（李医生，医院A-心内科，主任医师，`status=NORMAL`）
+
+
+* `doc_wang`（王医生，医院B-心内科，主治医师，`status=NORMAL`）
+
+
+* `doc_chen`（陈医生，医院B-急诊科，主治医师，`status=NORMAL`）
+
+
+* `pat_zhang`（患者张三，`user_no=PAT_001`）
+
+
+* `sup_zhao`（监管员赵主任，卫健委监管端）
+
+
+* `admin`（系统管理员）
+
+
+
+
+
+
+2. **自动化 E2E 验收测试项（必须在 `go test ./...` 中全部 PASS）**：
+
+
+* **Test 1（加密与上链闭环）**：`doc_li` 上传患者张三病历文件 $\rightarrow$ 检查 `ipfs_storage/` 下生成的文件确保无法直接作为明文读取（密文验证） $\rightarrow$ 检查返回的 `ipfs_cid`、`file_hash` 与 `fabric_tx_id` 非空。
+
+
+* **Test 2（跨机构未授权阻断）**：`doc_wang` 未获授权直接调阅该病历 $\rightarrow$ 断言返回 `403 Forbidden` 且 `audit_logs` 新增一条 `result = "INTERCEPTED"` 记录。
+
+
+* **Test 3（患者授权、动态风险评分与授权撤销）**：`pat_zhang` 授权给 `doc_wang` $\rightarrow$ `doc_wang` 在工作时间调阅得分 $15$ 分（`LOW` 风险）成功解密获取明文 $\rightarrow$ `pat_zhang` 撤销该授权 $\rightarrow$ `doc_wang` 再次调阅立即返回 `403 Forbidden`。
+
+
+* **Test 4（Break-Glass 紧急访问与违规封禁闭环）**：`doc_chen` 发起紧急访问（原因：`COMA`）成功获取解密病历并生成 `EA` 事件单 $\rightarrow$ `pat_zhang` 反馈 `OBJECTED`（有异议） $\rightarrow$ `sup_zhao` 裁决为 `CLOSED_VIOLATION` $\rightarrow$ 断言 `doc_chen` 的 `users.status` 自动变为 `"RESTRICTED"`，且再次发起跨院请求时被直接拒绝。
+
+
+* **Test 5（防篡改核验闭环）**：调用 `/api/v1/verification/{record_id}` 断言返回 `VERIFIED` $\rightarrow$ 修改链下密文 1 个字节后再调用该接口 $\rightarrow$ 断言返回 `TAMPERED` 且触发 `HIGH` 级审计告警。
+
+
+* **Test 6（AI Agent 权限边界测试）**：使用未获授权的 `doc_wang` Token 调用 AI Agent 工具查询张三受保护病历详情 $\rightarrow$ 断言 AI 工具同样收到后端的权限阻断，无法越权泄露数据。

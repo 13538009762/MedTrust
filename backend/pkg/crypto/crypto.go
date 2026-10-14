@@ -6,7 +6,6 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 )
@@ -104,6 +103,6 @@ func DecryptRecordFile(ciphertextPack []byte, patientID uint64, recordNo string)
 }
 
 func CalculateSHA256(data []byte) string {
-	h := sha256.Sum256(data)
-	return hex.EncodeToString(h[:])
+	return ComputeSHA256(data)
 }
+

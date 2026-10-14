@@ -1,0 +1,532 @@
+基于联盟链、动态智能访问控制与AI Agent的跨机构医疗数据安全共享平台设计与实现
+学       院：       现代信息产业学院
+专       业：       软件工程
+班       级：       软工火链2302
+学       号：       202312070210
+学生姓名：       何欢恒
+指导教师：       杨茹
+完成日期：       2026年9月1日
+摘要
+随着医疗信息化建设的不断推进，电子病历、检查报告、医学影像等医疗数据逐渐成为医疗服务的重要数据资源。然而，由于不同医疗机构之间的信息系统相互独立，医疗数据长期存在数据标准不统一、共享效率较低、患者隐私保护能力不足以及数据使用过程缺乏透明审计等问题。当患者在不同医院之间进行转诊或就医时，往往需要重复进行检查，医生也难以快速获得完整的历史诊疗信息。传统的中心化医疗数据共享模式虽然能够实现数据集中管理，但在跨机构数据共享场景下仍面临单点故障、数据泄露、权限滥用以及数据真实性难以验证等问题。
+针对上述问题，本文设计并实现一种基于联盟链、动态智能访问控制与AI Agent的跨机构医疗数据安全共享平台。系统采用Hyperledger Fabric构建面向多医疗机构的联盟链网络，将医疗数据的关键摘要、文件CID、授权信息和关键访问记录写入区块链，实现医疗数据的可信存证、不可篡改和全流程追溯；针对医疗文件数据量较大的特点，采用“链下IPFS存储、链上记录CID与数据摘要”的混合存储方式，在降低区块链存储压力的同时保证数据完整性。系统结合RBAC角色访问控制、ABAC属性访问控制以及动态风险评分机制，根据医生所属机构、科室、职称、访问时间、访问频率、患者授权状态等因素对访问请求进行综合判断，并根据风险等级执行自动允许、患者确认或拒绝等不同的访问策略。在此基础上，引入AI Agent作为智能辅助模块，通过Tool Calling调用系统提供的受控业务接口，实现医疗数据自然语言检索、授权信息查询和访问记录分析，并结合访问日志异常检测机制辅助发现潜在的异常访问行为。
+系统采用Vue3、TypeScript、Go、Gin、GORM、MySQL、Redis、Hyperledger Fabric、IPFS以及Python AI服务等技术实现，形成前后端分离、区块链服务独立、AI服务独立的模块化系统架构。通过构建模拟多机构医疗场景，对医疗数据上传、IPFS存储、区块链上链、链上查询、授权访问、授权撤销、数据完整性验证、访问行为风险分析以AI Agent智能查询等功能进行实现，为跨机构医疗数据的可信共享提供一种具有工程实践价值的实现方案。
+关键词：联盟链；Hyperledger Fabric；医疗数据共享；IPFS；智能访问控制；AI Agent；数据安全
+Abstract
+With the continuous development of healthcare informatization, electronic medical records, examination reports, and medical imaging data have become important data resources for medical services. However, due to the independence of information systems among different medical institutions, medical data still suffers from problems such as data silos, low sharing efficiency, insufficient privacy protection, and lack of transparent auditing. Traditional centralized medical data management systems are also exposed to risks such as single points of failure, data leakage, unauthorized access, and difficulty in verifying data integrity.
+To address these problems, this paper designs and implements a cross-institutional medical data security sharing platform based on consortium blockchain, dynamic intelligent access control, and AI Agent. Hyperledger Fabric is used to establish a consortium blockchain network for multiple medical institutions. Critical information such as data hashes, IPFS CIDs, authorization records, and key access logs is recorded on the blockchain to ensure data integrity, tamper resistance, and traceability. Considering the large size of medical files, the system adopts a hybrid storage architecture in which encrypted medical files are stored in IPFS while CIDs and data hashes are recorded on the blockchain. A dynamic access control mechanism combining RBAC, ABAC, and risk scoring is designed to evaluate access requests based on user roles, organization, department, professional title, access time, access frequency, and authorization status. According to the risk level, the system provides automatic approval, patient confirmation, or denial decisions. In addition, an AI Agent is introduced to provide natural-language medical data retrieval, authorization inquiry, and access behavior analysis through controlled tool calling interfaces.
+The system is implemented using Vue3, TypeScript, Go, Gin, GORM, MySQL, Redis, Hyperledger Fabric, IPFS, and Python-based AI services. A modular and decoupled architecture is adopted to ensure system maintainability and extensibility.
+Key words: Consortium Blockchain; Hyperledger Fabric; Medical Data Sharing; IPFS; Intelligent Access Control; AI Agent; Data Security
+第一章  绪论
+1.1  研究背景与意义
+随着医院信息化和电子病历系统的发展，患者在不同医疗机构产生的大量诊疗数据逐渐实现数字化保存。患者在实际就诊过程中，其病历、检查报告、检验结果和医学影像等数据通常分别保存在不同医院的信息系统中，由于各医疗机构在系统建设、数据标准和管理机制方面存在差异，使得不同机构之间难以形成统一的数据共享体系。当患者进行跨院就诊、转诊或急诊救治时，医生可能无法及时获取患者完整的历史医疗信息，导致重复检查、诊疗效率下降以及信息利用率较低等问题。
+与此同时，医疗数据属于高敏感度数据，传统中心化数据库虽然便于管理，但如果核心数据库或者管理账号遭到攻击，可能造成大规模数据泄露。此外，在跨机构医疗数据共享过程中，患者通常难以了解自己的数据被哪些人员访问、访问时间以及访问目的，数据使用过程缺少透明的审计机制。因此，如何在实现数据共享的同时保证医疗数据的真实性、完整性、隐私性和可追溯性，是当前医疗数据管理系统需要重点解决的问题。
+区块链具有分布式存储、不可篡改、可追溯等特点，联盟链又能够通过身份认证和权限管理限制网络参与者，因此比较适合应用于医疗机构之间的可信数据共享场景。本系统在原有课程论文中提出的联盟链医疗数据共享方案基础上，进一步增加动态访问控制和AI Agent，使平台不仅能够解决“数据能不能可信共享”的问题，同时能够解决“谁可以访问、什么时候允许访问以及如何智能使用这些数据”的问题。原课程论文已经提出通过Hyperledger Fabric、IPFS和CID实现医疗数据可信存证，并结合属性访问控制和智能合约完成权限管理，为本毕业设计提供了较好的研究基础。
+1.2  研究内容
+本文主要研究和实现基于联盟链、动态智能访问控制与AI Agent的跨机构医疗数据安全共享平台，主要包括以下内容：
+（1）分析跨机构医疗数据共享过程中存在的数据孤岛、隐私泄露、权限管理和数据可信问题，确定系统建设目标和总体技术路线；
+（2）设计基于Hyperledger Fabric的联盟链网络，模拟多家医疗机构共同参与的数据共享环境，并通过智能合约实现医疗数据存证、授权管理、访问记录和数据完整性验证等功能；
+（3）设计IPFS与联盟链相结合的链上链下混合存储机制，将加密后的医疗文件存储在IPFS中，并将CID、Hash和必要的元数据记录到Fabric区块链中；
+（4）设计基于RBAC、ABAC和动态风险评分的智能访问控制机制，综合用户角色、机构、科室、职称、患者授权、访问时间和访问频率等因素形成访问决策；
+（5）设计AI Agent智能辅助功能，通过Tool Calling调用后端业务接口，实现医疗数据自然语言检索、授权状态查询和访问记录分析；
+（6）构建访问审计与访问行为风险分析机制，通过记录关键访问行为，并结合访问时间、访问频率和跨机构访问等规则识别异常或高风险访问行为，为访问控制提供风险依据
+（7）完成系统前端、后端、区块链网络及AI服务的开发，并对系统进行功能、安全和性能验证。
+1.3  论文组织结构
+本文共分为五章。第一章介绍研究背景、研究意义、研究内容以及论文整体组织结构；第二章介绍系统涉及的B/S架构、前后端开发技术、数据库、Hyperledger Fabric、IPFS、数据加密、访问控制及AI Agent等相关技术；第三章分析系统的建设目标、用户角色、功能需求、非功能需求以及主要业务流程；第四章重点介绍系统总体架构、联盟链网络、链上链下数据存储、智能访问控制、AI Agent、功能模块和数据库设计；第五章介绍系统实际开发环境以及用户管理、医疗数据管理、IPFS存储、联盟链上链、智能合约、访问控制、审计、异常检测和AI Agent等功能的具体实现。
+第二章 相关技术介绍
+2.1 前后端系统开发技术
+系统采用B/S架构和前后端分离模式，前端使用Vue3和TypeScript构建用户交互界面，并使用Element Plus实现表单、表格、弹窗等基础组件，使用ECharts对区块链交易、医疗数据共享量、访问行为和风险数据进行可视化展示。后端采用Go语言与Gin框架开发，通过JWT和Gin中间件实现登录认证及角色权限控制，GORM负责数据库访问。MySQL用于存储用户、医疗机构、患者、病历元数据、授权信息和审计日志等业务数据，Redis主要用于系统临时状态管理和缓存，包括用Token黑名单或登录状态管理、AI Agent短期会话上下文缓存以及部分高频业务数据缓存，从而降低数据库访问压力并提高系统响应效率。Go后端同时通过Hyperledger Fabric Gateway Client API与联盟链网络进行通信，实现医疗数据可信上链、链上查询和交易状态获取。
+系统采用前后端分离设计，使界面层和业务层相互独立。前端主要负责数据展示和用户交互，后端主要负责业务逻辑、权限判断、数据库访问以及与Fabric、IPFS和AI服务的通信，从而降低不同功能模块之间的耦合程度，提高系统后期维护和扩展的便利性。
+2.2 Hyperledger Fabric联盟链
+Hyperledger Fabric是面向企业级场景设计的许可型区块链平台，其网络参与者需要通过成员服务提供者进行身份认证，不同组织可以共同参与联盟链网络。系统采用Fabric模拟多个医疗机构组成联盟网络，每个机构具有独立的组织身份和节点，通过Channel实现机构之间的数据交互，并利用Raft排序服务完成交易排序。
+在本系统中，Fabric主要用于保存医疗数据可信存证信息、授权记录以及关键审计信息。由于医疗原始文件通常较大，因此不会将完整病历文件直接存储到链上，而是只保存医疗数据的CID、Hash、记录编号和必要的业务元数据。当系统需要验证数据完整性时，可以重新计算当前文件Hash，并与链上的Hash进行比较，从而判断文件是否发生变化。该思路与课程论文中“IPFS存储 + 区块链记录CID/访问策略”的设计保持一致。
+2.3 IPFS、数据加密与智能访问控制
+IPFS采用内容寻址方式管理文件，文件上传后生成唯一CID。本系统首先采用AES-GCM对医疗文件进行加密，再将密文文件保存到IPFS中，从而避免医疗原始数据直接暴露在链下存储节点。数据库中保存医疗业务信息和文件索引，Fabric中保存CID和Hash等可信存证信息。
+访问控制方面，系统采用RBAC与ABAC相结合的方式。RBAC负责区分医生、患者、管理员及监管人员等不同角色，ABAC则进一步根据医院、科室、职称、访问目的、患者授权状态等属性决定具体访问权限。在此基础上增加动态风险评分机制，根据访问时间、访问频率、跨机构访问情况及历史异常行为等动态因素对访问请求进行评分，从而形成更加灵活的访问决策。
+课程论文中已经设计了基于属性的访问策略，例如根据医院等级、科室和医生职称判断是否满足访问条件，并进一步结合患者授权完成医疗数据访问控制。
+2.4 AI Agent与异常行为分析技术
+AI Agent用于解决传统管理平台需要用户逐级查询和操作的问题。系统采用大语言模型作为Agent的推理核心，并通过Tool Calling机制调用系统已经定义好的患者查询、病历检索、授权查询和访问记录查询等业务工具。AI Agent不直接访问数据库，而是通过后端业务接口获取经过权限控制的数据，从而保证AI功能不会绕过系统的安全机制。
+系统对医疗数据访问行为进行风险分析，将访问频率、访问时间、访问数量以及跨机构访问等信息作为访问行为特征，并通过预先定义的风险规则识别非正常访问行为。例如，非工作时间访问、短时间内频繁访问多个患者以及异常跨机构访问等行为将获得较高的风险评分。风险分析结果可为动态访问控制提供辅助依据。
+第三章 系统需求分析
+3.1 系统总体需求与可行性分析
+本系统面向多家医疗机构之间的医疗数据共享场景，主要模拟医院A、医院B、医院C等多个医院共同加入联盟链网络。医生在正常诊疗过程中可以上传和查询患者医疗资料；患者可以查看自己的授权状态、授权对象及数据访问记录；管理员负责维护机构、医生和患者等基础信息；监管人员负责查看系统中的重要数据流转和异常访问记录。
+从技术可行性来看，Vue3、Go、Gin、GORM、MySQL、Hyperledger Fabric、IPFS和Python等技术均具有较成熟的开发生态，能够满足系统开发要求。课程论文已经完成Hyperledger Fabric、IPFS、智能合约以及医疗数据访问控制的总体设计，并模拟了多机构Fabric网络和IPFS环境，为毕业设计进一步实现提供了基础。
+从经济可行性来看，系统主要依赖开源软件和普通计算机开发环境，不需要专用硬件。医疗数据采用模拟数据，不涉及真实患者隐私，因此适合本科毕业设计开发。
+从操作可行性来看，系统采用Web访问模式，医生、患者和管理人员均可以直接通过浏览器操作。系统将医疗数据管理、授权管理、区块链存证和AI查询整合到统一平台中，不需要用户掌握区块链技术细节。
+3.2 系统功能需求分析
+系统根据用户角色和业务流程划分为用户与机构管理、医疗数据管理、可信存证、数据共享与授权、访问审计与风险分析以及AI智能辅助六类核心功能。
+用户与机构管理主要负责用户登录、身份认证、角色控制、医院信息、科室信息和医生信息的维护。系统根据不同角色展示不同功能，例如医生可以管理患者医疗数据，患者可以管理个人授权信息，管理员可以管理基础数据，监管人员可以查看审计信息。
+医疗数据管理负责患者医疗记录的创建、上传、查询和查看。医生上传医疗文件后，系统首先进行AES加密，将密文上传到IPFS，获得CID，并计算文件Hash，然后把相关业务数据保存到数据库，同时调用Fabric链码完成数据存证。
+可信存证是系统的核心功能。系统需要能够查看每一条医疗数据对应的CID、Hash、交易ID、区块高度和上链时间，并能够根据链上信息验证医疗数据完整性。系统还需要支持授权创建、授权撤销以及关键访问行为的区块链记录。
+数据共享与授权用于实现医生跨机构查询医疗数据。当医生需要访问其他医疗机构保存的病历时，系统首先验证医生身份及基础属性，然后检查患者授权状态并计算本次访问的风险值，根据风险级别确定自动允许、需要患者确认或者拒绝访问。
+访问审计与风险分析负责记录数据上传、查询、授权、撤销和访问等关键行为，并根据访问频率、访问时间、跨机构访问等预定义规则进行访问行为风险分析。当系统检测到异常行为时，可以将风险结果用于后续访问控制，并向管理员或监管人员展示。
+AI Agent模块为医生和患者提供自然语言交互服务。医生可以通过自然语言查询患者历史医疗数据，患者可以通过自然语言询问自己的授权信息和数据访问情况，Agent在调用具体业务工具前需要经过系统权限验证。
+3.3 非功能需求
+系统应满足以下非功能需求：
+（1）安全性：系统用户必须经过身份认证后访问业务功能，不同角色具有不同权限；密码采用安全哈希方式存储；医疗文件在进入IPFS前完成加密；关键数据访问行为具有审计记录。
+（2）完整性：医疗文件在上传后生成Hash，并与CID和关键元数据建立对应关系。系统能够在用户需要时重新计算文件Hash，并与链上数据进行比较。
+（3）可靠性：系统的数据库、IPFS和Fabric服务出现短暂异常时，应能够给出明确错误提示，避免业务数据出现不一致。
+（4）易用性：系统采用Web图形化界面，支持分页、搜索、筛选和状态提示，区块链交易信息采用可视化方式展示，降低用户对区块链底层技术的理解门槛。
+（5）可维护性：系统按照用户、医疗数据、访问控制、区块链、存储和AI等业务模块组织代码，通过接口隔离外部服务，避免业务逻辑与Fabric、IPFS和AI实现强耦合。
+第四章 系统设计
+4.1 系统总体架构与功能模块设计
+系统采用前后端分离与模块化设计，整体分为前端表现层、Go业务服务层、数据与基础设施层以及AI服务层。
+前端使用Vue3构建，包括医生工作台、患者中心、医疗数据管理、授权管理、区块链存证查询、审计管理和AI Agent等页面。后端采用Go语言作为系统核心业务服务，使用Gin构建RESTful API，负责身份认证、医疗数据处理、访问控制、业务数据存储和外部服务调用；GORM用于实现数据库对象关系映射。MySQL保存系统日常业务数据，Redis保存缓存和临时状态。IPFS负责存储加密后的医疗文件，Hyperledger Fabric负责医疗数据的可信存证和关键业务记录。Python FastAPI服务独立部署，主要负责AI Agent编排、异常访问检测以及与大语言模型相关的智能处理，并通过HTTP API与Go后端进行通信。
+系统主要功能模块划分为：
+（1）用户与组织管理模块：实现用户、医院、科室、医生和角色等信息管理；
+（2）患者与医疗数据模块：实现患者信息维护、医疗记录上传、查询和数据查看；
+（3）IPFS存储模块：负责医疗文件加密、上传、CID获取和文件读取；
+（4）联盟链存证模块：负责医疗数据摘要、CID、授权和审计记录上链，并提供链上查询和完整性验证功能；
+（5）智能访问控制模块：实现RBAC、ABAC、患者授权和动态风险控制；
+（6）审计与访问行为风险分析模块：记录关键业务行为，并对访问行为进行风险分析；
+（7）AI Agent模块：提供自然语言查询、授权查询和访问记录分析；
+（8）监管与可视化模块：展示联盟链交易、数据共享数量、访问次数、异常访问等系统运行信息。
+系统的核心业务链路为：医生上传医疗数据后，系统完成文件加密、IPFS存储和CID生成，再调用Fabric链码将CID、Hash和必要元数据记录到区块链；其他机构医生发起访问时，系统进行身份和属性验证，并根据患者授权和风险评分作出访问决定；访问完成后记录审计信息，同时将关键访问行为写入联盟链。
+4.2 联盟链、数据存储与智能业务设计
+本系统的联盟链网络采用多组织结构进行模拟，每个医疗机构对应一个Fabric Organization，并配置Peer节点，通过MSP完成组织身份认证。系统建立统一Channel用于医疗数据共享和可信存证，并使用Raft排序服务完成交易排序。原课程论文已经采用多Peer和Raft排序节点模拟多个医疗机构参与的联盟链场景，本毕业设计在这一基础上进一步实现前后端系统与Fabric的实际连接。
+系统设计三个主要智能合约：医疗数据存证合约、授权管理合约和审计合约。医疗数据存证合约负责新增数据记录、查询数据记录和完整性校验；授权合约负责创建授权、查询授权以及撤销授权；审计合约负责记录关键数据访问、授权和撤销行为。
+医疗数据采用链上链下混合存储方式。原始医疗文件首先使用AES加密，然后上传IPFS获得CID；MySQL保存患者、医疗记录、文件类型以及业务状态等信息；Fabric保存CID、Hash、记录编号、机构编号以及关键时间信息。这样既避免将大型医疗文件直接写入区块链造成账本膨胀，又能够利用区块链不可篡改的特性保存可信数据摘要。该方法延续了原课程论文中“链下保存病历、链上保存CID和关键索引”的核心设计。
+系统访问控制采用“RBAC + ABAC + 动态风险评分”的组合模型。首先通过RBAC判断用户是否具备医生、患者或监管人员等基本角色权限；然后根据用户所属医院、科室、职称和访问目标等属性进行细粒度判断；最后综合访问时间、访问频率、跨机构情况和历史异常行为进行风险评分。根据最终评分将访问请求划分为低风险、中风险和高风险三类，分别对应自动允许、患者确认和拒绝等处理方式。
+4.3 数据库设计
+4.3.1 E-R模型设计
+根据系统业务需求，数据库主要实体包括：用户（User）、医疗机构（Organization）、科室（Department）、医生（Doctor）、患者（Patient）、医疗数据（MedicalRecord）、授权策略（Authorization）、访问申请（AccessRequest）、访问审计日志（AuditLog）、风险分析记录（RiskRecord）以及区块链交易记录（BlockchainTransaction）。
+各实体之间的主要关系如下：
+（1）医疗机构与科室之间为一对多关系，一个医疗机构可以包含多个科室，一个科室只能属于一个医疗机构；
+（2）医疗机构与医生之间为一对多关系，一个医疗机构可以拥有多个医生，一个医生属于一个主要医疗机构；
+（3）用户与医生之间为一对一关系，医生账号对应一个系统用户；
+（4）用户与患者之间为一对一关系，患者通过系统账号登录并管理自己的授权信息；
+（5）患者与医疗数据之间为一对多关系，一个患者可以拥有多条医疗数据，一条医疗数据只属于一个患者；
+（6）医疗机构与医疗数据之间为一对多关系，一家医疗机构可以产生多条医疗数据，每条医疗数据记录其产生机构；
+（7）患者与授权策略之间为一对多关系，一个患者可以针对不同医生、医院或机构建立多条授权策略；
+（8）医生与访问申请之间为一对多关系，一个医生可以产生多个医疗数据访问申请；
+（9）医疗数据与访问申请之间为一对多关系，一条医疗数据可以对应多次访问申请；
+（10）用户与审计日志之间为一对多关系，一个用户可以产生多条数据访问和系统操作日志；
+（11）访问申请与风险分析记录之间为一对一或一对多关系，用于保存某次访问请求的风险评分及分析结果；
+（12）医疗数据、授权记录和审计行为可以分别对应区块链交易记录，通过交易哈希、交易ID、区块高度等信息建立链上链下映射关系。
+4.3.2 数据表设计
+根据E-R模型，系统数据库包含以下主要数据表。
+表4.1 用户信息表（user）
+字段名
+数据类型
+约束
+说明
+id
+BIGINT
+主键，自增
+用户ID
+username
+VARCHAR(50)
+唯一、非空
+登录用户名
+password
+VARCHAR(255)
+非空
+加密后的用户密码
+role
+VARCHAR(20)
+非空
+用户角色
+real_name
+VARCHAR(50)
+非空
+真实姓名
+phone
+VARCHAR(20)
+联系电话
+status
+TINYINT
+默认1
+用户状态
+create_time
+DATETIME
+非空
+创建时间
+表4.2 医疗机构信息表（organization）
+字段名
+数据类型
+约束
+说明
+id
+BIGINT
+主键，自增
+机构ID
+org_code
+VARCHAR(30)
+唯一、非空
+医疗机构编号
+name
+VARCHAR(100)
+非空
+医疗机构名称
+level
+VARCHAR(20)
+医院等级
+address
+VARCHAR(200)
+机构地址
+status
+TINYINT
+默认1
+机构状态
+create_time
+DATETIME
+创建时间
+表4.3 科室信息表（department）
+字段名
+数据类型
+约束
+说明
+id
+BIGINT
+主键，自增
+科室ID
+org_id
+BIGINT
+外键、非空
+所属机构ID
+name
+VARCHAR(50)
+非空
+科室名称
+status
+TINYINT
+默认1
+科室状态
+create_time
+DATETIME
+创建时间
+表4.4 医生信息表（doctor）
+字段名
+数据类型
+约束
+说明
+id
+BIGINT
+主键，自增
+医生ID
+user_id
+BIGINT
+外键、唯一
+对应用户ID
+org_id
+BIGINT
+外键、非空
+所属机构
+department_id
+BIGINT
+外键、非空
+所属科室
+title
+VARCHAR(30)
+医生职称
+license_no
+VARCHAR(50)
+唯一
+医师执业编号
+status
+TINYINT
+默认1
+医生状态
+create_time
+DATETIME
+创建时间
+表4.5 患者信息表（patient）
+字段名
+数据类型
+约束
+说明
+id
+BIGINT
+主键，自增
+患者ID
+user_id
+BIGINT
+外键、唯一
+对应用户ID
+patient_no
+VARCHAR(30)
+唯一、非空
+患者编号
+name
+VARCHAR(50)
+非空
+患者姓名
+gender
+VARCHAR(10)
+性别
+birthday
+DATE
+出生日期
+phone
+VARCHAR(20)
+联系电话
+create_time
+DATETIME
+创建时间
+表4.6 医疗数据表（medical_record）
+字段名
+数据类型
+约束
+说明
+id
+BIGINT
+主键，自增
+医疗数据ID
+record_no
+VARCHAR(40)
+唯一、非空
+医疗记录编号
+patient_id
+BIGINT
+外键、非空
+患者ID
+org_id
+BIGINT
+外键、非空
+数据产生机构
+doctor_id
+BIGINT
+外键
+上传医生
+record_type
+VARCHAR(30)
+非空
+病历/检查/检验等类型
+file_name
+VARCHAR(255)
+原始文件名称
+file_type
+VARCHAR(50)
+文件类型
+cid
+VARCHAR(100)
+IPFS CID
+file_hash
+VARCHAR(128)
+文件SHA-256
+encryption_status
+TINYINT
+加密状态
+chain_status
+TINYINT
+上链状态
+create_time
+DATETIME
+创建时间
+表4.7 授权策略表（authorization）
+字段名
+数据类型
+约束
+说明
+id
+BIGINT
+主键，自增
+授权ID
+patient_id
+BIGINT
+外键、非空
+患者ID
+record_id
+BIGINT
+外键
+指定医疗数据
+target_type
+VARCHAR(20)
+非空
+医生/医院/机构
+target_id
+BIGINT
+非空
+授权目标
+policy
+TEXT
+非空
+访问策略
+start_time
+DATETIME
+生效时间
+end_time
+DATETIME
+失效时间
+status
+VARCHAR(20)
+ACTIVE/REVOKED
+chain_tx_id
+VARCHAR(100)
+对应区块链交易ID
+create_time
+DATETIME
+创建时间
+表4.8 访问申请表（access_request）
+字段名
+数据类型
+约束
+说明
+id
+BIGINT
+主键，自增
+申请ID
+record_id
+BIGINT
+外键、非空
+医疗数据ID
+doctor_id
+BIGINT
+外键、非空
+申请医生
+access_purpose
+VARCHAR(200)
+访问目的
+risk_score
+DECIMAL(5,2)
+风险分数
+decision
+VARCHAR(20)
+ALLOW/CONFIRM/DENY
+status
+VARCHAR(20)
+请求状态
+create_time
+DATETIME
+申请时间
+表4.9 审计日志表（audit_log）
+字段名
+数据类型
+约束
+说明
+id
+BIGINT
+主键，自增
+日志ID
+user_id
+BIGINT
+外键
+操作用户
+record_id
+BIGINT
+外键
+相关医疗数据
+action
+VARCHAR(30)
+非空
+操作类型
+result
+VARCHAR(20)
+成功/失败
+ip_address
+VARCHAR(50)
+操作IP
+risk_score
+DECIMAL(5,2)
+操作风险分数
+chain_tx_id
+VARCHAR(100)
+区块链交易ID
+create_time
+DATETIME
+操作时间
+表4.10 风险分析记录表（risk_record）
+字段名
+数据类型
+约束
+说明
+id
+BIGINT
+主键，自增
+风险记录ID
+access_request_id
+BIGINT
+外键
+访问申请ID
+access_frequency
+INT
+访问频率
+time_risk
+DECIMAL(5,2)
+时间风险
+behavior_risk
+DECIMAL(5,2)
+行为风险
+total_score
+DECIMAL(5,2)
+综合风险分
+anomaly_flag
+TINYINT
+是否异常
+analysis_result
+VARCHAR(255)
+分析结果
+create_time
+DATETIME
+分析时间
+表4.11 区块链交易记录表（blockchain_transaction）
+字段名
+数据类型
+约束
+说明
+id
+BIGINT
+主键，自增
+记录ID
+business_type
+VARCHAR(30)
+非空
+数据存证/授权/访问
+business_id
+BIGINT
+非空
+对应业务数据ID
+tx_id
+VARCHAR(100)
+唯一、非空
+Fabric交易ID
+block_no
+BIGINT
+区块高度
+channel_name
+VARCHAR(50)
+Channel名称
+chaincode_name
+VARCHAR(50)
+链码名称
+status
+VARCHAR(20)
+SUCCESS/FAILED
+create_time
+DATETIME
+上链时间
+数据库设计既保存常规业务数据，又通过cid、file_hash、chain_tx_id和tx_id等字段建立数据库、IPFS与区块链之间的关联，形成完整的“业务数据—链下文件—链上存证”映射关系。
+第五章 系统实现
+5.1 开发环境与项目整体实现
+系统采用Windows 11或Linux作为主要开发环境，前端使用Node.js、Vue3、TypeScript、Vite和Element Plus，核心后端采用Go、Gin、GORM、JWT、MySQL和Redis，区块链环境采用Docker部署Hyperledger Fabric网络，并使用Go Chaincode实现智能合约，Go后端通过Fabric Gateway Client API访问联盟链；链下文件采用IPFS存储，AI功能采用Python、FastAPI和大语言模型相关组件实现。
+后端按照业务模块组织代码，将用户、医疗数据、访问控制、区块链、IPFS、审计等功能相互隔离。Go项目采用Handler—Service—Repository分层结构，并通过独立的Blockchain Service和IPFS Service封装外部基础设施调用过程，避免业务模块直接依赖底层实现。AI Agent通过独立Python服务运行，并通过HTTP API与Go后端进行交互，从而降低AI模块与核心业务模块之间的耦合。
+5.2 用户与医疗机构管理模块实现
+系统实现用户登录、JWT身份认证、角色管理以及医疗机构、科室和医生信息管理。用户登录后由Go后端的JWT认证中间件完成身份校验，并根据用户角色加载对应菜单及接口权限。系统根据用户类型进入医生工作台、患者中心、管理员中心或监管页面。
+医疗机构管理模块支持新增、修改、删除和查询医院信息，并维护医院等级、机构编号等基础数据。科室管理依附于医疗机构，一个医疗机构可建立多个科室。医生信息与系统用户建立关联，同时记录所属医院、科室和职称等属性，为后续ABAC和动态访问控制提供基础数据。
+5.3 医疗数据加密与IPFS存储模块实现
+医生上传病历文件后，系统首先检查文件类型、大小和业务参数是否符合要求，然后生成随机密钥，使用AES-GCM对文件进行加密。加密完成后产生密文文件，密文被上传至IPFS网络并获得唯一CID。
+系统同时计算医疗文件的SHA-256 Hash，并将患者ID、记录编号、CID、Hash、文件类型和上传机构等元数据保存到MySQL数据库。此时系统并不把病历原文件存入数据库或者Fabric，而是使用CID建立文件索引。
+5.4 联盟链网络搭建与医疗数据上链模块实现
+本系统实际部署Hyperledger Fabric联盟链网络，通过Docker启动多个组织节点、Peer节点以及Raft排序节点，并创建用于医疗数据共享的Channel。各医疗机构使用自己的组织身份加入联盟链网络，通过MSP完成节点和客户端身份认证。
+系统前端在上链成功后显示交易ID、区块高度、CID、文件Hash和上链时间，使用户能够直观查看数据可信存证结果。
+同时设计链上查询功能，输入医疗记录编号即可调用链码读取对应的存证信息，实现前端业务记录与Fabric账本之间的对应验证。
+5.5 区块链数据完整性验证与授权管理模块实现
+系统实现基于Hash的医疗文件完整性验证功能。当用户请求验证医疗数据时，系统从IPFS获取当前文件并重新计算SHA-256 Hash，然后从Fabric查询该医疗记录原始Hash，比较两者是否一致。
+如果：
+当前Hash == 链上Hash
+则认为当前文件与原始存证数据一致；如果：
+当前Hash != 链上Hash
+则系统判断文件可能发生变化，并向用户显示数据完整性验证失败。
+在授权管理方面，患者可以通过前端设置允许访问自己医疗数据的医生、医疗机构、科室和有效时间，系统将授权策略保存到MySQL，并调用Fabric授权链码记录关键授权信息。患者执行撤销操作时，系统修改数据库授权状态，同时调用链码记录授权撤销交易，从而保证授权变更具有完整的历史记录。
+5.6 动态智能访问控制模块实现
+医生跨机构访问患者医疗数据时，系统首先进行用户身份认证，并根据RBAC判断用户是否具有医生角色；随后读取医生所属机构、科室和职称等属性，结合患者设置的授权策略进行ABAC属性匹配。
+在此基础上，系统进一步调用Risk Engine对本次访问进行动态风险分析。风险分析因素主要包括访问时间、访问频率、跨机构情况、访问患者数量以及历史异常行为等。
+风险规则通过独立接口设计，不将大量判断逻辑直接写入Controller或Service中。系统可以分别建立时间风险规则、频率风险规则、跨机构风险规则和异常行为风险规则，再由风险引擎计算综合结果。
+对于无法直接允许但具有合理业务需求的访问，则进入患者二次授权流程。通过该机制实现从静态权限判断向动态风险感知访问控制的扩展。
+5.7 访问审计与访问行为风险分析模块实现
+系统对医疗数据上传、访问申请、授权、授权撤销和数据读取等关键行为生成审计日志。日志包括操作用户、目标医疗数据、访问时间、访问结果、访问机构以及风险评分等信息。
+系统在审计日志基础上采用基于规则的访问行为风险分析方法，对非工作时间访问、短时间频繁访问、短时间访问大量患者以及跨机构异常访问等行为进行风险判断。系统根据各项规则计算风险分数，并将结果保存到风险分析记录中。
+风险分析结果分为低、中、高三个等级。低风险访问可以按照既定权限直接执行；中风险访问需要进一步进行患者授权确认；高风险访问将被拒绝并记录风险原因。
+5.8 AI Agent智能助手模块实现
+AI Agent作为系统的智能辅助模块，采用Python FastAPI独立部署。用户通过前端聊天界面输入自然语言请求，AI Agent对用户意图进行分析，并根据任务需要调用系统提供的业务工具。
+5.9 前端功能实现
+系统前端根据不同角色设计对应页面。医生端主要包括医疗数据管理、跨机构数据访问、访问申请、区块链存证和AI Agent等功能；患者端主要包括个人医疗数据、授权管理和访问记录；管理端主要包括用户管理、机构管理和审计信息；监管端主要通过数据可视化大屏查看医疗数据共享数量、区块链交易数量、访问行为以及异常事件。

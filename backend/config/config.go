@@ -16,6 +16,7 @@ type Config struct {
 		DSN string `yaml:"dsn"`
 	} `yaml:"database"`
 	IPFS struct {
+		Mode       string `yaml:"mode"` // "live" or "mock"
 		APIURL     string `yaml:"api_url"`
 		StorageDir string `yaml:"storage_dir"`
 	} `yaml:"ipfs"`
@@ -36,10 +37,25 @@ type Config struct {
 		} `yaml:"fabric"`
 	} `yaml:"blockchain"`
 
+	Security struct {
+		AESMasterKey string `yaml:"aes_master_key"`
+	} `yaml:"security"`
+
 	Risk struct {
 		LowThreshold  int `yaml:"low_threshold"`
 		HighThreshold int `yaml:"high_threshold"`
 	} `yaml:"risk"`
+}
+
+func (c *Config) GetAESMasterKey() []byte {
+	k := c.Security.AESMasterKey
+	if len(k) == 0 {
+		k = "MedTrustMasterKeyAES256GCM2026!"
+	}
+	for len(k) < 32 {
+		k += "!"
+	}
+	return []byte(k[:32])
 }
 
 var AppConfig Config
