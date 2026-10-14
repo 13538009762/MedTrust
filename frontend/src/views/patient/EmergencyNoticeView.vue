@@ -17,8 +17,8 @@
         >
           <div class="event-header">
             <span class="event-no">事件流水单号: <strong>{{ ev.event_no }}</strong></span>
-            <el-tag :type="ev.patient_feedback === 'PENDING' ? 'danger' : 'info'" effect="dark">
-              {{ ev.patient_feedback === 'PENDING' ? '待您知情确认' : (ev.patient_feedback === 'CONFIRMED' ? '已确认无异议' : '已提出异议') }}
+            <el-tag :type="ev.patient_feedback === 'PENDING' ? 'danger' : (ev.patient_feedback === 'CONFIRMED' ? 'success' : 'danger')" effect="dark">
+              {{ ev.patient_feedback === 'PENDING' ? '待您知情确认' : (ev.patient_feedback === 'CONFIRMED' ? '已确认无异议 (正常抢救)' : '⚠️ 已提出异议投诉') }}
             </el-tag>
           </div>
 
@@ -27,6 +27,13 @@
             <p><strong>调阅病历编号：</strong>{{ ev.record_no }}</p>
             <p><strong>紧急原因：</strong><el-tag size="small" type="danger">{{ ev.emergency_reason }}</el-tag></p>
             <p><strong>医生急救临床说明：</strong>{{ ev.description }}</p>
+            <p v-if="ev.patient_comment" class="objection-text"><strong>我的异议理由：</strong><span style="color: #dc2626; font-weight: 500;">{{ ev.patient_comment }}</span></p>
+            <p v-if="ev.audit_status">
+              <strong>监管合规裁决：</strong>
+              <el-tag size="small" :type="ev.audit_status === 'CLOSED_APPROVED' ? 'success' : (ev.audit_status === 'CLOSED_VIOLATION' ? 'danger' : 'warning')">
+                {{ ev.audit_status === 'CLOSED_APPROVED' ? '合规正常结案' : (ev.audit_status === 'CLOSED_VIOLATION' ? '判定违规 (已惩戒医生)' : '调查核实中') }}
+              </el-tag>
+            </p>
             <p><strong>上链存证 TxID：</strong><code class="tx-hash">{{ ev.fabric_tx_id }}</code></p>
             <p><strong>调阅时间：</strong>{{ ev.created_at ? ev.created_at.substring(0, 16).replace('T', ' ') : '' }}</p>
           </div>

@@ -68,61 +68,83 @@
                 <p>基于数字身份的医疗可信访问网关</p>
               </div>
 
-              <!-- 快速填充演示栏 (按医疗机构分类，支持多院区医生与医技快速登录) -->
+              <!-- 答辩演示快捷登录 (6 大标准内置账号，一键自动填入并切换，密码统一为: 123456) -->
               <div class="demo-account-bar">
-                <div class="demo-title">快速登录演示账号 (统一初始密码: 123456)</div>
-
-                <!-- 机构分类 Tab -->
-                <div class="demo-tabs">
-                  <button
-                    type="button"
-                    :class="['demo-tab-item', activeDemoHosp === 'HOSP_A' ? 'active' : '']"
-                    @click="activeDemoHosp = 'HOSP_A'"
-                  >第一医院</button>
-                  <button
-                    type="button"
-                    :class="['demo-tab-item', activeDemoHosp === 'HOSP_B' ? 'active' : '']"
-                    @click="activeDemoHosp = 'HOSP_B'"
-                  >第二医院</button>
-                  <button
-                    type="button"
-                    :class="['demo-tab-item', activeDemoHosp === 'HOSP_C' ? 'active' : '']"
-                    @click="activeDemoHosp = 'HOSP_C'"
-                  >第三医院</button>
-                  <button
-                    type="button"
-                    :class="['demo-tab-item', activeDemoHosp === 'OTHERS' ? 'active' : '']"
-                    @click="activeDemoHosp = 'OTHERS'"
-                  >患者 / 监管</button>
+                <div class="demo-title-row">
+                  <span class="demo-pulse-dot"></span>
+                  <span class="demo-title">答辩演示快捷登录 (初始密码统一: 123456)</span>
                 </div>
 
-                <!-- 第一人民医院角色 -->
-                <div v-if="activeDemoHosp === 'HOSP_A'" class="demo-buttons">
-                  <el-button size="small" type="primary" plain @click="fillAccount('doc_a')">李医生 (心内科)</el-button>
-                  <el-button size="small" type="warning" plain @click="fillAccount('tech_lab_a')">李主管 (检验科)</el-button>
-                  <el-button size="small" type="warning" plain @click="fillAccount('tech_pacs_a')">王医生 (影像科)</el-button>
+                <!-- 6 大核心标准内置账号快速卡片网格 -->
+                <div class="defense-accounts-grid">
+                  <button
+                    v-for="acc in defenseAccounts"
+                    :key="acc.username"
+                    type="button"
+                    :class="['defense-acc-btn', username === acc.username ? 'active-acc' : '']"
+                    @click="fillAccount(acc.username)"
+                    :title="`${acc.name} (${acc.hospital} · ${acc.dept})`"
+                  >
+                    <div class="dab-top">
+                      <span class="dab-name">{{ acc.name }}</span>
+                      <el-tag size="small" :type="acc.tagType" effect="dark" class="dab-tag">{{ acc.roleLabel }}</el-tag>
+                    </div>
+                    <div class="dab-sub">{{ acc.dept }}</div>
+                    <div class="dab-id"><code>{{ acc.username }}</code></div>
+                  </button>
                 </div>
 
-                <!-- 第二人民医院角色 (省立中心医院) -->
-                <div v-else-if="activeDemoHosp === 'HOSP_B'" class="demo-buttons">
-                  <el-button size="small" type="primary" plain @click="fillAccount('doc_b')">王医生 (骨创伤科)</el-button>
-                  <el-button size="small" type="warning" plain @click="fillAccount('tech_lab_b')">刘主管 (检验科)</el-button>
-                  <el-button size="small" type="warning" plain @click="fillAccount('tech_pacs_b')">赵医生 (影像科)</el-button>
-                </div>
+                <!-- 可折叠展开更多辅助测试账号 -->
+                <div class="extra-accounts-wrapper">
+                  <div class="extra-toggle" @click="showExtraAccounts = !showExtraAccounts">
+                    <span>{{ showExtraAccounts ? '收起更多辅助账号' : '展开其他院区与医技账号 (辅助测试)' }}</span>
+                    <el-icon class="extra-arrow" :class="{ 'is-open': showExtraAccounts }"><ArrowDown /></el-icon>
+                  </div>
+                  <div v-show="showExtraAccounts" class="extra-accounts-content">
+                    <div class="demo-tabs">
+                      <button
+                        type="button"
+                        :class="['demo-tab-item', activeDemoHosp === 'HOSP_A' ? 'active' : '']"
+                        @click="activeDemoHosp = 'HOSP_A'"
+                      >第一医院</button>
+                      <button
+                        type="button"
+                        :class="['demo-tab-item', activeDemoHosp === 'HOSP_B' ? 'active' : '']"
+                        @click="activeDemoHosp = 'HOSP_B'"
+                      >第二医院</button>
+                      <button
+                        type="button"
+                        :class="['demo-tab-item', activeDemoHosp === 'HOSP_C' ? 'active' : '']"
+                        @click="activeDemoHosp = 'HOSP_C'"
+                      >第三医院</button>
+                      <button
+                        type="button"
+                        :class="['demo-tab-item', activeDemoHosp === 'OTHERS' ? 'active' : '']"
+                        @click="activeDemoHosp = 'OTHERS'"
+                      >患者/监管</button>
+                    </div>
 
-                <!-- 第三人民医院角色 (协和医学中心) -->
-                <div v-else-if="activeDemoHosp === 'HOSP_C'" class="demo-buttons">
-                  <el-button size="small" type="primary" plain @click="fillAccount('doc_c')">陈医生 (神经内科)</el-button>
-                  <el-button size="small" type="warning" plain @click="fillAccount('tech_lab_c')">孙主管 (检验科)</el-button>
-                  <el-button size="small" type="warning" plain @click="fillAccount('tech_pacs_c')">钱医生 (影像科)</el-button>
-                </div>
-
-                <!-- 患者与平台角色 -->
-                <div v-else class="demo-buttons">
-                  <el-button size="small" type="success" plain @click="fillAccount('pat_zhang')">患者张三</el-button>
-                  <el-button size="small" type="success" plain @click="fillAccount('pat_qian')">患者钱小芳</el-button>
-                  <el-button size="small" type="info" plain @click="fillAccount('supervisor')">监管专员</el-button>
-                  <el-button size="small" type="danger" plain @click="fillAccount('admin')">管理员</el-button>
+                    <div v-if="activeDemoHosp === 'HOSP_A'" class="demo-buttons">
+                      <el-button size="small" type="primary" plain @click="fillAccount('doc_li')">李主任 (心内科)</el-button>
+                      <el-button size="small" type="warning" plain @click="fillAccount('tech_lab_a')">李主管 (检验科)</el-button>
+                      <el-button size="small" type="warning" plain @click="fillAccount('tech_pacs_a')">王医生 (影像科)</el-button>
+                    </div>
+                    <div v-else-if="activeDemoHosp === 'HOSP_B'" class="demo-buttons">
+                      <el-button size="small" type="primary" plain @click="fillAccount('doc_wang')">王医生 (心内科)</el-button>
+                      <el-button size="small" type="warning" plain @click="fillAccount('doc_chen')">陈医生 (急诊科)</el-button>
+                      <el-button size="small" type="warning" plain @click="fillAccount('tech_lab_b')">刘主管 (检验科)</el-button>
+                    </div>
+                    <div v-else-if="activeDemoHosp === 'HOSP_C'" class="demo-buttons">
+                      <el-button size="small" type="primary" plain @click="fillAccount('doc_c')">陈医生 (神经内科)</el-button>
+                      <el-button size="small" type="warning" plain @click="fillAccount('tech_lab_c')">孙主管 (检验科)</el-button>
+                    </div>
+                    <div v-else class="demo-buttons">
+                      <el-button size="small" type="success" plain @click="fillAccount('pat_zhang')">患者张伟/张三</el-button>
+                      <el-button size="small" type="success" plain @click="fillAccount('pat_qian')">患者钱小芳</el-button>
+                      <el-button size="small" type="info" plain @click="fillAccount('sup_zhao')">监管赵主任</el-button>
+                      <el-button size="small" type="danger" plain @click="fillAccount('admin')">系统管理员</el-button>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -282,24 +304,41 @@ import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { 
   User, Lock, Lock as KeyIcon, CircleCheck, Share, MagicStick, 
-  CreditCard, Iphone, Edit 
+  CreditCard, Iphone, Edit, ArrowDown
 } from '@element-plus/icons-vue'
 import { ElMessage, ElNotification } from 'element-plus'
 import api from '../api/client'
 import { useAuthStore } from '../stores/auth'
 
 const mode = ref<'login' | 'register'>('login')
-const username = ref('doc_a')
+const username = ref('doc_li')
 const password = ref('123456')
 const loading = ref(false)
 const regLoading = ref(false)
 const activeDemoHosp = ref('HOSP_A')
+const showExtraAccounts = ref(false)
 
 const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
 
+// 毕业论文与答辩演示 6 个核心标准内置账号
+const defenseAccounts = [
+  { username: 'doc_li', name: '李建国主任', roleLabel: '医院A', tagType: 'primary', hospital: '广州第一附属医院', dept: '心内科' },
+  { username: 'doc_wang', name: '王明德医生', roleLabel: '医院B', tagType: 'primary', hospital: '深圳中心医院', dept: '心内科' },
+  { username: 'doc_chen', name: '陈建明医生', roleLabel: '医院B急诊', tagType: 'warning', hospital: '深圳中心医院', dept: '急诊科' },
+  { username: 'pat_zhang', name: '患者张三/张伟', roleLabel: '患者端', tagType: 'success', hospital: '患者个人中心', dept: '档案主权' },
+  { username: 'sup_zhao', name: '监管赵主任', roleLabel: '监管端', tagType: 'danger', hospital: '国家卫健委', dept: '审计中心' },
+  { username: 'admin', name: '系统管理员', roleLabel: '运维端', tagType: 'info', hospital: 'MedTrust 平台', dept: '技术主管' },
+]
+
 const accountDescMap: Record<string, string> = {
+  'doc_li': '广州第一附属医院 (医院A) · 李建国医生 (心内科主任医师)',
+  'doc_wang': '深圳中心医院 (医院B) · 王明德医生 (心内科主治医师)',
+  'doc_chen': '深圳中心医院 (医院B) · 陈建明医生 (急诊科主治医师)',
+  'pat_zhang': '就诊患者 · 张三/张伟 (健康档案持有者)',
+  'sup_zhao': '国家卫生健康委 · 赵主任 (医疗监管审计主任)',
+  'admin': 'MedTrust 平台 · 系统管理员 (技术主管)',
   'doc_a': '第一人民医院 · 李建国医生 (心内科主任医师)',
   'tech_lab_a': '第一人民医院 · 李主管 (医学检验科主管技师)',
   'tech_pacs_a': '第一人民医院 · 王医生 (放射影像中心主治医师)',
@@ -309,10 +348,8 @@ const accountDescMap: Record<string, string> = {
   'doc_c': '第三人民医院 · 陈晓华医生 (神经内科副主任医师)',
   'tech_lab_c': '第三人民医院 · 孙主管 (医学检验科主管技师)',
   'tech_pacs_c': '第三人民医院 · 钱医生 (放射影像中心主治医师)',
-  'pat_zhang': '患者张三 (健康档案持有者)',
   'pat_qian': '患者钱小芳 (就诊档案持有者)',
-  'supervisor': '卫健监管专员 (医疗合规全链路督察)',
-  'admin': '系统管理员 (平台技术主管)'
+  'supervisor': '卫健监管专员 (医疗合规全链路督察)'
 }
 
 onMounted(async () => {
@@ -758,18 +795,139 @@ async function handleRegister() {
 }
 
 .demo-account-bar {
-  background: rgba(237, 233, 254, 0.6);
-  border: 1px dashed rgba(139, 92, 246, 0.4);
-  border-radius: 12px;
+  background: rgba(237, 233, 254, 0.7);
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  border-radius: 14px;
   padding: 10px 12px;
-  margin-bottom: 18px;
+  margin-bottom: 16px;
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.06);
+}
+
+.demo-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.demo-pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+  display: inline-block;
+  animation: pulse 2s infinite;
 }
 
 .demo-title {
   font-size: 11px;
   font-weight: 700;
+  color: #6d28d9;
+}
+
+.defense-accounts-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.defense-acc-btn {
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 8px;
+  padding: 6px 8px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.defense-acc-btn:hover {
+  transform: translateY(-1px);
+  border-color: #8b5cf6;
+  box-shadow: 0 3px 8px rgba(139, 92, 246, 0.15);
+}
+
+.defense-acc-btn.active-acc {
+  background: #f5f3ff;
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.2);
+}
+
+.dab-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 4px;
+}
+
+.dab-name {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dab-tag {
+  font-size: 9px;
+  height: 16px;
+  line-height: 16px;
+  padding: 0 4px;
+  border-radius: 4px;
+}
+
+.dab-sub {
+  font-size: 10px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dab-id {
+  font-size: 10px;
   color: #7c3aed;
-  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.extra-accounts-wrapper {
+  border-top: 1px dashed rgba(167, 139, 250, 0.4);
+  padding-top: 6px;
+  margin-top: 4px;
+}
+
+.extra-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: #7c3aed;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  user-select: none;
+}
+
+.extra-toggle:hover {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.extra-arrow {
+  transition: transform 0.25s ease;
+}
+
+.extra-arrow.is-open {
+  transform: rotate(180deg);
+}
+
+.extra-accounts-content {
+  margin-top: 6px;
 }
 
 .demo-tabs {

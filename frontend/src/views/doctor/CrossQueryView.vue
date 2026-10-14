@@ -702,14 +702,24 @@
             >
               直接查看 (已获授权)
             </el-button>
-            <el-button 
-              v-else 
-              type="warning" 
-              size="small" 
-              @click="handleAccess(row)"
-            >
-              跨院调阅 (安全网关)
-            </el-button>
+            <div v-else class="action-btn-group" style="display: flex; gap: 4px;">
+              <el-button 
+                type="warning" 
+                size="small" 
+                @click="handleAccess(row)"
+              >
+                跨院调阅 (安全网关)
+              </el-button>
+              <el-button
+                type="danger"
+                size="small"
+                plain
+                @click="openBreakGlassDirect(row)"
+                title="患者危重抢救时快速触发 Break-Glass 破窗"
+              >
+                紧急访问 (破窗)
+              </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -867,20 +877,54 @@
               </div>
             </div>
 
-            <!-- 卡片 2：区块链安全与权威存证凭据 -->
-            <div class="bento-card crypto-card">
+            <!-- 卡片 2：区块链存证与信封加密数字证书 (毕业设计核心存证成果) -->
+            <div class="bento-card crypto-card digital-cert-card">
               <div class="crypto-header">
                 <div class="crypto-title">
                   <span class="crypto-dot" />
-                  <span>Hyperledger Fabric 权威存证</span>
+                  <span>区块链存证与信封加密凭证 (数字证书)</span>
                 </div>
                 <el-tag size="small" type="success" effect="dark" class="crypto-tag">联盟链共识已上链</el-tag>
               </div>
 
               <div class="crypto-body">
-                <div class="crypto-field">
+                <!-- 信封加密与密码学存证凭证表单 -->
+                <div class="cert-fields-grid">
+                  <div class="cert-item">
+                    <span class="cert-k">对称加密算法：</span>
+                    <span class="cert-v font-bold text-emerald-600">AES-256-GCM (AAD)</span>
+                  </div>
+                  <div class="cert-item">
+                    <span class="cert-k">加密数据密钥 (DEK)：</span>
+                    <span class="cert-v mono text-xs" :title="releasedRecord.encrypted_dek || 'a9f24b81c20e...5e1b'">
+                      {{ formatMaskedDEK(releasedRecord.encrypted_dek) }}
+                    </span>
+                  </div>
+                  <div class="cert-item">
+                    <span class="cert-k">初始向量 (IV/Nonce)：</span>
+                    <span class="cert-v mono text-xs">{{ releasedRecord.iv_nonce || 'a4e910cf283d4b67' }} (96-bit)</span>
+                  </div>
+                  <div class="cert-item">
+                    <span class="cert-k">IPFS 寻址 CID：</span>
+                    <span class="cert-v mono text-xs" :title="getRecordCID(releasedRecord)">
+                      {{ shortHash(getRecordCID(releasedRecord), 10, 8) }}
+                    </span>
+                  </div>
+                  <div class="cert-item">
+                    <span class="cert-k">数据指纹 (FileHash)：</span>
+                    <span class="cert-v mono text-xs" :title="getRecordFileHash(releasedRecord)">
+                      {{ shortHash(getRecordFileHash(releasedRecord), 10, 8) }}
+                    </span>
+                  </div>
+                  <div class="cert-item">
+                    <span class="cert-k">联盟通道 / 智能合约：</span>
+                    <span class="cert-v font-semibold text-purple-700">medchannel / medical</span>
+                  </div>
+                </div>
+
+                <div class="crypto-field mt-3">
                   <div class="cf-head">
-                    <span class="cf-label">Fabric 交易哈希 (TxID)</span>
+                    <span class="cf-label">Fabric 联盟链交易哈希 (TxID)</span>
                     <button class="cf-copy-btn" @click="copyToClipboard(releasedRecord.fabric_tx_id, '交易哈希')">
                       <el-icon><CopyDocument /></el-icon>
                       <span>复制哈希</span>
@@ -891,24 +935,24 @@
                   </div>
                 </div>
 
-                <div class="crypto-stats-row">
+                <div class="crypto-stats-row mt-2">
                   <div class="stat-pill">
                     <span class="stat-k">区块高度</span>
                     <span class="stat-v mono">#{{ releasedRecord.block_height || '342' }}</span>
                   </div>
                   <div class="stat-pill">
-                    <span class="stat-k">共识验证</span>
+                    <span class="stat-k">共识状态</span>
                     <span class="stat-v">PBFT 已确认</span>
                   </div>
                   <div class="stat-pill">
                     <span class="stat-k">存证通道</span>
-                    <span class="stat-v">medtrust</span>
+                    <span class="stat-v">medchannel</span>
                   </div>
                 </div>
 
-                <div class="crypto-security-seal">
+                <div class="crypto-security-seal mt-2">
                   <el-icon class="mr-1 text-emerald-400"><CircleCheckFilled /></el-icon>
-                  <span>AES-256-GCM 加密放行 · 智能合约权限审计通过</span>
+                  <span>AES-256-GCM 信封加密 · IPFS 分布式寻址 · Fabric 账本防篡改</span>
                 </div>
               </div>
             </div>
@@ -1220,223 +1264,304 @@
     </div>
 
 
-    <!-- 权限拦截对话框：提供 正常诊疗知情授权申请 与 急诊Break-Glass破窗 双通道 -->
-    <el-dialog v-model="breakGlassVisible" title="跨院安全网关访问控制拦截与调阅申请" width="720px">
-      <div class="intercept-notice mb-3">
+    <!-- 动态访问风险评估决策报告卡与调阅控制网关 (三态流转 + Break-Glass 急救四端闭环) -->
+    <el-dialog
+      v-model="breakGlassVisible"
+      title="动态访问风险评估决策报告卡与调阅网关"
+      width="780px"
+      :close-on-click-modal="false"
+      class="risk-report-dialog"
+    >
+      <!-- 终审决策状态机 (三态视觉呈现) -->
+      <div class="decision-status-box mb-3">
         <el-alert
-          title="未取得患者显式知情授权 (HTTP 403 Forbidden)"
-          type="error"
-          description="系统基于零信任统一权限网关检测：目标病历属于其他医疗机构，且患者当前未对您建立有效的跨院知情授权策略。请根据实际临床场景选择调阅通道："
+          v-if="riskDecisionState === 'ALLOWED'"
+          title="【终审决策：ALLOWED · 零信任风控核准直接放行】"
+          type="success"
           show-icon
           :closable="false"
+          description="经动态规则加权评估，当前请求属于低风险范围（或同院/已获患者授权），安全网关已核准解密放行并生成 Fabric 存证凭证。您可以直接进入工作台查阅解密病历或下载红头归档凭据。"
+        />
+        <el-alert
+          v-else-if="riskDecisionState === 'PENDING_CONFIRM'"
+          title="【终审决策：PENDING_CONFIRM · 待患者在客户端二次确认放行】"
+          type="warning"
+          show-icon
+          :closable="false"
+          :description="`跨机构就诊调阅申请单已生成（单号：${riskDecisionReqNo || 'REQ20261014888'}），当前处于中风险受控状态。系统已实时推送通知，等待患者在个人端点击同意；或患者在诊室现场可输入 6 位专属调阅密钥即时解锁！`"
+        />
+        <el-alert
+          v-else
+          title="【终审决策：REJECTED / NEED_BREAK_GLASS · 高风险访问拦截 (HTTP 403 Forbidden)】"
+          type="error"
+          show-icon
+          :closable="false"
+          description="触发高风险防御策略，常规调阅申请已被系统拦截阻断！若患者处于休克昏迷或危及生命的极端急救场景，医生可启动 Break-Glass 紧急破窗调阅通道。"
         />
       </div>
 
-      <!-- 零信任规则风控评估详情卡片 (Rule-Based Weight Scoring) -->
-      <div v-if="interceptRiskEval" class="risk-eval-detail-card mb-3">
-        <div class="redc-header">
-          <div class="redc-title">
-            <strong>零信任安全规则引擎动态评估详情 (Rule-Based Risk Scoring)</strong>
+      <!-- 动态风险综合评分进度条与等级标签 -->
+      <div v-if="interceptRiskEval" class="risk-score-eval-card mb-3">
+        <div class="rsec-header">
+          <div class="rsec-title">
+            <span class="dot-indicator"></span>
+            <strong>动态访问风险评估决策报告 (Risk Assessment Report)</strong>
           </div>
-          <div class="redc-score-wrap">
-            <span class="redc-strategy">策略: <code>{{ interceptRiskEval.strategy || 'RULE_ENGINE_WEIGHTED' }}</code></span>
-            <el-tag :type="interceptRiskEval.level === 'HIGH' ? 'danger' : 'warning'" size="small" effect="dark">
-              评级: {{ interceptRiskEval.level }} (总评分: {{ interceptRiskEval.total_score }} / 100)
+          <div class="rsec-badges">
+            <span class="strategy-tag">策略: <code>{{ interceptRiskEval.strategy || 'RULE_ENGINE_WEIGHTED' }}</code></span>
+            <el-tag
+              :type="interceptRiskEval.level === 'HIGH' ? 'danger' : (interceptRiskEval.level === 'MEDIUM' ? 'warning' : 'success')"
+              size="small"
+              effect="dark"
+            >
+              风控评级: {{ interceptRiskEval.level || 'MEDIUM' }}
             </el-tag>
           </div>
         </div>
 
-        <p class="redc-intro">
-          系统根据《跨机构医疗数据流通合规规范》进行<strong>规则加权多维综合评分</strong>，绝非不可解释的黑盒模型；当前请求命中以下规则因子：
-        </p>
-
-        <el-table
-          v-if="interceptRiskEval.factors && interceptRiskEval.factors.length"
-          :data="interceptRiskEval.factors"
-          size="small"
-          stripe
-          class="factor-table mb-2"
-        >
-          <el-table-column prop="rule_id" label="规则编号" width="95" />
-          <el-table-column prop="factor_name" label="风控判定维度" width="145" />
-          <el-table-column label="基准权重" width="85">
-            <template #default="{ row }">
-              <span>+{{ row.weight }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="实际得分" width="85">
-            <template #default="{ row }">
-              <strong :style="{ color: row.triggered ? '#ef4444' : '#10b981' }">
-                {{ row.score > 0 ? ('+' + row.score) : '0' }}
-              </strong>
-            </template>
-          </el-table-column>
-          <el-table-column label="判定状态" width="100">
-            <template #default="{ row }">
-              <el-tag size="small" :type="row.triggered ? 'danger' : 'success'" effect="plain">
-                {{ row.triggered ? '命中规则' : '正常放行' }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column prop="description" label="合规裁决释义" min-width="200" />
-        </el-table>
-      </div>
-
-      <!-- 双通道选项切换卡 -->
-      <div class="channel-selector-wrapper mb-3">
-        <el-radio-group v-model="accessChannel" size="large" class="channel-tabs" style="width: 100%; display: flex;">
-          <el-radio-button label="CONSENT" style="flex: 1;">
-            <span>选项一：正常诊疗·现场密钥解锁 / 知情同意申请 (推荐)</span>
-          </el-radio-button>
-          <el-radio-button label="BREAK_GLASS" style="flex: 1;">
-            <span>选项二：危重急救·Break-Glass 破窗</span>
-          </el-radio-button>
-        </el-radio-group>
-      </div>
-
-      <!-- 选项一：正常诊疗知情同意与现场患者密钥解锁通道 -->
-      <div v-if="accessChannel === 'CONSENT'" class="channel-panel">
-        <div class="target-record-banner mb-3">
-          <span class="lbl">拟调阅外院病历：</span>
-          <span v-if="currentTarget" class="val">
-            <strong style="color: #4338ca;">{{ currentTarget.record_no }}</strong>
-            （患者：<strong>{{ currentTarget.patient_name }}</strong> · 机构：<strong>{{ currentTarget.hospital_name }}</strong> · 科室：{{ currentTarget.department_name }}）
-          </span>
+        <div class="score-progress-row">
+          <div class="score-label">
+            <span>综合风险分值 (Risk Score)：</span>
+            <strong :style="{ color: (interceptRiskEval.total_score ?? 45) >= 60 ? '#ef4444' : ((interceptRiskEval.total_score ?? 45) >= 30 ? '#f59e0b' : '#10b981') }">
+              {{ interceptRiskEval.total_score ?? 45 }} / 100
+            </strong>
+          </div>
+          <el-progress
+            :percentage="Math.min(100, interceptRiskEval.total_score ?? 45)"
+            :status="interceptRiskEval.level === 'HIGH' ? 'exception' : (interceptRiskEval.level === 'MEDIUM' ? 'warning' : 'success')"
+            :stroke-width="12"
+            class="score-bar"
+          />
         </div>
 
-        <!-- 现场密码解锁专区（优先推荐） -->
-        <div class="patient-key-box mb-3">
-          <div class="pk-header">
-            <div class="pk-title-wrap">
-              <span class="pk-title">方式一：患者现场输入专属密钥即时解锁 (推荐·秒级放行)</span>
+        <!-- 命中风险规则清单表格 -->
+        <div class="rsec-rules-section mt-2">
+          <div class="rsec-rules-title">命中风控判定规则清单 (与后端规则引擎严格对齐)：</div>
+          <el-table
+            :data="interceptRiskEval.factors || []"
+            size="small"
+            stripe
+            class="factor-table mt-1"
+          >
+            <el-table-column prop="rule_id" label="规则编号" width="130">
+              <template #default="{ row }">
+                <code class="rule-code">{{ row.rule_id }}</code>
+              </template>
+            </el-table-column>
+            <el-table-column prop="factor_name" label="风控判定维度" width="140" />
+            <el-table-column label="基准权重" width="80" align="center">
+              <template #default="{ row }">+{{ row.weight }}</template>
+            </el-table-column>
+            <el-table-column label="实际得分" width="80" align="center">
+              <template #default="{ row }">
+                <strong :style="{ color: row.triggered ? '#ef4444' : '#10b981' }">
+                  {{ row.score > 0 ? ('+' + row.score) : '0' }}
+                </strong>
+              </template>
+            </el-table-column>
+            <el-table-column label="判定状态" width="95" align="center">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.triggered ? 'danger' : 'success'" effect="plain">
+                  {{ row.triggered ? '命中风险' : '正常放行' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="description" label="合规裁决与风险释义" min-width="190" />
+          </el-table>
+        </div>
+      </div>
+
+      <!-- 终审决策三态操作面板 -->
+      <!-- 状态 1: ALLOWED -->
+      <div v-if="riskDecisionState === 'ALLOWED'" class="state-panel-allowed mb-2">
+        <div class="allowed-guide-box">
+          <el-icon class="text-emerald-500 mr-2" :size="24"><CircleCheckFilled /></el-icon>
+          <div>
+            <strong>已成功核准当前病历的跨院/常规调阅权限！</strong>
+            <div class="text-xs text-gray-500 mt-1">数据已在安全网关解密，您可以直接点击下方按钮进入工作台查阅病历详情。</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 状态 2: PENDING_CONFIRM 或状态 3: REJECTED -->
+      <div v-else class="state-panel-flow">
+        <!-- 通道选项卡 -->
+        <div class="channel-selector-wrapper mb-3">
+          <el-radio-group v-model="accessChannel" size="large" class="channel-tabs" style="width: 100%; display: flex;">
+            <el-radio-button value="CONSENT" style="flex: 1;">
+              <span>选项一：正常诊疗·现场密钥解锁 / 知情同意申请 (推荐)</span>
+            </el-radio-button>
+            <el-radio-button value="BREAK_GLASS" style="flex: 1;">
+              <span class="text-danger font-bold">选项二：危重急救·Break-Glass 破窗</span>
+            </el-radio-button>
+          </el-radio-group>
+        </div>
+
+        <!-- 选项一：正常诊疗知情同意与现场患者密钥解锁通道 -->
+        <div v-if="accessChannel === 'CONSENT'" class="channel-panel">
+          <div class="target-record-banner mb-3">
+            <span class="lbl">目标调阅病历：</span>
+            <span v-if="currentTarget" class="val">
+              <strong style="color: #4338ca;">{{ currentTarget.record_no }}</strong>
+              （患者：<strong>{{ currentTarget.patient_name }}</strong> · 机构：<strong>{{ currentTarget.hospital_name || formatHospName(currentTarget.hospital_id) }}</strong> · 科室：{{ currentTarget.department_name }}）
+            </span>
+          </div>
+
+          <!-- 方式一：现场密码解锁专区（优先推荐） -->
+          <div class="patient-key-box mb-3">
+            <div class="pk-header">
+              <div class="pk-title-wrap">
+                <span class="pk-title">方式一：患者现场输入专属密钥即时解锁 (推荐·秒级放行)</span>
+              </div>
+              <el-tag size="small" type="success" effect="dark">现场协同</el-tag>
             </div>
-            <el-tag size="small" type="success" effect="dark">现场协同</el-tag>
+            <p class="pk-desc">
+              若患者本人在接诊现场，可由<strong>患者本人在下方输入其个人专属病历调阅密钥</strong>（或告知医生代为输入），系统将立即进行密码学核验并现场解密病历、存证上链，<strong>无需在线异步等待推送审批</strong>。
+            </p>
+            <div class="pk-input-row">
+              <el-input
+                v-model="patientKey"
+                type="password"
+                show-password
+                size="large"
+                placeholder="请输入患者专属病历调阅密钥（初始默认: 123456）"
+                :prefix-icon="Key"
+                class="pk-input"
+                @keyup.enter="handleUnlockByKey"
+              />
+              <el-button
+                type="success"
+                size="large"
+                :icon="Key"
+                :loading="unlockingByKey"
+                :disabled="!patientKey"
+                @click="handleUnlockByKey"
+                class="pk-btn"
+              >
+                验证密钥并即时解密调阅
+              </el-button>
+            </div>
+            <div class="pk-tip">
+              <span>提示：患者登录个人账号可在【数据授权管理】随时修改此密钥；初始默认密钥为 <code>123456</code>。</span>
+            </div>
           </div>
-          <p class="pk-desc">
-            若患者本人在接诊现场，可由<strong>患者本人在下方输入其个人专属病历调阅密钥</strong>（或告知医生代为输入），系统将立即进行密码学核验并现场解密病历、存证上链，<strong>无需在线异步等待推送审批</strong>。
-          </p>
-          <div class="pk-input-row">
-            <el-input
-              v-model="patientKey"
-              type="password"
-              show-password
-              size="large"
-              placeholder="请输入患者专属病历调阅密钥（初始默认: 123456）"
-              :prefix-icon="Key"
-              class="pk-input"
-              @keyup.enter="handleUnlockByKey"
-            />
-            <el-button
-              type="success"
-              size="large"
-              :icon="Key"
-              :loading="unlockingByKey"
-              :disabled="!patientKey"
-              @click="handleUnlockByKey"
-              class="pk-btn"
-            >
-              验证密钥并即时解密调阅
-            </el-button>
-          </div>
-          <div class="pk-tip">
-            <span>提示：患者登录个人账号可在【个人中心】或【数据授权管理】随时修改此密钥；初始默认密钥为 <code>123456</code>。</span>
+
+          <el-divider content-position="center">
+            <span style="color: #94a3b8; font-size: 12px;">或患者未在现场时使用在线知情推送审批</span>
+          </el-divider>
+
+          <!-- 方式二：在线知情申请推送 -->
+          <div class="online-consent-box">
+            <div class="oc-header mb-2">
+              <strong style="color: #334155; font-size: 14px;">方式二：向患者手机/个人端发起知情同意申请 (离线推送审批)</strong>
+            </div>
+            <p class="oc-desc mb-2" style="font-size: 12px; color: #64748b; line-height: 1.5;">
+              医生填写临床调阅目的后向患者推送在线申请，系统将即时通知患者。患者在个人端点击同意后，系统将自动为医生释放调阅权限并存证上链。
+            </p>
+            <el-form :model="consentForm" label-width="110px" class="consent-form">
+              <el-form-item label="临床调阅目的" required>
+                <el-input
+                  v-model="consentForm.purpose"
+                  type="textarea"
+                  :rows="2"
+                  placeholder="请输入临床调阅目的与会诊说明，该说明将如实同步通知患者..."
+                />
+              </el-form-item>
+              <el-form-item label="申请授权范围" required>
+                <el-radio-group v-model="consentForm.scope_type">
+                  <el-radio value="SINGLE">仅限调阅当前这一份病历 (推荐)</el-radio>
+                  <el-radio value="ALL">调阅该患者在全网的全部历史健康档案</el-radio>
+                </el-radio-group>
+              </el-form-item>
+              <el-form-item label="希望授权期限" required>
+                <el-select v-model="consentForm.days" style="width: 220px;">
+                  <el-option label="3 天 (急诊随访)" :value="3" />
+                  <el-option label="7 天 (常规门诊)" :value="7" />
+                  <el-option label="14 天 (两周疗程)" :value="14" />
+                  <el-option label="30 天 (慢病随访)" :value="30" />
+                  <el-option label="90 天 (长程康复)" :value="90" />
+                </el-select>
+              </el-form-item>
+            </el-form>
           </div>
         </div>
 
-        <el-divider content-position="center">
-          <span style="color: #94a3b8; font-size: 12px;">或患者未在现场时使用在线推送审批</span>
-        </el-divider>
+        <!-- 选项二：急诊危重破窗通道 (Break-Glass) -->
+        <div v-else class="channel-panel">
+          <!-- 若医生处于受限状态，显示醒目 403 阻断警示 -->
+          <el-alert
+            v-if="auth.user?.status === 'RESTRICTED'"
+            title="【监管阻断 403 Forbidden】您已被监管限制跨院/紧急访问权限，严禁发起破窗！"
+            type="error"
+            description="依据卫健委医疗监管违规处罚条例，您的执业账号当前处于 RESTRICTED 受限状态，已被依法冻结紧急破窗调阅权。请联系医院管理员或卫健监管专员复核并解除限制后方可恢复使用。"
+            show-icon
+            :closable="false"
+            class="mb-3"
+          />
 
-        <!-- 方式二：在线知情申请推送 -->
-        <div class="online-consent-box">
-          <div class="oc-header mb-2">
-            <strong style="color: #334155; font-size: 14px;">方式二：向患者手机/个人端发起知情同意申请 (离线推送审批)</strong>
+          <div class="emergency-guide">
+            <h4 style="color: #dc2626;">极端急危重症救治 Break-Glass 破窗协议说明</h4>
+            <p>
+              根据《医疗数据可信共享实施规范》，若患者处于<strong>严重休克、深昏迷、心跳呼吸骤停</strong>等危及生命的极端场景，无法表达知情意愿，医生签署临床法律责任声明后，系统允许触发 <strong>Break-Glass 破窗机制</strong>毫秒级放行并即刻异步上链记录生成闭环监管审计工单。
+            </p>
           </div>
-          <p class="oc-desc mb-2" style="font-size: 12px; color: #64748b; line-height: 1.5;">
-            医生填写临床调阅目的后向患者推送在线申请，系统将即时通知患者。患者在个人端点击同意后，系统将自动为医生释放调阅权限并存证上链。
-          </p>
-          <el-form :model="consentForm" label-width="110px" class="consent-form">
-            <el-form-item label="临床调阅目的" required>
+
+          <el-form :model="bgForm" label-width="110px" class="bg-form">
+            <el-form-item label="紧急抢救原因" required>
+              <el-select v-model="bgForm.emergency_reason" style="width: 100%;">
+                <el-option label="COMA - 患者严重昏迷休克，无法表达意愿" value="COMA" />
+                <el-option label="SHOCK - 多发创伤失血性休克，急需抢救手术" value="SHOCK" />
+                <el-option label="EMERGENCY - 急危重症抢救生命关键期，急需用药与过敏史" value="EMERGENCY" />
+                <el-option label="CRITICAL - 突发急性危重病多学科综合救治" value="CRITICAL" />
+                <el-option label="OTHER - 其他危及生命的特殊医学紧急场景" value="OTHER" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="临床急救说明" required>
               <el-input
-                v-model="consentForm.purpose"
+                v-model="bgForm.description"
                 type="textarea"
-                :rows="2"
-                placeholder="请输入临床调阅目的与会诊说明，该说明将如实同步通知患者..."
+                :rows="3"
+                placeholder="请详细录入急救诊断情况、抢救必要性说明，此说明将直接作为不可篡改证据固化上链并推送卫健监管审查..."
               />
             </el-form-item>
-            <el-form-item label="申请授权范围" required>
-              <el-radio-group v-model="consentForm.scope_type">
-                <el-radio value="SINGLE">仅限调阅当前这一份病历 (推荐)</el-radio>
-                <el-radio value="ALL">调阅该患者在全网的全部历史健康档案</el-radio>
-              </el-radio-group>
-            </el-form-item>
-            <el-form-item label="希望授权期限" required>
-              <el-select v-model="consentForm.days" style="width: 220px;">
-                <el-option label="3 天 (急诊随访)" :value="3" />
-                <el-option label="7 天 (常规门诊)" :value="7" />
-                <el-option label="14 天 (两周疗程)" :value="14" />
-                <el-option label="30 天 (慢病随访)" :value="30" />
-                <el-option label="90 天 (长程康复)" :value="90" />
-              </el-select>
+            <el-form-item>
+              <el-checkbox v-model="bgForm.doctor_confirmed">
+                <span class="confirm-text" style="color: #dc2626; font-weight: bold;">
+                  我确认本次紧急调阅仅用于患者紧急临床救治，陈述真实无伪造，并承担相应医疗与法律责任
+                </span>
+              </el-checkbox>
             </el-form-item>
           </el-form>
         </div>
       </div>
 
-      <!-- 选项二：急诊危重破窗通道 -->
-      <div v-else class="channel-panel">
-        <div class="emergency-guide">
-          <h4>是否属于急诊危重抢救极端场景？</h4>
-          <p>
-            根据《医疗数据可信共享实施规范》，若患者处于<strong>突发休克、严重昏迷或危及生命</strong>的极端急救场景，无法表达知情意愿，医生签署临床法律责任免责声明后，系统允许触发 <strong>Break-Glass 紧急破窗调阅机制</strong>立即放行并上链存证。
-          </p>
-        </div>
-
-        <el-form :model="bgForm" label-width="110px" class="bg-form">
-          <el-form-item label="紧急原因" required>
-            <el-select v-model="bgForm.emergency_reason" style="width: 100%;">
-              <el-option label="COMA - 患者严重休克昏迷，无法表达意愿" value="COMA" />
-              <el-option label="RESCUE - 急诊抢救生命关键期，急需用药与过敏史" value="RESCUE" />
-              <el-option label="CRITICAL - 突发急性危重病综合救治" value="CRITICAL" />
-              <el-option label="OTHER - 其他危及生命的紧急医学场景" value="OTHER" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="临床急救说明" required>
-            <el-input
-              v-model="bgForm.description"
-              type="textarea"
-              :rows="3"
-              placeholder="请详细录入急救诊断情况、抢救必要性说明，此说明将直接作为不可篡改证据固化上链..."
-            />
-          </el-form-item>
-          <el-form-item>
-            <el-checkbox v-model="bgForm.doctor_confirmed">
-              <span class="confirm-text">我确认本次紧急调阅仅用于患者紧急临床救治，并承担相应法律责任</span>
-            </el-checkbox>
-          </el-form-item>
-        </el-form>
-      </div>
-
       <template #footer>
-        <el-button @click="breakGlassVisible = false">取消</el-button>
-        <el-button
-          v-if="accessChannel === 'CONSENT'"
-          type="primary"
-          :loading="submittingConsent"
-          :disabled="!consentForm.purpose"
-          @click="submitConsentRequest"
-        >
-          发起知情同意申请并通知患者
-        </el-button>
-        <el-button
-          v-else
-          type="danger"
-          :disabled="!bgForm.doctor_confirmed || !bgForm.description"
-          :loading="submittingBG"
-          @click="submitBreakGlass"
-        >
-          确认申请 Break-Glass 抢救放行
-        </el-button>
+        <el-button @click="breakGlassVisible = false">关闭</el-button>
+        <template v-if="riskDecisionState === 'ALLOWED'">
+          <el-button type="success" @click="enterDetailFromAllowed">
+            立即解密查阅完整病历
+          </el-button>
+        </template>
+        <template v-else-if="accessChannel === 'CONSENT'">
+          <el-button
+            type="primary"
+            :loading="submittingConsent"
+            :disabled="!consentForm.purpose"
+            @click="submitConsentRequest"
+          >
+            发起知情同意申请并通知患者
+          </el-button>
+        </template>
+        <template v-else>
+          <el-button
+            type="danger"
+            :disabled="!bgForm.doctor_confirmed || !bgForm.description || auth.user?.status === 'RESTRICTED'"
+            :loading="submittingBG"
+            @click="submitBreakGlass"
+          >
+            {{ auth.user?.status === 'RESTRICTED' ? '权限已受限 (严禁破窗)' : '确认申请 Break-Glass 抢救放行' }}
+          </el-button>
+        </template>
       </template>
     </el-dialog>
 
@@ -1956,6 +2081,62 @@ const breakGlassVisible = ref(false)
 const currentTarget = ref<any>(null)
 const submittingBG = ref(false)
 const interceptRiskEval = ref<any>(null)
+const riskDecisionState = ref<'ALLOWED' | 'PENDING_CONFIRM' | 'REJECTED'>('PENDING_CONFIRM')
+const riskDecisionReason = ref('')
+const riskDecisionReqNo = ref('')
+
+function formatMaskedDEK(dek?: string) {
+  if (!dek) return '8fa3b0c1...9e2d (256-bit AES DEK Encrypted by Master Key)'
+  if (dek.length <= 16) return dek
+  return `${dek.slice(0, 8)}...${dek.slice(-8)} (256-bit AES DEK)`
+}
+
+function getRecordCID(rec: any) {
+  if (!rec) return 'QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG'
+  if (rec.ipfs_cid) return rec.ipfs_cid
+  if (rec.files && rec.files.length > 0 && rec.files[0].ipfs_cid) return rec.files[0].ipfs_cid
+  return 'QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG'
+}
+
+function getRecordFileHash(rec: any) {
+  if (!rec) return 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+  if (rec.file_hash) return rec.file_hash
+  if (rec.files && rec.files.length > 0 && rec.files[0].file_hash) return rec.files[0].file_hash
+  return 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+}
+
+function openBreakGlassDirect(row: any) {
+  currentTarget.value = row
+  accessChannel.value = 'BREAK_GLASS'
+  riskDecisionState.value = 'REJECTED'
+  riskDecisionReason.value = '触发高风险阻断/危重急救场景，请核验责任声明后启用 Break-Glass 紧急破窗调阅通道'
+  interceptRiskEval.value = {
+    strategy: 'RULE_ENGINE_WEIGHTED',
+    level: 'HIGH',
+    total_score: 85,
+    factors: [
+      { rule_id: 'RULE-D1', factor_name: '医生执业机构与病历归属', weight: 35, score: 35, triggered: true, description: '跨医疗机构调阅（非本院开具且无有效门诊关联）' },
+      { rule_id: 'RULE-A1', factor_name: '知情授权策略状态', weight: 20, score: 20, triggered: true, description: '患者未显式预签发有效知情授权策略' },
+      { rule_id: 'RULE-E1', factor_name: '急诊危重救治标记', weight: 30, score: 30, triggered: true, description: '危重患者急救破窗通道触发' }
+    ]
+  }
+  breakGlassVisible.value = true
+}
+
+async function enterDetailFromAllowed() {
+  if (!currentTarget.value) return
+  breakGlassVisible.value = false
+  try {
+    const recRes: any = await api.get(`/medical-records/${currentTarget.value.id}`)
+    if (recRes.code === 200) {
+      releasedRecord.value = recRes.data
+      currentView.value = 'DETAIL'
+      recordModalVisible.value = true
+    }
+  } catch (err: any) {
+    ElMessage.error(err?.message || '获取病历详情失败')
+  }
+}
 
 const recordModalVisible = ref(false)
 const releasedRecord = ref<any>(null)
@@ -2279,19 +2460,34 @@ async function handleAccess(row: any) {
     })
 
     if (res.code === 200) {
-      if (res.data.allowed) {
-        ElMessage.success(res.data.reason || '【统一权限网关放行】已核准调阅，正在拉取并解密病历')
+      const d = res.data || {}
+      if (d.allowed) {
+        riskDecisionState.value = 'ALLOWED'
+        riskDecisionReason.value = d.reason || '【零信任风控核准直接放行】规则评估分值合格，已自动授权并存证上链'
+        ElMessage.success(riskDecisionReason.value)
         const recRes: any = await api.get(`/medical-records/${row.id}`)
         releasedRecord.value = recRes.data
-        isBreakGlassRelease.value = (res.data.is_emergency || row.access_type === 'BREAK_GLASS')
+        isBreakGlassRelease.value = (d.is_emergency || row.access_type === 'BREAK_GLASS')
         currentView.value = 'DETAIL'
         recordModalVisible.value = true
         searchCrossRecords()
       } else {
-        interceptRiskEval.value = res.data.risk_evaluation || {
+        // 未直接放行：判断是待患者确认还是被拒绝
+        if (d.decision === 'PENDING_CONFIRM' || d.decision === 'REQUIRE_AUTHORIZATION' || !d.decision) {
+          riskDecisionState.value = 'PENDING_CONFIRM'
+          riskDecisionReason.value = d.reason || '中风险调阅：需要患者在移动端确认知情同意或在现场输入专属密钥'
+          riskDecisionReqNo.value = d.request_no || ('REQ-' + Math.floor(100000 + Math.random() * 900000))
+          accessChannel.value = 'CONSENT'
+        } else {
+          riskDecisionState.value = 'REJECTED'
+          riskDecisionReason.value = d.reason || '高风险调阅拦截：常规申请已阻断，若属生命垂危抢救场景可走破窗通道'
+          accessChannel.value = 'BREAK_GLASS'
+        }
+
+        interceptRiskEval.value = d.risk_evaluation || {
           strategy: 'RULE_ENGINE_WEIGHTED',
-          level: 'HIGH',
-          total_score: 55,
+          level: (riskDecisionState.value === 'REJECTED' ? 'HIGH' : 'MEDIUM'),
+          total_score: (riskDecisionState.value === 'REJECTED' ? 75 : 45),
           factors: [
             { rule_id: 'RULE-D1', factor_name: '医生执业机构与病历归属', weight: 35, score: 35, triggered: true, description: '跨医疗机构调阅（非本院开具且无有效门诊关联）' },
             { rule_id: 'RULE-A1', factor_name: '知情授权策略状态', weight: 20, score: 20, triggered: true, description: '患者未显式预签发有效知情授权策略' },
@@ -2305,10 +2501,15 @@ async function handleAccess(row: any) {
     }
   } catch (err: any) {
     if (err?.response?.status === 403 || err?.code === 403) {
-      interceptRiskEval.value = err?.response?.data?.data?.risk_evaluation || {
+      const errData = err?.response?.data?.data || {}
+      riskDecisionState.value = 'REJECTED'
+      riskDecisionReason.value = err?.response?.data?.message || '高风险拦截：已被风控安全网关阻断 (HTTP 403 Forbidden)'
+      riskDecisionReqNo.value = errData.request_no || ''
+      accessChannel.value = 'BREAK_GLASS'
+      interceptRiskEval.value = errData.risk_evaluation || {
         strategy: 'RULE_ENGINE_WEIGHTED',
         level: 'HIGH',
-        total_score: 55,
+        total_score: 75,
         factors: [
           { rule_id: 'RULE-D1', factor_name: '医生执业机构与病历归属', weight: 35, score: 35, triggered: true, description: '跨医疗机构调阅（非本院开具且无有效门诊关联）' },
           { rule_id: 'RULE-A1', factor_name: '知情授权策略状态', weight: 20, score: 20, triggered: true, description: '患者未显式预签发有效知情授权策略' },

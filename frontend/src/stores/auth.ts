@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import api from '../api/client'
 
 export interface User {
   id: number
@@ -62,11 +63,23 @@ export const useAuthStore = defineStore('auth', () => {
     setUser(newUser)
   }
 
-  function logout() {
+  async function logout() {
+    const currentToken = token.value || sessionStorage.getItem('medtrust_token')
+    if (currentToken) {
+      try {
+        await api.post('/auth/logout')
+      } catch (err) {
+        console.warn('[Auth] Backend logout error or offline:', err)
+      }
+    }
     token.value = ''
     user.value = null
     sessionStorage.removeItem('medtrust_token')
     sessionStorage.removeItem('medtrust_user')
+    try {
+      localStorage.removeItem('medtrust_token')
+      localStorage.removeItem('medtrust_user')
+    } catch {}
   }
 
   return {

@@ -66,7 +66,12 @@
           <div v-for="item in pendingRequests" :key="item.id" class="pending-item-card">
             <div class="pi-header">
               <span class="pi-no">申请单号: <strong>{{ item.request_no }}</strong></span>
-              <el-tag size="small" type="warning" effect="dark">待您知情核准</el-tag>
+              <div class="pi-badges" style="display: flex; gap: 6px; align-items: center;">
+                <el-tag size="small" type="warning" effect="dark">待您知情核准 (PENDING_CONFIRM)</el-tag>
+                <el-tag size="small" :type="item.risk_level === 'HIGH' ? 'danger' : (item.risk_level === 'LOW' ? 'success' : 'warning')" effect="plain">
+                  风控评级: {{ item.risk_level || 'MEDIUM' }}
+                </el-tag>
+              </div>
             </div>
             <div class="pi-body">
               <div class="pi-info-row">

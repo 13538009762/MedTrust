@@ -13,7 +13,7 @@
     </div>
 
     <el-card shadow="hover" class="box-card">
-      <el-table :data="events" v-loading="loading" stripe style="width: 100%">
+      <el-table :data="events" v-loading="loading" stripe :row-class-name="tableRowClassName" style="width: 100%">
         <el-table-column prop="event_no" label="事件流水单号" width="160" />
         <el-table-column prop="doctor_name" label="调阅医生" width="120" />
         <el-table-column prop="source_hospital_name" label="调阅方医院" width="150" />
@@ -23,10 +23,12 @@
             <el-tag size="small" type="danger">{{ row.emergency_reason }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="patient_feedback" label="患者知情确认" width="130">
+        <el-table-column prop="patient_feedback" label="患者知情确认" width="145">
           <template #default="{ row }">
-            <el-tag v-if="row.patient_feedback === 'CONFIRMED'" type="success" size="small">无异议</el-tag>
-            <el-tag v-else-if="row.patient_feedback === 'OBJECTED'" type="danger" size="small">提出异议</el-tag>
+            <el-tag v-if="row.patient_feedback === 'CONFIRMED'" type="success" size="small" effect="plain">正常抢救 (无异议)</el-tag>
+            <el-tag v-else-if="row.patient_feedback === 'OBJECTED'" type="danger" size="small" effect="dark">
+              ⚠️ 提出异议投诉
+            </el-tag>
             <el-tag v-else type="info" size="small">等待确认</el-tag>
           </template>
         </el-table-column>
@@ -72,9 +74,18 @@
         <p><strong>医生抢救说明：</strong>{{ currentEvent.description }}</p>
         <p><strong>患者反馈结论：</strong>
           <el-tag size="small" :type="currentEvent.patient_feedback === 'OBJECTED' ? 'danger' : 'success'">
-            {{ currentEvent.patient_feedback }}
+            {{ currentEvent.patient_feedback === 'OBJECTED' ? '⚠️ 已提出异议投诉' : (currentEvent.patient_feedback === 'CONFIRMED' ? '已确认无异议 (正常抢救)' : '等待确认') }}
           </el-tag>
         </p>
+        <el-alert
+          v-if="currentEvent.patient_feedback === 'OBJECTED'"
+          type="error"
+          title="【患者异议投诉预警】该紧急事件已被患者提出异议！"
+          :description="`患者陈述理由: ${currentEvent.patient_comment || '当时我意识完全清醒，医生未经我同意擅自调阅，涉嫌违规套取隐私。'}`"
+          show-icon
+          :closable="false"
+          class="mt-2 mb-2"
+        />
         <el-divider />
       </div>
 
@@ -279,9 +290,22 @@ async function submitLiftRestriction() {
     lifting.value = false
   }
 }
+
+function tableRowClassName({ row }: { row: any }) {
+  if (row.patient_feedback === 'OBJECTED') {
+    return 'objected-row'
+  }
+  return ''
+}
 </script>
 
 <style scoped>
+:deep(.objected-row) {
+  background-color: #fff1f2 !important;
+}
+:deep(.objected-row td) {
+  background-color: #fff1f2 !important;
+}
 .page-container {
   max-width: 1300px;
   margin: 0 auto;

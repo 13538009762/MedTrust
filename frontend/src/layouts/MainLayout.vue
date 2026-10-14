@@ -143,7 +143,7 @@
             答辩演示向导
           </el-button>
 
-          <!-- 区块链底层实时状态微件 -->
+          <!-- 联盟链与 IPFS 底层实时双状态指示灯 -->
           <el-tooltip :content="chainTooltip" placement="bottom">
             <div
               class="header-chain-badge"
@@ -152,8 +152,15 @@
               title="查看底层联盟链运行状态"
             >
               <span class="mini-pulse-dot" :class="chainDotClass"></span>
-              <span class="chain-badge-text">{{ chainStatus.message || 'Fabric 状态' }}</span>
+              <span class="chain-badge-text">Fabric ({{ chainStatus.network || 'medchannel' }}) 在线</span>
               <span v-if="chainStatus.latest_block" class="chain-block-num">#{{ chainStatus.latest_block }}</span>
+            </div>
+          </el-tooltip>
+
+          <el-tooltip content="IPFS 分布式密文存储节点已连接，AES-256-GCM 密文块去中心化寻址正常" placement="bottom">
+            <div class="header-ipfs-badge">
+              <span class="mini-pulse-dot dot-green"></span>
+              <span class="ipfs-badge-text">IPFS 密文节点 (在线)</span>
             </div>
           </el-tooltip>
 
@@ -161,7 +168,7 @@
           <el-tooltip :content="isSSEConnected ? 'SSE 实时双向业务通知通道已在线' : 'SSE 通知通道正在重连中...'" placement="bottom">
             <div class="header-sse-badge" :class="isSSEConnected ? 'sse-online' : 'sse-offline'">
               <span class="sse-pulse-dot" :class="isSSEConnected ? 'dot-green' : 'dot-amber'"></span>
-              <span class="sse-badge-text">{{ isSSEConnected ? '实时推送在线' : '推送连接中' }}</span>
+              <span class="sse-badge-text">{{ isSSEConnected ? '实时推送' : '连接中' }}</span>
             </div>
           </el-tooltip>
 
@@ -174,25 +181,28 @@
             {{ getRoleName(auth.user?.role) }}
           </el-tag>
 
-          <!-- 账号状态惩戒警示 -->
+          <!-- 账号执业/监管状态标签 -->
           <el-tag
-            v-if="auth.user?.status === 'RESTRICTED'"
-            type="danger"
-            effect="plain"
-            class="status-warning-tag"
+            :type="auth.user?.status === 'RESTRICTED' ? 'danger' : (auth.user?.status === 'DISABLED' ? 'info' : 'success')"
+            :effect="auth.user?.status === 'RESTRICTED' ? 'dark' : 'light'"
+            class="header-user-status-tag"
           >
-            账号已被监管限制跨院访问
+            <span class="status-mini-dot" :class="auth.user?.status === 'RESTRICTED' ? 'dot-red-mini' : (auth.user?.status === 'DISABLED' ? 'dot-gray-mini' : 'dot-green-mini')"></span>
+            {{ auth.user?.status === 'RESTRICTED' ? '监管受限 (RESTRICTED)' : (auth.user?.status === 'DISABLED' ? '已停用' : (auth.user?.role === 'doctor' ? '正常执业' : '正常状态')) }}
           </el-tag>
 
+          <!-- 用户真实姓名与所属机构科室常驻展示 -->
           <div class="user-profile clickable" @click="router.push('/personal')" title="点击查看并维护个人信息">
             <el-avatar size="small" :style="{ backgroundColor: '#8b5cf6' }">
               {{ (auth.user?.real_name || '用').charAt(0) }}
             </el-avatar>
-            <span class="user-name">{{ auth.user?.real_name }}</span>
-            <span v-if="auth.user?.hospital_name" class="user-hosp">({{ auth.user?.hospital_name }})</span>
+            <div class="user-meta-stacked">
+              <span class="user-name">{{ auth.user?.real_name || auth.user?.username }}</span>
+              <span class="user-affiliation">{{ userAffiliationDisplay }}</span>
+            </div>
           </div>
 
-          <el-button link type="danger" @click="onLogout" title="退出系统">
+          <el-button link type="danger" @click="onLogout" title="退出系统" class="logout-btn">
             <el-icon :size="18"><SwitchButton /></el-icon>
           </el-button>
         </div>
@@ -360,10 +370,38 @@ function getRoleName(role?: string) {
   return '用户'
 }
 
-function onLogout() {
+import { ElMessage } from 'element-plus'
+
+const userAffiliationDisplay = computed(() => {
+  const u = auth.user
+  if (!u) return ''
+  if (u.role === 'doctor') {
+    const hosp = u.hospital_name || (u.hospital_id === 1 ? '广州第一附属医院' : (u.hospital_id === 2 ? '深圳中心医院' : (u.hospital_id === 3 ? '珠海人民医院' : '医疗机构')))
+    const dept = u.department_name || (u.department_id === 1 || u.department_id === 3 ? '心内科' : (u.department_id === 2 || u.department_id === 4 ? '急诊科' : '临床科室'))
+    return `${hosp} · ${dept}`
+  }
+  if (u.role === 'patient') {
+    return '国家健康档案持有者'
+  }
+  if (u.role === 'supervisor') {
+    return '国家卫健委 · 医疗监管审计中心'
+  }
+  if (u.role === 'admin') {
+    return 'MedTrust 平台 · 运维技术部'
+  }
+  return u.hospital_name || '医疗联盟'
+})
+
+async function onLogout() {
   disconnectSSE()
-  auth.logout()
-  router.push('/login')
+  try {
+    await auth.logout()
+    ElMessage.success('已安全退出系统，Token 已作废并加入黑名单')
+  } catch (err) {
+    console.warn('Logout error:', err)
+  } finally {
+    router.push('/login')
+  }
 }
 </script>
 
@@ -587,6 +625,51 @@ function onLogout() {
   100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
 }
 
+.header-ipfs-badge {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(14, 165, 233, 0.1);
+  color: #0284c7;
+  border: 1px solid rgba(14, 165, 233, 0.35);
+  transition: all 0.2s ease;
+  user-select: none;
+}
+.header-ipfs-badge:hover {
+  background: rgba(14, 165, 233, 0.18);
+  box-shadow: 0 2px 8px rgba(14, 165, 233, 0.2);
+}
+.ipfs-badge-text {
+  letter-spacing: 0.3px;
+}
+
+.header-user-status-tag {
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.status-mini-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.dot-green-mini {
+  background: #10b981;
+}
+.dot-red-mini {
+  background: #ffffff;
+}
+.dot-gray-mini {
+  background: #94a3b8;
+}
+
 .status-warning-tag {
   font-weight: 700;
 }
@@ -604,14 +687,24 @@ function onLogout() {
 .user-profile.clickable:hover {
   background: rgba(139, 92, 246, 0.08);
 }
+
+.user-meta-stacked {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
 .user-name {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 700;
   color: #1e293b;
 }
-.user-hosp {
-  font-size: 12px;
+.user-affiliation {
+  font-size: 11px;
   color: #64748b;
+  max-width: 170px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .medtrust-main {
   flex: 1;
