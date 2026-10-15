@@ -129,7 +129,8 @@
           <el-icon class="collapse-btn" @click="isCollapse = !isCollapse">
             <component :is="isCollapse ? Expand : Fold" />
           </el-icon>
-          <span class="logo-text">基于区块链的跨机构医疗数据可信共享平台</span>
+          <span class="logo-text full-title">基于区块链的跨机构医疗数据可信共享平台</span>
+          <span class="logo-text short-title">MedTrust 可信共享平台</span>
         </div>
 
         <div class="header-right">
@@ -161,6 +162,7 @@
             <div class="header-ipfs-badge">
               <span class="mini-pulse-dot dot-green"></span>
               <span class="ipfs-badge-text">IPFS 密文节点 (在线)</span>
+              <span class="ipfs-badge-short">IPFS (在线)</span>
             </div>
           </el-tooltip>
 
@@ -169,6 +171,7 @@
             <div class="header-sse-badge" :class="isChannelOnline ? 'sse-online' : 'sse-offline'">
               <span class="sse-pulse-dot" :class="isChannelOnline ? 'dot-green' : 'dot-amber'"></span>
               <span class="sse-badge-text">{{ isChannelOnline ? '实时通道已就绪' : '连接中' }}</span>
+              <span class="sse-badge-short">{{ isChannelOnline ? '实时通道' : '连接中' }}</span>
             </div>
           </el-tooltip>
 
@@ -226,7 +229,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Expand, Fold, SwitchButton } from '@element-plus/icons-vue'
 import { useAuthStore } from '../stores/auth'
@@ -339,7 +342,15 @@ async function checkPendingConsent() {
   }
 }
 
+function handleWindowResize() {
+  if (window.innerWidth < 1200) {
+    isCollapse.value = true
+  }
+}
+
 onMounted(() => {
+  handleWindowResize()
+  window.addEventListener('resize', handleWindowResize)
   checkPendingConsent()
   fetchChainStatus()
 
@@ -355,6 +366,10 @@ onMounted(() => {
       checkPendingConsent()
     }
   })
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', handleWindowResize)
 })
 
 watch(() => route.path, () => {
@@ -501,13 +516,16 @@ async function onLogout() {
 .header-left {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
+  min-width: 0;
+  flex-shrink: 1;
 }
 .collapse-btn {
   font-size: 20px;
   cursor: pointer;
   color: #64748b;
   transition: color 0.2s;
+  flex-shrink: 0;
 }
 .collapse-btn:hover {
   color: #8b5cf6;
@@ -516,11 +534,32 @@ async function onLogout() {
   font-size: 16px;
   font-weight: 700;
   color: #0f172a;
+  white-space: nowrap !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.logo-text.full-title {
+  display: inline-block;
+}
+.logo-text.short-title {
+  display: none;
 }
 .header-right {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.header-right > * {
+  flex-shrink: 0;
+}
+.ipfs-badge-short,
+.sse-badge-short {
+  display: none;
+}
+.ipfs-badge-text,
+.sse-badge-text {
+  display: inline;
 }
 
 .header-chain-badge {
@@ -752,5 +791,69 @@ async function onLogout() {
 .defense-guide-launch-btn:hover {
   box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4) !important;
   transform: translateY(-1px);
+}
+
+@media (max-width: 1480px) {
+  .header-user-status-tag {
+    display: none !important;
+  }
+  .chain-block-num {
+    display: none !important;
+  }
+}
+
+@media (max-width: 1320px) {
+  .logo-text.full-title {
+    display: none !important;
+  }
+  .logo-text.short-title {
+    display: inline-block !important;
+  }
+  .user-affiliation {
+    display: none !important;
+  }
+  .header-right {
+    gap: 8px !important;
+  }
+}
+
+@media (max-width: 1180px) {
+  .ipfs-badge-text {
+    display: none !important;
+  }
+  .ipfs-badge-short {
+    display: inline !important;
+  }
+  .sse-badge-text {
+    display: none !important;
+  }
+  .sse-badge-short {
+    display: inline !important;
+  }
+}
+
+@media (max-width: 1024px) {
+  .role-badge {
+    display: none !important;
+  }
+  .header-chain-badge {
+    padding: 4px 8px !important;
+    font-size: 11px !important;
+  }
+  .header-ipfs-badge {
+    padding: 4px 8px !important;
+    font-size: 11px !important;
+  }
+  .header-sse-badge {
+    padding: 4px 8px !important;
+    font-size: 11px !important;
+  }
+  .defense-guide-launch-btn {
+    padding: 0 8px !important;
+    font-size: 11px !important;
+  }
+  .medtrust-header {
+    padding: 0 12px !important;
+  }
 }
 </style>

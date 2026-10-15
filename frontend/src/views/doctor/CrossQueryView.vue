@@ -132,7 +132,7 @@
           <el-input
             v-model="searchKeyword"
             placeholder="输入患者姓名、手机号、身份证号、检查项目(如心电图/CT)检索..."
-            style="width: 380px;"
+            class="cross-search-input"
             clearable
             @keyup.enter="searchCrossRecords"
             @clear="searchCrossRecords"
@@ -526,7 +526,7 @@
         v-loading="loading"
         stripe
         style="width: 100%"
-        max-height="calc(100vh - 330px)"
+        :max-height="tableMaxHeight"
         class="cross-query-table"
       >
         <el-table-column v-if="isColumnVisible('record_no')" prop="record_no" label="病历单号" width="160" />
@@ -667,7 +667,7 @@
             {{ row.created_at ? row.created_at.substring(0, 10) : '' }}
           </template>
         </el-table-column>
-        <el-table-column v-if="isColumnVisible('action')" label="调阅操作" width="270" fixed="right">
+        <el-table-column v-if="isColumnVisible('action')" label="调阅操作" width="270" :fixed="isWideScreen ? 'right' : false">
           <template #default="{ row }">
             <el-button 
               v-if="row.doctor_id === auth.user?.id" 
@@ -1871,7 +1871,7 @@
 // 当前视图: QUERY-跨院检索与列表筛选, DETAIL-解密放行病历全景工作台
 const currentView = ref<'QUERY' | 'DETAIL'>('QUERY')
 
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Search, WarningFilled, CircleCheckFilled, View, Download, Printer, OfficeBuilding, Lock, Compass, Refresh, Key, Setting, Document, Files, Picture, ArrowLeft, CopyDocument } from '@element-plus/icons-vue'
 import { ElMessage, ElNotification } from 'element-plus'
@@ -1879,6 +1879,22 @@ import api from '../../api/client'
 import { useAuthStore } from '../../stores/auth'
 import { parseMedicalExamResult, highlightText, type ParsedMedicalReport } from '../../utils/medicalReportParser'
 import InfectionSafetyAlert from '../../components/InfectionSafetyAlert.vue'
+
+const windowWidth = ref(window.innerWidth)
+const windowHeight = ref(window.innerHeight)
+
+function handleResize() {
+  windowWidth.value = window.innerWidth
+  windowHeight.value = window.innerHeight
+}
+
+const isWideScreen = computed(() => windowWidth.value >= 1360)
+
+// 动态自适应表格最大高度：在笔记本或小屏幕上保证底部的水平拖动条和分页栏始终在屏幕内
+const tableMaxHeight = computed(() => {
+  const h = windowHeight.value - 410
+  return Math.max(h, 320) + 'px'
+})
 
 const route = useRoute()
 const router = useRouter()
@@ -2656,9 +2672,15 @@ function parsePlanItems(planStr?: string) {
 }
 
 onMounted(() => {
+  handleResize()
+  window.addEventListener('resize', handleResize)
   initFromRouteQuery()
   fetchStatsSummary()
   searchCrossRecords()
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', handleResize)
 })
 
 watch(() => route.params.scope, () => {
@@ -4283,8 +4305,53 @@ async function submitBreakGlass() {
   border-radius: 8px;
 }
 
-:deep(.cross-query-table .el-table__body-wrapper) {
+/* 强制露出高对比度、宽 10px 的醒目水平滚动条，小屏和笔记本缩放下随时可直接抓取拖拽 */
+:deep(.cross-query-table .el-scrollbar__bar.is-horizontal) {
+  height: 10px !important;
+  opacity: 1 !important;
+  display: block !important;
+  background: rgba(226, 232, 240, 0.95) !important;
+  border-radius: 6px !important;
+  z-index: 10 !important;
+  bottom: 0 !important;
+}
+
+:deep(.cross-query-table .el-scrollbar__bar.is-horizontal .el-scrollbar__thumb) {
+  background: #64748b !important;
+  border-radius: 6px !important;
+  height: 10px !important;
+  cursor: grab !important;
+}
+
+:deep(.cross-query-table .el-scrollbar__bar.is-horizontal .el-scrollbar__thumb:hover),
+:deep(.cross-query-table .el-scrollbar__bar.is-horizontal .el-scrollbar__thumb:active) {
+  background: #334155 !important;
+  cursor: grabbing !important;
+}
+
+:deep(.cross-query-table .el-table__body-wrapper),
+:deep(.cross-query-table .el-scrollbar__wrap) {
   overflow-x: auto !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: #64748b #f1f5f9 !important;
+}
+
+:deep(.cross-query-table .el-table__body-wrapper::-webkit-scrollbar),
+:deep(.cross-query-table .el-scrollbar__wrap::-webkit-scrollbar) {
+  height: 10px !important;
+  background-color: #f1f5f9 !important;
+}
+
+:deep(.cross-query-table .el-table__body-wrapper::-webkit-scrollbar-thumb),
+:deep(.cross-query-table .el-scrollbar__wrap::-webkit-scrollbar-thumb) {
+  background-color: #64748b !important;
+  border-radius: 6px !important;
+}
+
+.cross-search-input {
+  min-width: 240px;
+  max-width: 480px;
+  flex: 1;
 }
 
 .table-card-header {

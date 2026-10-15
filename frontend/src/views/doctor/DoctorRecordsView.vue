@@ -76,7 +76,7 @@
       </div>
 
       <!-- 病历表格 -->
-      <el-table :data="filteredRecords" v-loading="loading" stripe style="width: 100%">
+      <el-table :data="filteredRecords" v-loading="loading" stripe class="doctor-records-table" style="width: 100%">
         <el-table-column prop="record_no" label="就诊编号" width="190">
           <template #default="{ row }">
             <span class="mono font-bold" style="white-space: nowrap;">{{ row.record_no }}</span>
@@ -151,7 +151,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="180" :fixed="isWideScreen ? 'right' : false">
           <template #default="{ row }">
             <!-- 检查回传完成，等待医生出最终诊断 -->
             <el-button
@@ -1704,8 +1704,15 @@
 // 当前主工作区视图: LIST-就诊记录列表, CREATE-接诊初诊工作台, FINAL-确诊存证工作台, DETAIL-全景病历详情工作台
 const currentView = ref<'LIST' | 'CREATE' | 'FINAL' | 'DETAIL'>('LIST')
 
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
+
+const windowWidth = ref(window.innerWidth)
+function handleResize() {
+  windowWidth.value = window.innerWidth
+}
+const isWideScreen = computed(() => windowWidth.value >= 1200)
+
 import { Plus, Refresh, Search, View, Download, Printer, OfficeBuilding, Timer, Document, CircleCheckFilled, Picture, Files, ArrowLeft, CopyDocument, WarningFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../../api/client'
@@ -2658,8 +2665,14 @@ function parsePlanItems(planStr?: string) {
 }
 
 onMounted(() => {
+  handleResize()
+  window.addEventListener('resize', handleResize)
   fetchRecords()
   fetchPatients()
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', handleResize)
 })
 </script>
 
@@ -5030,5 +5043,34 @@ onMounted(() => {
   font-size: 11px;
   color: #475569;
   line-height: 1.8;
+}
+
+/* 强制露出高对比度、宽 10px 的醒目水平滚动条 */
+:deep(.doctor-records-table .el-scrollbar__bar.is-horizontal) {
+  height: 10px !important;
+  opacity: 1 !important;
+  display: block !important;
+  background: rgba(226, 232, 240, 0.95) !important;
+  border-radius: 6px !important;
+  z-index: 10 !important;
+  bottom: 0 !important;
+}
+
+:deep(.doctor-records-table .el-scrollbar__bar.is-horizontal .el-scrollbar__thumb) {
+  background: #64748b !important;
+  border-radius: 6px !important;
+  height: 10px !important;
+  cursor: grab !important;
+}
+
+:deep(.doctor-records-table .el-scrollbar__bar.is-horizontal .el-scrollbar__thumb:hover) {
+  background: #334155 !important;
+}
+
+:deep(.doctor-records-table .el-table__body-wrapper),
+:deep(.doctor-records-table .el-scrollbar__wrap) {
+  overflow-x: auto !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: #64748b #f1f5f9 !important;
 }
 </style>

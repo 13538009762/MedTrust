@@ -330,6 +330,7 @@
             v-loading="loadingRecords"
             stripe
             style="width: 100%"
+            class="patient-records-table"
             row-key="id"
             @selection-change="handleSelectionChange"
           >
@@ -458,7 +459,7 @@
             </el-table-column>
 
             <!-- 操作列 -->
-            <el-table-column label="操作" width="160" align="center" fixed="right">
+            <el-table-column label="操作" width="160" align="center" :fixed="isWideScreen ? 'right' : false">
               <template #default="{ row }">
                 <!-- 若已有权限：查看完整病历 -->
                 <el-button
@@ -901,9 +902,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
+
+const windowWidth = ref(window.innerWidth)
+function handleResize() {
+  windowWidth.value = window.innerWidth
+}
+const isWideScreen = computed(() => windowWidth.value >= 1200)
+
 import {
   Search,
   User,
@@ -1311,7 +1319,13 @@ function formatInfectionSummary(text?: string): string {
 }
 
 onMounted(() => {
+  handleResize()
+  window.addEventListener('resize', handleResize)
   fetchCandidatePatients()
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', handleResize)
 })
 </script>
 
@@ -2148,4 +2162,46 @@ onMounted(() => {
 .mb-4 { margin-bottom: 16px; }
 .mt-3 { margin-top: 12px; }
 .mt-4 { margin-top: 16px; }
+
+/* 强制露出高对比度、宽 10px 的醒目水平滚动条 */
+:deep(.patient-records-table .el-scrollbar__bar.is-horizontal) {
+  height: 10px !important;
+  opacity: 1 !important;
+  display: block !important;
+  background: rgba(226, 232, 240, 0.95) !important;
+  border-radius: 6px !important;
+  z-index: 10 !important;
+  bottom: 0 !important;
+}
+
+:deep(.patient-records-table .el-scrollbar__bar.is-horizontal .el-scrollbar__thumb) {
+  background: #64748b !important;
+  border-radius: 6px !important;
+  height: 10px !important;
+  cursor: grab !important;
+}
+
+:deep(.patient-records-table .el-scrollbar__bar.is-horizontal .el-scrollbar__thumb:hover) {
+  background: #334155 !important;
+}
+
+:deep(.patient-records-table .el-table__body-wrapper),
+:deep(.patient-records-table .el-scrollbar__wrap) {
+  overflow-x: auto !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: #64748b #f1f5f9 !important;
+}
+
+@media (max-width: 1200px) {
+  .tier-bottom-quick-actions {
+    left: 64px !important;
+    padding-right: 120px !important;
+  }
+}
+@media (max-width: 768px) {
+  .tier-bottom-quick-actions {
+    left: 0 !important;
+    padding-right: 20px !important;
+  }
+}
 </style>

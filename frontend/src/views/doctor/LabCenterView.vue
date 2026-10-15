@@ -163,7 +163,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="170" fixed="right">
+        <el-table-column label="操作" width="170" :fixed="isWideScreen ? 'right' : false">
           <template #default="{ row }">
             <el-button
               v-if="row.status === 'PENDING'"
@@ -485,11 +485,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { Tickets, Refresh, Search, Download, Timer, CircleCheckFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import api from '../../api/client'
 import { useAuthStore } from '../../stores/auth'
+
+const windowWidth = ref(window.innerWidth)
+function handleResize() {
+  windowWidth.value = window.innerWidth
+}
+const isWideScreen = computed(() => windowWidth.value >= 1400)
 
 const auth = useAuthStore()
 
@@ -868,7 +874,13 @@ async function submitReport() {
 }
 
 onMounted(() => {
+  handleResize()
+  window.addEventListener('resize', handleResize)
   fetchOrders()
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', handleResize)
 })
 </script>
 
@@ -1215,5 +1227,34 @@ onMounted(() => {
   align-items: center;
   font-size: 0.85rem;
   color: #64748b;
+}
+
+/* 强制露出高对比度、宽 10px 的醒目水平滚动条 */
+:deep(.order-table .el-scrollbar__bar.is-horizontal) {
+  height: 10px !important;
+  opacity: 1 !important;
+  display: block !important;
+  background: rgba(226, 232, 240, 0.95) !important;
+  border-radius: 6px !important;
+  z-index: 10 !important;
+  bottom: 0 !important;
+}
+
+:deep(.order-table .el-scrollbar__bar.is-horizontal .el-scrollbar__thumb) {
+  background: #64748b !important;
+  border-radius: 6px !important;
+  height: 10px !important;
+  cursor: grab !important;
+}
+
+:deep(.order-table .el-scrollbar__bar.is-horizontal .el-scrollbar__thumb:hover) {
+  background: #334155 !important;
+}
+
+:deep(.order-table .el-table__body-wrapper),
+:deep(.order-table .el-scrollbar__wrap) {
+  overflow-x: auto !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: #64748b #f1f5f9 !important;
 }
 </style>
