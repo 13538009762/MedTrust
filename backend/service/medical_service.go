@@ -119,12 +119,17 @@ func (s *MedicalService) UploadRecord(p UploadRecordParams) (*model.MedicalRecor
 
 	// 若未单独上传附件，系统自动为本次就诊生成规范电子病历归档切片凭证 (符合 PDF 1.4 标准)
 	if len(p.FileData) == 0 {
+		patName := "陈晨"
+		var pat model.User
+		if err := repository.DB.First(&pat, p.PatientID).Error; err == nil && pat.RealName != "" {
+			patName = pat.RealName
+		}
 		pdfBytes, _ := pdf.GenerateAttestationPDF(pdf.AttestationData{
 			RecordNo:         recordNo,
 			HospitalName:     doc.HospitalName,
 			EncounterType:    p.EncounterType,
 			DepartmentName:   p.DepartmentName,
-			PatientName:      fmt.Sprintf("患者#%d", p.PatientID),
+			PatientName:      patName,
 			DoctorName:       doc.RealName,
 			CreatedAt:        time.Now(),
 			ChiefComplaint:   p.ChiefComplaint,

@@ -45,7 +45,7 @@ func initInfectionRules() []InfectionRule {
 		{
 			Name:           "获得性免疫缺陷综合征 / 艾滋病 (HIV / AIDS)",
 			Category:       "血源与体液高危传播",
-			Persistence:    "必定终身携带 (Lifelong Carriage)",
+			Persistence:    "终身携带 (Lifelong Carriage)",
 			ThreatToDoctor: "锐器针刺伤暴露、血液黏膜喷溅暴露导致医护感染HIV，致死性极高",
 			Transmission:   "血液、体液、黏膜破损、利器穿刺",
 			RiskLevel:      "CRITICAL",
@@ -456,7 +456,7 @@ func (s *InfectionService) buildAlertFromMatched(matched []model.InfectionDiseas
 		emergency = append(emergency, e)
 	}
 
-	summaryText := fmt.Sprintf("检测到患者有【%s】必定/长期携带病史，接诊查体请务必落实职业暴露严格防护！",
+	summaryText := fmt.Sprintf("检测到患者有【%s】既往/长期携带病史，接诊查体请务必落实职业暴露严格防护！",
 		strings.Join(names, "、"))
 
 	return &model.InfectionRiskAlert{

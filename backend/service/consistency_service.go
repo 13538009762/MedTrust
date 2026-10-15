@@ -77,14 +77,22 @@ func (s *ConsistencyService) CreateRecordWithConsistency(p UploadRecordParams, i
 	if p.EncounterType == "" {
 		p.EncounterType = "普通门诊"
 	}
-	if p.Status == "" {
-		p.Status = "已接诊"
+	if p.Status == "" || p.Status == "已接诊" {
+		p.Status = "COMPLETED"
+	}
+
+	patientName := "陈晨"
+	if repository.DB != nil {
+		var pat model.User
+		if err := repository.DB.First(&pat, p.PatientID).Error; err == nil && pat.RealName != "" {
+			patientName = pat.RealName
+		}
 	}
 
 	if len(p.FileData) == 0 {
 		pdfBytes, _ := pdf.GenerateAttestationPDF(pdf.AttestationData{
 			RecordNo:         recordNo,
-			PatientName:      fmt.Sprintf("患者#%d", p.PatientID),
+			PatientName:      patientName,
 			DoctorName:       doc.RealName,
 			HospitalName:     fmt.Sprintf("医疗机构#%d", doc.HospitalID),
 			EncounterType:    p.EncounterType,

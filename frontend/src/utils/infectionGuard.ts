@@ -30,7 +30,7 @@ const INFECTION_RULES = [
   {
     name: '获得性免疫缺陷综合征 / 艾滋病 (HIV / AIDS)',
     category: '血源与体液极高危传播',
-    persistence: '必定终身携带 (Lifelong Carriage)',
+    persistence: '终身携带 (Lifelong Carriage)',
     threat_to_doctor: '锐器针刺伤暴露、血液黏膜喷溅暴露导致医护感染HIV，致死性极高',
     transmission: '血液、体液、黏膜破损、利器穿刺',
     risk_level: 'CRITICAL' as const,
@@ -313,7 +313,7 @@ export function scanTextForInfections(text: string): InfectionRiskAlert {
   return {
     has_risk: true,
     risk_level: highestLevel,
-    summary: `检测到患者有【${names}】必定/长期携带病史，接诊查体请务必落实职业暴露防护！`,
+    summary: `检测到患者有【${names}】既往/长期携带病史，接诊查体请务必落实职业暴露防护！`,
     diseases: matchedDiseases,
     precautions: Array.from(precautionsSet),
     protection_gear: Array.from(gearSet),

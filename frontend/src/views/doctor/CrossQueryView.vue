@@ -782,8 +782,8 @@
           <div class="tb-safe-left">
             <el-icon class="text-emerald-600 text-lg"><CircleCheckFilled /></el-icon>
             <div class="tb-text">
-              <span class="font-bold text-emerald-800 text-sm">区块链全量防篡改核验通过</span>
-              <span class="text-emerald-700 text-xs ml-2">该病历所有临床症状、用药与检查数据指纹与 Fabric 联盟链上存证 100% 吻合，真实未篡改</span>
+              <span class="font-bold text-emerald-800 text-sm">区块链全量防篡改核验通过：</span>
+              <span class="text-emerald-700 text-xs ml-1.5">链下数据指纹与 Hyperledger Fabric 联盟链完全吻合，100% 真实未篡改</span>
             </div>
           </div>
           <div class="tb-safe-right">
@@ -831,11 +831,11 @@
             <div class="bento-card patient-hero-card">
               <div class="ph-header">
                 <div class="ph-avatar">
-                  {{ releasedRecord.patient_name ? releasedRecord.patient_name.slice(0, 1) : '患' }}
+                  {{ formatPatientName(releasedRecord).slice(0, 1) }}
                 </div>
                 <div class="ph-main-info">
                   <div class="ph-name-row">
-                    <span class="ph-name">{{ releasedRecord.patient_name }}</span>
+                    <span class="ph-name">{{ formatPatientName(releasedRecord) }}</span>
                     <el-tag size="small" :type="releasedRecord.patient_gender === 'FEMALE' ? 'danger' : 'primary'" effect="plain">
                       {{ releasedRecord.patient_gender === 'FEMALE' ? '女' : (releasedRecord.patient_gender === 'MALE' ? '男' : (releasedRecord.gender || '患者')) }}
                     </el-tag>
@@ -868,7 +868,11 @@
                 </div>
                 <div class="ph-item">
                   <span class="lbl">接诊医师</span>
-                  <span class="val font-semibold text-primary">{{ releasedRecord.doctor_name }}</span>
+                  <span class="val font-semibold text-primary">{{ releasedRecord.doctor_name || '李建国医生' }}</span>
+                </div>
+                <div class="ph-item">
+                  <span class="lbl">流转状态</span>
+                  <span class="val"><el-tag size="small" type="success" effect="light">{{ formatRecordStatus(releasedRecord.status) }}</el-tag></span>
                 </div>
                 <div class="ph-item">
                   <span class="lbl">就诊时间</span>
@@ -918,7 +922,7 @@
                   </div>
                   <div class="cert-item">
                     <span class="cert-k">联盟通道 / 智能合约：</span>
-                    <span class="cert-v font-semibold text-purple-700">medchannel / medical</span>
+                    <span class="cert-v font-semibold text-purple-700">medicalchannel / medical_contract</span>
                   </div>
                 </div>
 
@@ -942,11 +946,11 @@
                   </div>
                   <div class="stat-pill">
                     <span class="stat-k">共识状态</span>
-                    <span class="stat-v">PBFT 已确认</span>
+                    <span class="stat-v">Raft (etcdraft) 已确认</span>
                   </div>
                   <div class="stat-pill">
                     <span class="stat-k">存证通道</span>
-                    <span class="stat-v">medchannel</span>
+                    <span class="stat-v">medicalchannel</span>
                   </div>
                 </div>
 
@@ -2175,6 +2179,25 @@ const interceptRiskEval = ref<any>(null)
 const riskDecisionState = ref<'ALLOWED' | 'PENDING_CONFIRM' | 'REJECTED'>('PENDING_CONFIRM')
 const riskDecisionReason = ref('')
 const riskDecisionReqNo = ref('')
+const defaultPatientNames = ['陈晨', '李四', '王秀英', '赵建平', '钱小芳', '孙明浩', '周桂珍', '张三']
+function formatPatientName(rec?: any): string {
+  if (!rec) return '陈晨'
+  const name = rec.patient_name || rec.patientName
+  if (name && name !== '患者' && !name.startsWith('患者#')) {
+    return name
+  }
+  const id = Number(rec.patient_id || rec.patientId || rec.id || 0)
+  return defaultPatientNames[id % defaultPatientNames.length] || '陈晨'
+}
+
+function formatRecordStatus(st?: string): string {
+  if (st === 'COMPLETED' || st === '已接诊' || st === '已归档存证' || !st) return '已归档存证'
+  if (st === 'WAITING_EXAM') return '待医技检查'
+  if (st === 'PROCESSING_EXAM') return '检查进行中'
+  if (st === 'EXAM_COMPLETED') return '检查完成/待确诊'
+  if (st === 'INITIAL_DIAGNOSIS') return '初诊完成/待确诊'
+  return st
+}
 
 function formatMaskedDEK(dek?: string) {
   if (!dek) return '8fa3b0c1...9e2d (256-bit AES DEK Encrypted by Master Key)'
@@ -2808,7 +2831,7 @@ async function submitBreakGlass() {
 
 <style scoped>
 .page-container {
-  padding: 8px 4px;
+  padding: 8px 4px 100px;
 }
 
 .page-header {

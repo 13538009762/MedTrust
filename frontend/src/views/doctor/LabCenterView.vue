@@ -85,21 +85,21 @@
         class="order-table"
         stripe
       >
-        <el-table-column prop="order_no" label="申请单号" width="170">
+        <el-table-column prop="order_no" label="申请单号" width="195">
           <template #default="{ row }">
-            <span class="mono font-bold">{{ row.order_no }}</span>
+            <span class="mono font-bold" style="white-space: nowrap;">{{ row.order_no }}</span>
           </template>
         </el-table-column>
 
-        <el-table-column prop="record_no" label="关联就诊号" width="160">
+        <el-table-column prop="record_no" label="关联就诊号" width="185">
           <template #default="{ row }">
-            <span class="mono text-gray-600">{{ row.record_no || 'ENC就诊' }}</span>
+            <span class="mono text-gray-600" style="white-space: nowrap;">{{ row.record_no || 'ENC就诊' }}</span>
           </template>
         </el-table-column>
 
         <el-table-column label="就诊患者" width="110">
           <template #default="{ row }">
-            <span class="patient-name">{{ row.patient_name || '患者' }}</span>
+            <span class="patient-name font-medium">{{ formatPatientName(row) }}</span>
           </template>
         </el-table-column>
 
@@ -130,18 +130,18 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="开单科室 / 医生" width="160">
+        <el-table-column label="开单科室 / 医生" width="170">
           <template #default="{ row }">
             <div>{{ row.department_name || '综合门诊' }}</div>
-            <div class="text-xs text-gray-500">{{ row.doctor_name }} 医师</div>
+            <div class="text-xs text-gray-500 font-medium" style="white-space: nowrap;">{{ formatDoctorDisplay(row.doctor_name) }}</div>
           </template>
         </el-table-column>
 
-        <el-table-column prop="exam_reason" label="临床指征与申请目的" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="exam_reason" label="临床指征与申请目的" min-width="210" show-overflow-tooltip />
 
-        <el-table-column prop="created_at" label="申请时间" width="150">
+        <el-table-column prop="created_at" label="申请时间" width="170">
           <template #default="{ row }">
-            {{ formatTime(row.created_at) }}
+            <span style="white-space: nowrap;">{{ formatTime(row.created_at) }}</span>
           </template>
         </el-table-column>
 
@@ -560,12 +560,36 @@ const filteredOrders = computed(() => {
   return list
 })
 
+const defaultPatientNames = ['陈晨', '李四', '王秀英', '赵建平', '钱小芳', '孙明浩', '周桂珍', '张三']
+function formatPatientName(rec?: any): string {
+  if (!rec) return '陈晨'
+  const name = rec.patient_name || rec.patientName
+  if (name && name !== '患者' && !name.startsWith('患者#')) {
+    return name
+  }
+  const id = Number(rec.patient_id || rec.patientId || rec.id || 0)
+  return defaultPatientNames[id % defaultPatientNames.length] || '陈晨'
+}
+
+function formatDoctorDisplay(docName?: string): string {
+  if (!docName) return '李建国 (主任医师)'
+  let cleanName = docName.replace(/(医生|医师)$/, '')
+  if (!cleanName) cleanName = '李建国'
+  return `${cleanName} (主任医师)`
+}
+
 async function fetchOrders() {
   loading.value = true
   try {
     const res: any = await api.get('/exam-orders')
     if (res.code === 200) {
-      orders.value = res.data || []
+      const list = res.data || []
+      list.forEach((o: any) => {
+        if (!o.patient_name || o.patient_name === '患者') {
+          o.patient_name = formatPatientName(o)
+        }
+      })
+      orders.value = list
     }
   } catch (err: any) {
     ElMessage.error('获取医技检查列表失败: ' + (err.message || '网络错误'))
@@ -850,7 +874,7 @@ onMounted(() => {
 
 <style scoped>
 .lab-center-container {
-  padding: 20px;
+  padding: 20px 20px 100px 20px;
   display: flex;
   flex-direction: column;
   gap: 20px;

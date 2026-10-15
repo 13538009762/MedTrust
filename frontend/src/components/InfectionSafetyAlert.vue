@@ -9,7 +9,7 @@
           医护职业安全预警
         </span>
         <span class="banner-summary">
-          检测到患者有<strong>【{{ diseaseNames }}】</strong>必定/长期携带病史！(为保证医护人员安全)
+          检测到患者有<strong>【{{ diseaseNames }}】</strong>既往/长期携带病史！(为保证医护人员安全)
         </span>
         <el-button type="danger" size="small" round class="guide-btn" @click.stop="openGuideModal">
           查看专项防护规程
@@ -22,7 +22,7 @@
       <div class="badge-pill" :class="alert.risk_level.toLowerCase()">
         <span class="pulse-ring" />
         <el-icon class="mr-1"><WarningFilled /></el-icon>
-        <span>医护安全预警: {{ diseaseNames }} (必定携带)</span>
+        <span>医护安全预警: {{ diseaseNames }} (长期携带)</span>
         <span class="badge-action-hint">点击查看防护</span>
       </div>
     </div>

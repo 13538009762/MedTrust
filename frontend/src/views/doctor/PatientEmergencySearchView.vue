@@ -237,13 +237,13 @@
               <span class="bento-icon infection"><el-icon><Aim /></el-icon></span>
               <span class="bento-title">医护防护与感染源预警</span>
               <span v-if="selectedPatient.infection_alert?.has_risk" class="infect-danger-pill">
-                {{ selectedPatient.infection_alert.level }}级防护
+                {{ formatProtectionLevel(selectedPatient.infection_alert) }}
               </span>
             </div>
             <div class="bento-body">
               <div v-if="selectedPatient.infection_alert?.has_risk" class="infect-risk-box">
                 <div class="infect-summary font-bold">
-                  ⚠️ {{ selectedPatient.infection_alert.summary }}
+                  ⚠️ {{ formatInfectionSummary(selectedPatient.infection_alert.summary) }}
                 </div>
                 <div class="infect-guide">
                   {{ selectedPatient.infection_alert.protection_guide || '防护提示：接触患者血液体液务必佩戴双层手套及护目屏' }}
@@ -335,9 +335,9 @@
           >
             <el-table-column type="selection" width="50" align="center" :selectable="isRecordSelectable" />
 
-            <el-table-column prop="record_no" label="就诊编号" width="160">
+            <el-table-column prop="record_no" label="就诊编号" width="185">
               <template #default="{ row }">
-                <span class="mono-code">{{ row.record_no }}</span>
+                <span class="mono-code" style="white-space: nowrap;">{{ row.record_no }}</span>
               </template>
             </el-table-column>
 
@@ -451,9 +451,9 @@
               </template>
             </el-table-column>
 
-            <el-table-column prop="created_at" label="就诊日期" width="150" align="center">
+            <el-table-column prop="created_at" label="就诊日期" width="165" align="center">
               <template #default="{ row }">
-                <span class="time-text">{{ formatDate(row.created_at) }}</span>
+                <span class="time-text" style="white-space: nowrap;">{{ formatDate(row.created_at) }}</span>
               </template>
             </el-table-column>
 
@@ -1292,6 +1292,24 @@ async function submitEmergencyAccess() {
   }
 }
 
+function formatProtectionLevel(alert?: any): string {
+  if (!alert) return '二级防护'
+  const lvl = alert.level || (alert.risk_level === 'CRITICAL' ? '三级' : '二级')
+  if (typeof lvl === 'string') {
+    if (lvl.endsWith('级防护')) return lvl
+    if (lvl.endsWith('级')) return `${lvl}防护`
+    if (lvl === '2' || lvl === '二') return '二级防护'
+    if (lvl === '3' || lvl === '三') return '三级防护'
+    if (lvl === '1' || lvl === '一') return '一级防护'
+  }
+  return '二级防护'
+}
+
+function formatInfectionSummary(text?: string): string {
+  if (!text) return '既往/长期携带病史'
+  return text.replace(/必定\/长期携带病史/g, '既往/长期携带病史').replace(/必定携带/g, '长期携带')
+}
+
 onMounted(() => {
   fetchCandidatePatients()
 })
@@ -1299,7 +1317,7 @@ onMounted(() => {
 
 <style scoped>
 .patient-emergency-container {
-  padding: 16px 20px 80px;
+  padding: 16px 20px 120px;
   background: var(--edms-body-bg, #f8fafc);
   min-height: calc(100vh - 70px);
 }
@@ -1747,9 +1765,10 @@ onMounted(() => {
   font-size: 11px;
   background: #be185d;
   color: #ffffff;
-  padding: 2px 6px;
+  padding: 2px 8px;
   border-radius: 4px;
   font-weight: bold;
+  white-space: nowrap;
 }
 
 .infect-summary {
@@ -1895,6 +1914,7 @@ onMounted(() => {
   left: 250px;
   right: 0;
   z-index: 99;
+  padding-right: 140px;
   transition: left 0.3s ease;
 }
 

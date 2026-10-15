@@ -20,7 +20,7 @@ type InfectionRiskAlert struct {
 type InfectionDiseaseInfo struct {
 	Name           string `json:"name"`             // 艾滋病 (HIV/AIDS)
 	Category       string `json:"category"`         // 血液/体液传染病
-	Persistence    string `json:"persistence"`      // 必定终身携带 / 长期慢性携带
+	Persistence    string `json:"persistence"`      // 终身携带 / 长期慢性携带
 	ThreatToDoctor string `json:"threat_to_doctor"` // 锐器针刺伤暴露、血液黏膜喷溅
 	Transmission   string `json:"transmission"`     // 血液、体液、锐器刺伤
 	RiskLevel      string `json:"risk_level"`       // CRITICAL, HIGH, MEDIUM_HIGH
