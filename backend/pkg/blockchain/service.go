@@ -13,6 +13,23 @@ type MedicalAsset struct {
 	CreateTime   string `json:"create_time"`
 }
 
+// EmergencyAccessRecord 紧急破窗访问上链凭据 (与智能合约严格对齐)
+type EmergencyAccessRecord struct {
+	EventNo      string `json:"event_no"`
+	DoctorID     string `json:"doctor_id"`
+	PatientID    string `json:"patient_id"`
+	RecordID     string `json:"record_id"`
+	HospitalID   string `json:"hospital_id"`
+	Reason       string `json:"reason"`
+	Description  string `json:"description"`
+	Timestamp    string `json:"timestamp"`
+	Status       string `json:"status"`
+	SupervisorID string `json:"supervisor_id,omitempty"`
+	AuditComment string `json:"audit_comment,omitempty"`
+	Punishment   string `json:"punishment,omitempty"`
+	AuditTime    string `json:"audit_time,omitempty"`
+}
+
 
 // ChainRecord 账本流转存证记录
 type ChainRecord struct {

@@ -520,13 +520,20 @@
         </div>
       </div>
 
-      <!-- 数据表格绑定 filteredResults，并按自定义列显隐动态呈现 -->
-      <el-table :data="filteredResults" v-loading="loading" stripe style="width: 100%">
+      <!-- 数据表格绑定 paginatedResults，并按自定义列显隐动态呈现 -->
+      <el-table
+        :data="paginatedResults"
+        v-loading="loading"
+        stripe
+        style="width: 100%"
+        max-height="calc(100vh - 330px)"
+        class="cross-query-table"
+      >
         <el-table-column v-if="isColumnVisible('record_no')" prop="record_no" label="病历单号" width="160" />
         <el-table-column v-if="isColumnVisible('patient')" label="就诊患者" min-width="180">
           <template #default="{ row }">
             <div class="patient-cell">
-              <span class="patient-name">{{ row.patient_name || '患者' }}</span>
+              <span class="patient-name font-bold">{{ formatPatientName(row) }}</span>
               <div class="patient-sub">
                 <span v-if="row.patient_phone">{{ row.patient_phone }}</span>
                 <span v-if="row.patient_id_card" class="id-card-tag">{{ maskIDCard(row.patient_id_card) }}</span>
@@ -660,7 +667,7 @@
             {{ row.created_at ? row.created_at.substring(0, 10) : '' }}
           </template>
         </el-table-column>
-        <el-table-column v-if="isColumnVisible('action')" label="调阅操作" width="180" fixed="right">
+        <el-table-column v-if="isColumnVisible('action')" label="调阅操作" width="270" fixed="right">
           <template #default="{ row }">
             <el-button 
               v-if="row.doctor_id === auth.user?.id" 
@@ -702,7 +709,7 @@
             >
               直接查看 (已获授权)
             </el-button>
-            <div v-else class="action-btn-group" style="display: flex; gap: 4px;">
+            <div v-else class="action-btn-group" style="display: flex; gap: 6px; white-space: nowrap;">
               <el-button 
                 type="warning" 
                 size="small" 
@@ -723,6 +730,25 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <!-- 表格底部：分页与快捷跳转栏 (保证视口内随时有水平拖拽滚动条和翻页条) -->
+      <div class="table-pagination-wrapper">
+        <div class="tp-info text-xs text-slate-500">
+          共 <strong class="text-slate-800">{{ filteredResults.length }}</strong> 条跨机构病历记录
+          <span v-if="filteredResults.length !== results.length"> (已过滤筛选)</span>
+        </div>
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :page-sizes="[10, 15, 20, 50, 100]"
+          :total="filteredResults.length"
+          layout="sizes, prev, pager, next, jumper"
+          background
+          size="small"
+          @size-change="handleSizeChange"
+          @current-change="handleCurrentChange"
+        />
+      </div>
     </el-card>
     </div>
 
@@ -2171,6 +2197,27 @@ const filteredResults = computed(() => {
     return true
   })
 })
+
+const currentPage = ref(1)
+const pageSize = ref(15)
+
+const paginatedResults = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredResults.value.slice(start, start + pageSize.value)
+})
+
+watch([() => route.params.scope, quickClassifyMode, filterAuthStatus, filterClinicalStatus, filterTamperStatus, filterTimeRange, searchKeyword], () => {
+  currentPage.value = 1
+})
+
+function handleSizeChange(val: number) {
+  pageSize.value = val
+  currentPage.value = 1
+}
+
+function handleCurrentChange(val: number) {
+  currentPage.value = val
+}
 
 const breakGlassVisible = ref(false)
 const currentTarget = ref<any>(null)
@@ -4219,6 +4266,25 @@ async function submitBreakGlass() {
 /* 表格头部与自定义列工具条 */
 .table-wrapper-card {
   border-radius: 12px;
+}
+
+.table-pagination-wrapper {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 10px 4px;
+  border-top: 1px solid #f1f5f9;
+  margin-top: 12px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+:deep(.cross-query-table) {
+  border-radius: 8px;
+}
+
+:deep(.cross-query-table .el-table__body-wrapper) {
+  overflow-x: auto !important;
 }
 
 .table-card-header {

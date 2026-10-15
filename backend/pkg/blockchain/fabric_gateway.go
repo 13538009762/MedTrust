@@ -336,9 +336,26 @@ func (s *FabricGatewayService) CommitAsset(assetType, assetID string, payload ma
 		riskLevel := fmt.Sprintf("%v", payload["risk_level"])
 		args = []string{assetID, userID, action, targetID, riskLevel, nowStr}
 
-	case "EMERGENCY_ACCESS":
+	case "EMERGENCY_ACCESS", "EMERGENCY_RECORD":
 		methodName = "CreateEmergencyRecord"
-		jsonBytes, _ := json.Marshal(payload)
+		rec := EmergencyAccessRecord{
+			EventNo:     fmt.Sprintf("%v", payload["event_no"]),
+			DoctorID:    fmt.Sprintf("%v", payload["doctor_id"]),
+			PatientID:   fmt.Sprintf("%v", payload["patient_id"]),
+			RecordID:    fmt.Sprintf("%v", payload["record_id"]),
+			HospitalID:  fmt.Sprintf("%v", payload["hospital_id"]),
+			Reason:      fmt.Sprintf("%v", payload["reason"]),
+			Description: fmt.Sprintf("%v", payload["description"]),
+			Timestamp:   fmt.Sprintf("%v", payload["timestamp"]),
+			Status:      fmt.Sprintf("%v", payload["status"]),
+		}
+		if rec.Timestamp == "" || rec.Timestamp == "<nil>" {
+			rec.Timestamp = nowStr
+		}
+		if rec.Status == "" || rec.Status == "<nil>" {
+			rec.Status = "PENDING_AUDIT"
+		}
+		jsonBytes, _ := json.Marshal(rec)
 		args = []string{string(jsonBytes)}
 
 	case "EMERGENCY_AUDIT":

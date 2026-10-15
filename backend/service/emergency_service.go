@@ -40,10 +40,10 @@ func (s *EmergencyService) SubmitEmergencyAccess(doctorID, recordID uint64, reas
 	// 上链存证
 	txID, _, err := blockchain.DefaultService.CommitAsset("EMERGENCY_ACCESS", eventNo, map[string]interface{}{
 		"event_no":    eventNo,
-		"doctor_id":   doctorID,
-		"patient_id":  record.PatientID,
-		"record_id":   recordID,
-		"hospital_id": doctor.HospitalID,
+		"doctor_id":   fmt.Sprintf("%d", doctorID),
+		"patient_id":  fmt.Sprintf("%d", record.PatientID),
+		"record_id":   fmt.Sprintf("%d", recordID),
+		"hospital_id": fmt.Sprintf("%d", doctor.HospitalID),
 		"reason":      reason,
 		"description": desc,
 		"timestamp":   time.Now().Format(time.RFC3339),
