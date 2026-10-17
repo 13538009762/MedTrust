@@ -68,7 +68,7 @@ func (ctrl *AccessController) RequestAccess(c *gin.Context) {
 		Status:           "PENDING",
 		ScopeType:        "SINGLE",
 		Days:             7,
-		ExpireAt:         now.Add(24 * time.Hour),
+		ExpireAt:         now.AddDate(0, 0, 7),
 		CreatedAt:        now,
 	}
 	repository.DB.Create(&accessRec)
@@ -167,7 +167,7 @@ func (ctrl *AccessController) ApplyConsent(c *gin.Context) {
 		Status:           "PENDING",
 		ScopeType:        req.ScopeType,
 		Days:             req.Days,
-		ExpireAt:         time.Now().Add(24 * time.Hour),
+		ExpireAt:         time.Now().AddDate(0, 0, req.Days),
 		CreatedAt:        time.Now(),
 	}
 	repository.DB.Create(&accessRec)
@@ -235,15 +235,26 @@ func (ctrl *AccessController) BatchApplyConsent(c *gin.Context) {
 		req.Days = 7
 	}
 
+	var records []model.MedicalRecord
+	if err := repository.DB.Where("id IN ?", req.RecordIDs).Find(&records).Error; err != nil || len(records) != len(req.RecordIDs) {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "申请病历列表中存在不存在的病历记录"})
+		return
+	}
+	for _, rec := range records {
+		if rec.PatientID != req.PatientID {
+			c.JSON(http.StatusForbidden, model.Response{
+				Code:    403,
+				Message: fmt.Sprintf("越权拦截：病历记录(ID:%d)不属于患者(ID:%d)，禁止跨患者批量申请", rec.ID, req.PatientID),
+			})
+			return
+		}
+	}
+
 	var createdRequests []model.AccessRequest
 	now := time.Now()
+	expireAt := now.AddDate(0, 0, req.Days)
 
-	for _, recID := range req.RecordIDs {
-		var rec model.MedicalRecord
-		if err := repository.DB.First(&rec, recID).Error; err != nil {
-			continue
-		}
-
+	for _, rec := range records {
 		randBytes := make([]byte, 3)
 		_, _ = rand.Read(randBytes)
 		reqNo := fmt.Sprintf("REQ-CONSENT-%s-%s", now.Format("20060102"), hex.EncodeToString(randBytes))
@@ -252,7 +263,7 @@ func (ctrl *AccessController) BatchApplyConsent(c *gin.Context) {
 			RequestNo:        reqNo,
 			DoctorID:         doctorID,
 			PatientID:        req.PatientID,
-			RecordID:         recID,
+			RecordID:         rec.ID,
 			SourceHospitalID: doctor.HospitalID,
 			TargetHospitalID: rec.HospitalID,
 			Purpose:          req.Purpose,
@@ -262,7 +273,7 @@ func (ctrl *AccessController) BatchApplyConsent(c *gin.Context) {
 			Status:           "PENDING",
 			ScopeType:        "SINGLE",
 			Days:             req.Days,
-			ExpireAt:         now.Add(24 * time.Hour),
+			ExpireAt:         expireAt,
 			CreatedAt:        now,
 		}
 		repository.DB.Create(&accessRec)
@@ -461,26 +472,80 @@ func (ctrl *AccessController) ListPendingRequests(c *gin.Context) {
 	var list []model.AccessRequest
 	repository.DB.Where("patient_id = ? AND status = 'PENDING'", patientID).Order("id desc").Find(&list)
 
+	if len(list) == 0 {
+		c.JSON(http.StatusOK, model.Response{Code: 200, Message: "查询成功", Data: list})
+		return
+	}
+
+	docIDs := make([]uint64, 0, len(list))
+	recIDs := make([]uint64, 0, len(list))
+	for _, item := range list {
+		if item.DoctorID > 0 {
+			docIDs = append(docIDs, item.DoctorID)
+		}
+		if item.RecordID > 0 {
+			recIDs = append(recIDs, item.RecordID)
+		}
+	}
+
+	docMap := make(map[uint64]model.User)
+	hospMap := make(map[uint64]model.Hospital)
+	recMap := make(map[uint64]model.MedicalRecord)
+
+	if len(docIDs) > 0 {
+		var docs []model.User
+		repository.DB.Where("id IN ?", docIDs).Find(&docs)
+		hospIDs := make([]uint64, 0, len(docs))
+		for _, d := range docs {
+			docMap[d.ID] = d
+			if d.HospitalID > 0 {
+				hospIDs = append(hospIDs, d.HospitalID)
+			}
+		}
+		if len(hospIDs) > 0 {
+			var hosps []model.Hospital
+			repository.DB.Where("id IN ?", hospIDs).Find(&hosps)
+			for _, h := range hosps {
+				hospMap[h.ID] = h
+			}
+		}
+	}
+
+	if len(recIDs) > 0 {
+		var recs []model.MedicalRecord
+		repository.DB.Where("id IN ?", recIDs).Find(&recs)
+		recHospIDs := make([]uint64, 0, len(recs))
+		for _, r := range recs {
+			recMap[r.ID] = r
+			if r.HospitalID > 0 {
+				recHospIDs = append(recHospIDs, r.HospitalID)
+			}
+		}
+		if len(recHospIDs) > 0 {
+			var hosps []model.Hospital
+			repository.DB.Where("id IN ?", recHospIDs).Find(&hosps)
+			for _, h := range hosps {
+				hospMap[h.ID] = h
+			}
+		}
+	}
+
 	for i := range list {
-		var doc model.User
-		if err := repository.DB.First(&doc, list[i].DoctorID).Error; err == nil {
+		if doc, ok := docMap[list[i].DoctorID]; ok {
 			list[i].DoctorName = doc.RealName
 			list[i].DoctorTitle = doc.Title
-			var hosp model.Hospital
-			if err := repository.DB.First(&hosp, doc.HospitalID).Error; err == nil {
+			if hosp, ok := hospMap[doc.HospitalID]; ok {
 				list[i].DoctorHospitalName = hosp.Name
 			}
 		}
 		if list[i].RecordID > 0 {
-			var rec model.MedicalRecord
-			if err := repository.DB.First(&rec, list[i].RecordID).Error; err == nil {
+			if rec, ok := recMap[list[i].RecordID]; ok {
 				list[i].RecordNo = rec.RecordNo
 				list[i].RecordDiagnosis = rec.Diagnosis
 				list[i].RecordDepartment = rec.DepartmentName
 				list[i].RecordEncounterType = rec.EncounterType
 				list[i].RecordCreatedAt = rec.CreatedAt.Format("2006-01-02 15:04")
-				var rhosp model.Hospital
-				if err := repository.DB.First(&rhosp, rec.HospitalID).Error; err == nil {
+				if rhosp, ok := hospMap[rec.HospitalID]; ok {
 					list[i].RecordHospitalName = rhosp.Name
 				}
 			}
@@ -644,6 +709,42 @@ func (ctrl *AccessController) BreakGlass(c *gin.Context) {
 	decision, _ := service.DefaultAccessEngine.EvaluateAccess(doctorID, rec.PatientID, req.RecordID, true)
 	if !decision.Allowed {
 		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: decision.Reason, Data: decision})
+		return
+	}
+
+	// 检查同一医生针对同一患者及病历在最近 1 小时内是否已经存在状态为有效/待审的紧急访问记录
+	var existingEvent model.EmergencyAccessEvent
+	oneHourAgo := time.Now().Add(-1 * time.Hour)
+	if err := repository.DB.Where("doctor_id = ? AND patient_id = ? AND record_id = ? AND created_at >= ? AND audit_status != 'CLOSED_VIOLATION'",
+		doctorID, rec.PatientID, req.RecordID, oneHourAgo).Order("id desc").First(&existingEvent).Error; err == nil && existingEvent.ID > 0 {
+		// 已存在有效破窗凭证，复用并返回病历数据
+		fullRecord, _ := service.DefaultMedicalService.GetRecordByID(req.RecordID)
+		c.JSON(http.StatusOK, model.Response{
+			Code:    200,
+			Message: "该病历在 1 小时内已处于有效急救破窗授权状态，直接复用既有紧急调阅凭证放行",
+			Data: gin.H{
+				"id":                 existingEvent.ID,
+				"event_no":           existingEvent.EventNo,
+				"doctor_id":          existingEvent.DoctorID,
+				"patient_id":         existingEvent.PatientID,
+				"record_id":          existingEvent.RecordID,
+				"source_hospital_id": existingEvent.SourceHospitalID,
+				"target_hospital_id": existingEvent.TargetHospitalID,
+				"emergency_reason":   existingEvent.EmergencyReason,
+				"description":        existingEvent.Description,
+				"doctor_confirmed":   existingEvent.DoctorConfirmed,
+				"patient_feedback":   existingEvent.PatientFeedback,
+				"patient_comment":    existingEvent.PatientComment,
+				"audit_status":       existingEvent.AuditStatus,
+				"supervisor_id":      existingEvent.SupervisorID,
+				"audit_comment":      existingEvent.AuditComment,
+				"fabric_tx_id":       existingEvent.FabricTxID,
+				"created_at":         existingEvent.CreatedAt,
+				"updated_at":         existingEvent.UpdatedAt,
+				"event":              existingEvent,
+				"record":             fullRecord,
+			},
+		})
 		return
 	}
 

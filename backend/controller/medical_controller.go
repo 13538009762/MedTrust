@@ -2,8 +2,10 @@ package controller
 
 import (
 	"fmt"
+	"html"
 	"io"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -63,8 +65,8 @@ func (ctrl *MedicalController) Upload(c *gin.Context) {
 		if readErr == nil && len(fb) > 0 {
 			fileBytes = fb
 			fileName = header.Filename
-			if len(fileName) > 4 {
-				fileType = fileName[len(fileName)-3:]
+			if ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(fileName)), "."); ext != "" {
+				fileType = ext
 			}
 		}
 	}
@@ -153,6 +155,24 @@ func (ctrl *MedicalController) GetByID(c *gin.Context) {
 
 	currentUserID := c.GetUint64("user_id")
 	role := c.GetString("role")
+
+	// 1. 若当前用户角色为 admin：直接返回 403 Forbidden（管理员严禁查阅患者病历详情）
+	if role == "admin" {
+		c.JSON(http.StatusForbidden, model.Response{
+			Code:    403,
+			Message: "权限拦截 (403 Forbidden): 系统管理权限与临床数据分离，管理员严禁查阅患者病历详情",
+		})
+		return
+	}
+
+	// 2. 若当前用户角色为 patient：必须满足 record.PatientID == currentUserID，否则返回 403 Forbidden
+	if role == "patient" && rec.PatientID != currentUserID {
+		c.JSON(http.StatusForbidden, model.Response{
+			Code:    403,
+			Message: "权限拦截 (403 Forbidden): 水平越权拦截(IDOR)：禁止查阅非本人的就诊病历",
+		})
+		return
+	}
 
 	// 统一由 DefaultAccessEngine.Evaluate 鉴权并进行风险与合规控制 (RBAC + ABAC + 患者授权 + IDOR 防御)
 	decision, err := service.DefaultAccessEngine.Evaluate(service.AccessRequest{
@@ -294,9 +314,26 @@ func (ctrl *MedicalController) Download(c *gin.Context) {
 		return
 	}
 
-	c.Header("Content-Disposition", "attachment; filename="+fileName)
+	encodedName := url.QueryEscape(fileName)
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"; filename*=UTF-8''%s", encodedName, encodedName))
 	c.Header("Content-Type", "application/pdf")
 	c.Data(http.StatusOK, "application/pdf", pdfBytes)
+}
+
+func maskPhone(phone string) string {
+	runes := []rune(phone)
+	if len(runes) <= 7 {
+		return phone
+	}
+	return string(runes[:3]) + "****" + string(runes[len(runes)-4:])
+}
+
+func maskIDCard(idCard string) string {
+	runes := []rune(idCard)
+	if len(runes) <= 10 {
+		return idCard
+	}
+	return string(runes[:6]) + "********" + string(runes[len(runes)-4:])
 }
 
 // ListPatients 供医生选择患者或通过姓名/手机号/身份证号检索患者
@@ -306,6 +343,10 @@ func (ctrl *MedicalController) ListPatients(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: err.Error()})
 		return
+	}
+	for i := range patients {
+		patients[i].Phone = maskPhone(patients[i].Phone)
+		patients[i].IDCard = maskIDCard(patients[i].IDCard)
 	}
 	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "查询成功", Data: patients})
 }
@@ -547,13 +588,8 @@ func (ctrl *MedicalController) ViewMedicalFile(c *gin.Context) {
 			})
 			return
 		}
-	} else if role == "patient" {
-		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "无法关联所属病历记录"})
-		return
-	}
-
-	if role == "admin" || role == "supervisor" {
-		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "系统管理员与监管人员角色无权直接查阅临床医疗影像及附件原始数据"})
+	} else {
+		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "无法关联所属病历记录"})
 		return
 	}
 
@@ -663,7 +699,8 @@ func (ctrl *MedicalController) DownloadMedicalFile(c *gin.Context) {
 				plainData, decErr = crypto.DecryptRecordFile(cipherPack, rec.PatientID, rec.RecordNo)
 			}
 			if decErr == nil && len(plainData) > 0 {
-				c.Header("Content-Disposition", "attachment; filename="+file.FileName)
+				encodedFileName := url.QueryEscape(file.FileName)
+				c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"; filename*=UTF-8''%s", encodedFileName, encodedFileName))
 				c.Header("Content-Type", "application/octet-stream")
 				c.Data(http.StatusOK, "application/octet-stream", plainData)
 				return
@@ -730,13 +767,14 @@ func (ctrl *MedicalController) serveMockMedicalImage(c *gin.Context, file *model
   <text x="45" y="512" font-family="monospace" font-size="12" fill="#64748b">原始明文 SHA-256: %s</text>
   <text x="45" y="536" font-family="'Microsoft YaHei', sans-serif" font-size="13" font-weight="bold" fill="#22c55e">Hyperledger Fabric 账本不可篡改存证校验：通过 (100%% 吻合，链上链下数据一致)</text>
 </svg>`,
-		rec.RecordNo, strings.ToUpper(file.FileType),
-		file.FileName, diag, rec.VitalSigns,
-		file.IPFSCID, file.FileHash,
+		html.EscapeString(rec.RecordNo), html.EscapeString(strings.ToUpper(file.FileType)),
+		html.EscapeString(file.FileName), html.EscapeString(diag), html.EscapeString(rec.VitalSigns),
+		html.EscapeString(file.IPFSCID), html.EscapeString(file.FileHash),
 	)
 
+	encodedSvgName := url.QueryEscape(file.FileName + ".svg")
 	c.Header("Content-Type", "image/svg+xml")
-	c.Header("Content-Disposition", "inline; filename="+file.FileName+".svg")
+	c.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"; filename*=UTF-8''%s", encodedSvgName, encodedSvgName))
 	c.Data(http.StatusOK, "image/svg+xml", []byte(svg))
 }
 
@@ -746,6 +784,23 @@ func (ctrl *MedicalController) GetPatientInfectionRisks(c *gin.Context) {
 	patientID, err := strconv.ParseUint(patientIDStr, 10, 64)
 	if err != nil || patientID == 0 {
 		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "无效的患者ID"})
+		return
+	}
+
+	currentUserID := c.GetUint64("user_id")
+	role := c.GetString("role")
+
+	// 身份校验：仅允许 doctor、supervisor 角色，或患者本人访问；若为 admin 或其他越权患者，返回 403 Forbidden
+	if role == "admin" {
+		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "系统管理员无权访问患者高危传染病及医护安全威胁数据"})
+		return
+	}
+	if role == "patient" && currentUserID != patientID {
+		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "权限拦截：禁止查看其他患者的高危传染病信息"})
+		return
+	}
+	if role != "doctor" && role != "supervisor" && role != "patient" {
+		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "权限不足，禁止访问"})
 		return
 	}
 

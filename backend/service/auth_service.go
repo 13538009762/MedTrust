@@ -28,13 +28,20 @@ func HashMedicalKey(key, userNo string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// VerifyMedicalKey 恒定时间校验调阅密钥，优先校验哈希，兼顾旧版平滑过渡
+// VerifyMedicalKey 恒定时间校验调阅密钥，优先校验哈希（支持 bcrypt 与 SHA-256 加盐哈希），兼顾旧版平滑过渡
 func VerifyMedicalKey(key, userNo, storedHash, legacyPlain string) bool {
 	cleanKey := strings.TrimSpace(key)
 	if cleanKey == "" {
 		return false
 	}
 	if storedHash != "" {
+		// 支持 bcrypt 哈希兼容校验
+		if strings.HasPrefix(storedHash, "$2a$") || strings.HasPrefix(storedHash, "$2b$") || strings.HasPrefix(storedHash, "$2y$") {
+			if bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(cleanKey)) == nil {
+				return true
+			}
+		}
+		// 64 位十六进制 SHA-256 加盐哈希安全校验
 		calc := HashMedicalKey(cleanKey, userNo)
 		if subtle.ConstantTimeCompare([]byte(calc), []byte(storedHash)) == 1 {
 			return true
@@ -44,6 +51,29 @@ func VerifyMedicalKey(key, userNo, storedHash, legacyPlain string) bool {
 		return true
 	}
 	return false
+}
+
+// MigrateLegacyMedicalKeys 主动扫描迁移数据库中所有残留的明文 medical_key 为安全哈希，消除隐患
+func MigrateLegacyMedicalKeys() error {
+	if repository.DB == nil {
+		return nil
+	}
+	var users []model.User
+	if err := repository.DB.Where("medical_key != '' AND (medical_key_hash = '' OR medical_key_hash IS NULL)").Find(&users).Error; err != nil {
+		return err
+	}
+	for _, u := range users {
+		cleanKey := strings.TrimSpace(u.MedicalKey)
+		if len(cleanKey) > 0 && len(cleanKey) < 32 {
+			newHash := HashMedicalKey(cleanKey, u.UserNo)
+			_ = repository.DB.Model(&model.User{}).Where("id = ?", u.ID).Updates(map[string]interface{}{
+				"medical_key_hash": newHash,
+				"medical_key":      "",
+				"updated_at":       time.Now(),
+			})
+		}
+	}
+	return nil
 }
 
 // GenerateSecureRandomPassword 生成 10 位安全随机一次性密码（包含大小写字母、数字及特殊符号）
@@ -236,6 +266,7 @@ func (s *AuthService) LoginWithContext(username, password, clientIP, userAgent s
 	}
 
 	u.HasMedicalKey = (u.MedicalKeyHash != "" || u.MedicalKey != "")
+	u.MedicalKey = "" // 严格屏蔽明文输出，与 GetProfile 保持完全对称
 
 	token, err := middleware.GenerateToken(&u)
 	if err != nil {

@@ -74,5 +74,14 @@ func LoadConfig(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &AppConfig); err != nil {
 		return nil, err
 	}
+	if v := os.Getenv("JWT_SECRET"); v != "" {
+		AppConfig.Server.JWTSecret = v
+	}
+	if v := os.Getenv("DB_DSN"); v != "" {
+		AppConfig.Database.DSN = v
+	}
+	if v := os.Getenv("AES_MASTER_KEY"); v != "" {
+		AppConfig.Security.AESMasterKey = v
+	}
 	return &AppConfig, nil
 }

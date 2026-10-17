@@ -251,7 +251,7 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 	// 2. 管理员与监管人员治理边界隔离策略
 	if user.Role == "admin" {
 		if req.RecordID > 0 || action == "VIEW" || action == "READ" || action == "DOWNLOAD" {
-			return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "系统管理权限与临床数据查阅分离：禁止系统管理员直接调阅或下载患者临床隐私明文"}, nil
+			return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "系统管理权限与临床数据查阅分离：禁止系统管理员直接调阅或下载患者临床隐私明文及附件"}, nil
 		}
 		return &AccessDecision{
 			Allowed:        true,
@@ -262,8 +262,8 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 	}
 
 	if user.Role == "supervisor" {
-		if action == "DOWNLOAD" {
-			return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "监管合规权限控制：监管人员禁止下载临床原始诊疗附件"}, nil
+		if action == "DOWNLOAD" || req.Purpose == "FILE_PREVIEW" || req.Purpose == "FILE_DOWNLOAD" {
+			return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "监管合规权限控制：监管人员禁止下载临床原始诊疗附件或调阅附件原始数据"}, nil
 		}
 		// 监管员调阅详情由上层执行脱敏屏蔽
 		return &AccessDecision{

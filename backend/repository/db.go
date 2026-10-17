@@ -1,8 +1,11 @@
 package repository
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -157,5 +160,23 @@ func SeedInitialData(db *gorm.DB) {
 			})
 		}
 	}
+
+	// 主动迁移：扫描 users 表中所有长度小于 32 的明文 medical_key，自动哈希加密并清空明文
+	var plainKeyUsers []model.User
+	if err := db.Where("medical_key != '' AND (medical_key_hash = '' OR medical_key_hash IS NULL)").Find(&plainKeyUsers).Error; err == nil {
+		for _, pu := range plainKeyUsers {
+			cleanKey := strings.TrimSpace(pu.MedicalKey)
+			if len(cleanKey) > 0 && len(cleanKey) < 32 {
+				h := sha256.New()
+				h.Write([]byte("MedTrust:Salt:" + pu.UserNo + ":" + cleanKey))
+				newHash := hex.EncodeToString(h.Sum(nil))
+				_ = db.Model(&model.User{}).Where("id = ?", pu.ID).Updates(map[string]interface{}{
+					"medical_key_hash": newHash,
+					"medical_key":      "",
+				})
+			}
+		}
+	}
+
 	log.Printf("[DB-Seed] MedTrust 标准测试种子账号与机构初始化完成")
 }

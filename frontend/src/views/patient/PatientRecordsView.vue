@@ -241,21 +241,24 @@
         <div v-if="selectedRec.is_tampered" class="tamper-warning-box">
           <div class="tw-head">
             <el-icon class="tw-icon"><WarningFilled /></el-icon>
-            <span class="tw-title">【高危安全警报】检测到您的病历已被数据库非法篡改！</span>
+            <span class="tw-title">【安全预警】检测到病历数据完整性校验异常，请联系医疗机构或监管人员核查</span>
           </div>
           <div class="tw-body">
-            系统检测到底层 MySQL 数据库中的临床数据与 Fabric 联盟链上不可篡改的存证指纹<strong>不匹配</strong>！该病历中的用药方案、药物过敏史或核心诊断已被黑客攻击篡改，<strong>临床严禁直接采信该病历！</strong>系统已阻断非法使用并记录高危安全审计！
+            系统检测到底层数据库中的临床数据与 Fabric 联盟链上不可篡改的存证指纹存在差异。为保障就医用药安全，系统已启用安全保护并阻断异常操作。
           </div>
-          <div class="tw-hashes">
-            <div class="tw-h-item danger">
-              <span class="lbl">数据库当前计算哈希 (Current Hash)：</span>
-              <code>{{ selectedRec.current_hash }}</code>
+          <details class="tw-details-collapse mt-3" style="cursor: pointer; font-size: 13px;">
+            <summary style="color: #ef4444; font-weight: 600; outline: none; margin-bottom: 8px;">查看区块链存证技术详情</summary>
+            <div class="tw-hashes">
+              <div class="tw-h-item danger">
+                <span class="lbl">数据库当前计算哈希 (Current Hash)：</span>
+                <code>{{ selectedRec.current_hash }}</code>
+              </div>
+              <div class="tw-h-item chain">
+                <span class="lbl">区块链不可篡改基准 (Chain Hash)：</span>
+                <code>{{ selectedRec.chain_hash }}</code>
+              </div>
             </div>
-            <div class="tw-h-item chain">
-              <span class="lbl">区块链不可篡改基准 (Chain Hash)：</span>
-              <code>{{ selectedRec.chain_hash }}</code>
-            </div>
-          </div>
+          </details>
         </div>
 
         <div v-else class="verified-safe-box">
@@ -753,7 +756,7 @@ const batchFilteredDoctors = computed(() => {
 const policyDialogVisible = ref(false)
 const policyTargetRec = ref<any>(null)
 const policyForm = ref({
-  policy_type: 'ALL_DOCTORS',
+  policy_type: 'PRIVATE',
   hospital_id: undefined as number | undefined,
   doctor_id: undefined as number | undefined,
   days: 365,
@@ -763,7 +766,7 @@ const policySubmitting = ref(false)
 // 批量设置访问策略
 const batchDialogVisible = ref(false)
 const batchForm = ref({
-  policy_type: 'ALL_DOCTORS',
+  policy_type: 'PRIVATE',
   hospital_id: undefined as number | undefined,
   doctor_id: undefined as number | undefined,
   days: 365,
@@ -827,7 +830,7 @@ function openAccessPolicyDialog(rec: any) {
   policyTargetRec.value = rec
   doctorHospFilter.value = undefined
 
-  let pType = 'ALL_DOCTORS'
+  let pType = 'PRIVATE'
   let hospId: number | undefined = undefined
   let docId: number | undefined = undefined
 
@@ -904,7 +907,7 @@ async function submitAccessPolicy() {
 function openBatchPolicyDialog() {
   batchHospFilter.value = undefined
   batchForm.value = {
-    policy_type: 'ALL_DOCTORS',
+    policy_type: 'PRIVATE',
     hospital_id: undefined,
     doctor_id: undefined,
     days: 365,

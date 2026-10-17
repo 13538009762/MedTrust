@@ -219,33 +219,82 @@ func (ctrl *SupervisorController) ListAuditLogs(c *gin.Context) {
 		repository.DB.First(&pat, currentUserID)
 
 		var recordNos []string
+		var recordIDs []uint64
 		repository.DB.Model(&model.MedicalRecord{}).Where("patient_id = ?", currentUserID).Pluck("record_no", &recordNos)
+		repository.DB.Model(&model.MedicalRecord{}).Where("patient_id = ?", currentUserID).Pluck("id", &recordIDs)
 
 		var authNos []string
 		repository.DB.Model(&model.Authorization{}).Where("patient_id = ?", currentUserID).Pluck("auth_no", &authNos)
 
-		if len(recordNos) == 0 {
-			recordNos = []string{"__EMPTY__"}
+		var eventNos []string
+		repository.DB.Model(&model.EmergencyAccessEvent{}).Where("patient_id = ?", currentUserID).Pluck("event_no", &eventNos)
+
+		var requestNos []string
+		repository.DB.Model(&model.AccessRequest{}).Where("patient_id = ?", currentUserID).Pluck("request_no", &requestNos)
+
+		var recIdStrs []string
+		for _, rid := range recordIDs {
+			recIdStrs = append(recIdStrs, fmt.Sprintf("%d", rid), fmt.Sprintf("REC_%d", rid))
+		}
+		allRecordTargets := append(recordNos, recIdStrs...)
+
+		if len(allRecordTargets) == 0 {
+			allRecordTargets = []string{"__EMPTY__"}
 		}
 		if len(authNos) == 0 {
 			authNos = []string{"__EMPTY__"}
 		}
+		if len(eventNos) == 0 {
+			eventNos = []string{"__EMPTY__"}
+		}
+		if len(requestNos) == 0 {
+			requestNos = []string{"__EMPTY__"}
+		}
 
-		query = query.Where("user_id = ? OR (target_type = 'RECORD' AND target_id IN (?)) OR (target_type = 'PATIENT' AND target_id = ?) OR (target_type = 'AUTH' AND target_id IN (?))",
-			currentUserID, recordNos, pat.UserNo, authNos)
+		query = query.Where("user_id = ? OR (target_type = 'RECORD' AND target_id IN (?)) OR (target_type = 'PATIENT' AND (target_id = ? OR target_id = ?)) OR (target_type = 'AUTH' AND target_id IN (?)) OR (target_type = 'EVENT' AND target_id IN (?)) OR (target_type = 'REQUEST' AND target_id IN (?))",
+			currentUserID, allRecordTargets, pat.UserNo, fmt.Sprintf("PATIENT_%d", currentUserID), authNos, eventNos, requestNos)
 	}
 
 	var list []model.AuditLog
 	query.Order("id desc").Limit(100).Find(&list)
 
-	for i := range list {
-		var u model.User
-		if err := repository.DB.First(&u, list[i].UserID).Error; err == nil {
-			list[i].UserName = u.RealName
+	if len(list) > 0 {
+		userIDs := make([]uint64, 0, len(list))
+		hospIDs := make([]uint64, 0, len(list))
+		for _, item := range list {
+			if item.UserID > 0 {
+				userIDs = append(userIDs, item.UserID)
+			}
+			if item.HospitalID > 0 {
+				hospIDs = append(hospIDs, item.HospitalID)
+			}
 		}
-		var h model.Hospital
-		if err := repository.DB.First(&h, list[i].HospitalID).Error; err == nil {
-			list[i].HospitalName = h.Name
+
+		userMap := make(map[uint64]string)
+		if len(userIDs) > 0 {
+			var users []model.User
+			repository.DB.Where("id IN ?", userIDs).Find(&users)
+			for _, u := range users {
+				userMap[u.ID] = u.RealName
+			}
+		}
+
+		hospMap := make(map[uint64]string)
+		if len(hospIDs) > 0 {
+			var hosps []model.Hospital
+			repository.DB.Where("id IN ?", hospIDs).Find(&hosps)
+			for _, h := range hosps {
+				hospMap[h.ID] = h.Name
+			}
+		}
+
+		for i := range list {
+			if name, ok := userMap[list[i].UserID]; ok {
+				list[i].UserName = name
+			}
+			if name, ok := hospMap[list[i].HospitalID]; ok {
+				list[i].HospitalName = name
+			}
 		}
 	}
 
