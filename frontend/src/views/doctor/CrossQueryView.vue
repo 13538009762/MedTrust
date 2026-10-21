@@ -6,6 +6,25 @@
       <div class="header-main-row">
         <div>
           <div class="header-badge-row">
+            <el-button
+              v-if="isFromEncounter || hasEncounterDraft"
+              type="primary"
+              :icon="ArrowLeft"
+              class="top-left-back-btn"
+              @click="returnToEncounter"
+            >
+              返回接诊录入
+            </el-button>
+            <el-button
+              v-else-if="route.query.id_card"
+              type="default"
+              plain
+              :icon="ArrowLeft"
+              class="top-left-back-btn"
+              @click="router.push('/doctor/records')"
+            >
+              返回门诊列表
+            </el-button>
             <h2 class="page-title">{{ scopeMeta.title }}</h2>
             <el-tag :type="scopeMeta.tagType" effect="dark" class="scope-header-tag">
               {{ scopeMeta.tag }}
@@ -39,14 +58,44 @@
             身份证号：<code style="font-weight: bold; background: #ecfdf5; padding: 2px 6px; border-radius: 4px;">{{ route.query.id_card }}</code>。
             系统已自动全网检索其所有就诊档案，请在下方列表核验并选择<strong>【申请调阅 (知情同意/破窗)】</strong>或直接查阅。
           </span>
-          <el-button
-            size="small"
-            type="primary"
-            plain
-            style="margin-left: 16px;"
-            @click="router.push('/doctor/records')"
-          >
-            返回门诊就诊工作台
+          <div class="alert-btn-group" style="display: flex; gap: 8px; align-items: center; flex-shrink: 0; margin-left: 16px;">
+            <el-button
+              v-if="isFromEncounter || hasEncounterDraft"
+              size="small"
+              type="primary"
+              :icon="ArrowLeft"
+              style="font-weight: 600;"
+              @click="returnToEncounter"
+            >
+              返回继续录入病历 (已自动暂存)
+            </el-button>
+            <el-button
+              v-else
+              size="small"
+              type="primary"
+              plain
+              @click="router.push('/doctor/records')"
+            >
+              返回门诊就诊工作台
+            </el-button>
+          </div>
+        </div>
+      </template>
+    </el-alert>
+
+    <!-- 录入草稿保留提示条 (无目标卡号参数但存在草稿时) -->
+    <el-alert
+      v-if="!route.query.id_card && hasEncounterDraft"
+      type="warning"
+      show-icon
+      class="mb-3 draft-notice-alert"
+      :closable="false"
+    >
+      <template #title>
+        <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+          <span>检测到您有一份尚未完成的接诊录入草稿正在妥善暂存中，查阅既往病历后可随时点击返回继续填写。</span>
+          <el-button size="small" type="primary" :icon="ArrowLeft" @click="returnToEncounter">
+            返回继续录入病历
           </el-button>
         </div>
       </template>
@@ -758,6 +807,16 @@
       <div class="ws-page-header-card sticky-header">
         <div class="ws-header-left">
           <el-button :icon="ArrowLeft" plain size="small" @click="currentView = 'QUERY'" class="back-btn">返回检索</el-button>
+          <el-button
+            v-if="isFromEncounter || hasEncounterDraft"
+            type="primary"
+            size="small"
+            :icon="ArrowLeft"
+            @click="returnToEncounter"
+            class="back-btn draft-back-btn"
+          >
+            返回接诊录入
+          </el-button>
           <div class="ws-header-title-box">
             <span class="ws-page-title">跨院解密就诊全景病历</span>
             <el-tag size="small" type="success" effect="light">已放行解密</el-tag>
@@ -1900,6 +1959,26 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
+const isFromEncounter = computed(() => route.query.from === 'encounter_create')
+
+const hasEncounterDraft = computed(() => {
+  try {
+    const draft = sessionStorage.getItem('medtrust_encounter_draft')
+    return !!draft
+  } catch {
+    return false
+  }
+})
+
+function returnToEncounter() {
+  router.push({
+    path: '/doctor/records',
+    query: {
+      restore_encounter: '1'
+    }
+  })
+}
+
 const currentScope = computed<'authorized' | 'local' | 'pending' | 'all'>({
   get() {
     const s = String(route.params.scope || '')
@@ -2919,6 +2998,22 @@ async function submitBreakGlass() {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.top-left-back-btn {
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.2);
+  transition: all 0.2s ease;
+  border-radius: 8px;
+}
+
+.top-left-back-btn:hover {
+  transform: translateX(-2px);
+}
+
+.draft-back-btn {
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.2);
 }
 
 .scope-header-tag {

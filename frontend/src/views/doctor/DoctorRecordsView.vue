@@ -43,6 +43,15 @@
             <el-tag type="info" size="small" effect="plain" class="ml-2">就诊生命周期驱动</el-tag>
           </div>
           <div class="header-actions">
+            <el-button
+              v-if="hasSavedDraft"
+              type="warning"
+              plain
+              :icon="Document"
+              @click="checkAndRestoreDraft(false)"
+            >
+              恢复未完成草稿【{{ draftPatientName }}】
+            </el-button>
             <el-button type="danger" plain @click="$router.push('/doctor/patient-search')">
               <el-icon style="margin-right: 4px;"><FirstAidKit /></el-icon>
               患者检索与急救调阅
@@ -195,7 +204,7 @@
       <!-- 顶部工作台标题与控制栏 (轻量纤细版 48px) -->
       <div class="ws-page-header-card sticky-header">
         <div class="ws-header-left">
-          <el-button :icon="ArrowLeft" plain size="small" @click="currentView = 'LIST'">返回列表</el-button>
+          <el-button :icon="ArrowLeft" plain size="small" @click="handleCancelEncounter">返回列表</el-button>
           <div class="ws-header-title-box">
             <span class="ws-page-title">新建临床就诊录入</span>
             <el-tag size="small" type="primary" effect="light">初诊接诊</el-tag>
@@ -209,7 +218,7 @@
             :alert="selectedPatientInfectionAlert"
             mode="badge"
           />
-          <el-button plain size="small" @click="currentView = 'LIST'">取消退出</el-button>
+          <el-button plain size="small" @click="handleCancelEncounter">取消退出</el-button>
         </div>
       </div>
 
@@ -716,7 +725,7 @@
       <!-- 底部提交操作栏 -->
       <div class="ws-page-footer-card mt-3">
         <div class="ws-footer-bar">
-          <el-button @click="currentView = 'LIST'">取消退出</el-button>
+          <el-button @click="handleCancelEncounter">取消退出</el-button>
           <!-- 模式一：直接确诊并归档 -->
           <el-button
             v-if="encounterMode === 'DIRECT'"
@@ -1705,7 +1714,7 @@
 const currentView = ref<'LIST' | 'CREATE' | 'FINAL' | 'DETAIL'>('LIST')
 
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 
 const windowWidth = ref(window.innerWidth)
 function handleResize() {
@@ -1891,7 +1900,79 @@ function getBarcodeData(code?: string) {
 }
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
+
+// 草稿状态管理（用于跨机构调取病历时自动保留已录入挂号、主诉、体征与初诊方案）
+const draftPatientName = ref('')
+const hasSavedDraft = ref(false)
+
+function updateDraftState() {
+  try {
+    const draftStr = sessionStorage.getItem('medtrust_encounter_draft')
+    if (draftStr) {
+      const d = JSON.parse(draftStr)
+      if (d && d.selectedPatientInfo) {
+        draftPatientName.value = d.selectedPatientInfo.real_name || d.selectedPatientInfo.username || '就诊患者'
+        hasSavedDraft.value = true
+        return
+      }
+    }
+  } catch {}
+  draftPatientName.value = ''
+  hasSavedDraft.value = false
+}
+
+function saveEncounterDraft() {
+  const draft = {
+    selectedPatientInfo: selectedPatientInfo.value,
+    selectedPatientInfectionAlert: selectedPatientInfectionAlert.value,
+    initForm: { ...initForm.value },
+    vitals: { ...vitals.value },
+    encounterMode: encounterMode.value,
+    directForm: { ...directForm.value },
+    selectedExamList: [...selectedExamList.value],
+    timestamp: Date.now()
+  }
+  sessionStorage.setItem('medtrust_encounter_draft', JSON.stringify(draft))
+  updateDraftState()
+}
+
+function clearEncounterDraft() {
+  sessionStorage.removeItem('medtrust_encounter_draft')
+  draftPatientName.value = ''
+  hasSavedDraft.value = false
+}
+
+function checkAndRestoreDraft(quiet = false): boolean {
+  const draftStr = sessionStorage.getItem('medtrust_encounter_draft')
+  if (!draftStr) return false
+  try {
+    const draft = JSON.parse(draftStr)
+    if (draft && draft.selectedPatientInfo) {
+      selectedPatientInfo.value = draft.selectedPatientInfo
+      selectedPatientInfectionAlert.value = draft.selectedPatientInfectionAlert || null
+      if (draft.initForm) initForm.value = { ...initForm.value, ...draft.initForm }
+      if (draft.vitals) vitals.value = { ...vitals.value, ...draft.vitals }
+      if (draft.encounterMode) encounterMode.value = draft.encounterMode
+      if (draft.directForm) directForm.value = { ...directForm.value, ...draft.directForm }
+      if (draft.selectedExamList) selectedExamList.value = draft.selectedExamList || []
+      currentView.value = 'CREATE'
+      initialDialogVisible.value = true
+      updateDraftState()
+      if (!quiet) {
+        ElMessage.success({
+          message: `已自动恢复患者【${draft.selectedPatientInfo.real_name || '患者'}】就诊录入草稿，可继续填写！`,
+          duration: 3500
+        })
+      }
+      return true
+    }
+  } catch (e) {
+    console.warn('Failed to parse encounter draft', e)
+  }
+  return false
+}
 
 const loading = ref(false)
 const records = ref<any[]>([])
@@ -2140,15 +2221,22 @@ function goToCrossQueryForPatient() {
     return
   }
   const idCard = selectedPatientInfo.value.id_card || selectedPatientInfo.value.real_name
-  currentView.value = 'LIST'
-    initialDialogVisible.value = false
+
+  // 妥善暂存当前接诊初诊录入工作台所有已填写的内容到草稿
+  saveEncounterDraft()
+  ElMessage.info({
+    message: `已暂存患者【${selectedPatientInfo.value.real_name}】初诊录入内容，调阅病历后点击左上角即可一键返回继续编辑`,
+    duration: 3500
+  })
+
   router.push({
     path: '/doctor/cross-query',
     query: {
       id_card: idCard,
       patient_name: selectedPatientInfo.value.real_name,
       patient_id: selectedPatientInfo.value.id,
-      scope: 'all'
+      scope: 'all',
+      from: 'encounter_create'
     }
   })
 }
@@ -2176,6 +2264,28 @@ function quickFillVitals() {
 }
 
 function openInitialDialog() {
+  updateDraftState()
+  if (hasSavedDraft.value) {
+    ElMessageBox.confirm(
+      `检测到您有一份尚未完成的接诊录入草稿【${draftPatientName.value}】，是否恢复继续填写？`,
+      '发现未完成草稿',
+      {
+        confirmButtonText: '恢复继续填写',
+        cancelButtonText: '放弃草稿并新建',
+        type: 'info'
+      }
+    ).then(() => {
+      checkAndRestoreDraft(false)
+    }).catch(() => {
+      clearEncounterDraft()
+      startNewBlankEncounter()
+    })
+    return
+  }
+  startNewBlankEncounter()
+}
+
+function startNewBlankEncounter() {
   encounterMode.value = 'DIRECT'
   const defaultDept = auth.user?.department_name || '心血管内科'
   const isEmergency = defaultDept.includes('急诊')
@@ -2205,6 +2315,33 @@ function openInitialDialog() {
 
   currentView.value = 'CREATE'
   initialDialogVisible.value = true
+}
+
+function handleCancelEncounter() {
+  if (selectedPatientInfo.value || initForm.value.chief_complaint) {
+    ElMessageBox.confirm(
+      '确定退出当前接诊录入吗？已填写的草稿仍会临时保留，可随时返回继续编辑。',
+      '退出确认',
+      {
+        confirmButtonText: '退出并保留草稿',
+        cancelButtonText: '清空并放弃草稿',
+        distinguishCancelAndClose: true,
+        type: 'warning'
+      }
+    ).then(() => {
+      saveEncounterDraft()
+      currentView.value = 'LIST'
+      ElMessage.info('已保留当前录入草稿')
+    }).catch((action) => {
+      if (action === 'cancel') {
+        clearEncounterDraft()
+        currentView.value = 'LIST'
+        ElMessage.info('已清空未完成草稿')
+      }
+    })
+  } else {
+    currentView.value = 'LIST'
+  }
 }
 
 function pickQuickPatient(pid: number) {
@@ -2328,6 +2465,7 @@ async function submitDirectEncounter() {
           type: 'success'
         }
       )
+      clearEncounterDraft()
       currentView.value = 'LIST'
     initialDialogVisible.value = false
       fetchRecords()
@@ -2386,6 +2524,7 @@ async function submitInitialEncounter() {
       } else {
         ElMessage.success('初诊就诊记录已建立完成！')
       }
+      clearEncounterDraft()
       currentView.value = 'LIST'
     initialDialogVisible.value = false
       fetchRecords()
@@ -2669,6 +2808,23 @@ onMounted(() => {
   window.addEventListener('resize', handleResize)
   fetchRecords()
   fetchPatients()
+  updateDraftState()
+
+  if (route.query.restore_encounter === '1') {
+    const ok = checkAndRestoreDraft(false)
+    if (ok) {
+      router.replace({ path: '/doctor/records' })
+    }
+  }
+})
+
+watch(() => route.query.restore_encounter, (val) => {
+  if (val === '1') {
+    const ok = checkAndRestoreDraft(false)
+    if (ok) {
+      router.replace({ path: '/doctor/records' })
+    }
+  }
 })
 
 onUnmounted(() => {
