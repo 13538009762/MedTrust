@@ -1411,13 +1411,13 @@
         <div class="score-progress-row">
           <div class="score-label">
             <span>综合风险分值 (Risk Score)：</span>
-            <strong :style="{ color: (interceptRiskEval.total_score ?? 45) >= 60 ? '#ef4444' : ((interceptRiskEval.total_score ?? 45) >= 30 ? '#f59e0b' : '#10b981') }">
-              {{ interceptRiskEval.total_score ?? 45 }} / 100
+            <strong :style="{ color: displayRiskScore >= 60 ? '#ef4444' : (displayRiskScore >= 30 ? '#f59e0b' : '#10b981') }">
+              {{ displayRiskScore }} / 100
             </strong>
           </div>
           <el-progress
-            :percentage="Math.min(100, interceptRiskEval.total_score ?? 45)"
-            :status="interceptRiskEval.level === 'HIGH' ? 'exception' : (interceptRiskEval.level === 'MEDIUM' ? 'warning' : 'success')"
+            :percentage="Math.min(100, displayRiskScore)"
+            :status="displayRiskScore >= 60 ? 'exception' : (displayRiskScore >= 30 ? 'warning' : 'success')"
             :stroke-width="12"
             class="score-bar"
           />
@@ -2318,6 +2318,16 @@ const breakGlassVisible = ref(false)
 const currentTarget = ref<any>(null)
 const submittingBG = ref(false)
 const interceptRiskEval = ref<any>(null)
+
+// 动态计算风控综合总分，确保顶层展示分值与下方多因子规则得分之和严格数学对齐，杜绝加法不一致
+const displayRiskScore = computed(() => {
+  if (!interceptRiskEval.value) return 45
+  if (interceptRiskEval.value.factors && interceptRiskEval.value.factors.length > 0) {
+    const sum = interceptRiskEval.value.factors.reduce((acc: number, cur: any) => acc + (cur.score || 0), 0)
+    if (sum > 0) return sum
+  }
+  return interceptRiskEval.value.total_score ?? 45
+})
 const riskDecisionState = ref<'ALLOWED' | 'PENDING_CONFIRM' | 'REJECTED'>('PENDING_CONFIRM')
 const riskDecisionReason = ref('')
 const riskDecisionReqNo = ref('')
@@ -2831,39 +2841,56 @@ async function handleAccess(row: any) {
           accessChannel.value = 'BREAK_GLASS'
         }
 
-        interceptRiskEval.value = d.risk_evaluation || {
+        const resEval = d.risk_evaluation || {
           strategy: 'RULE_ENGINE_WEIGHTED',
           level: (riskDecisionState.value === 'REJECTED' ? 'HIGH' : 'MEDIUM'),
           total_score: (riskDecisionState.value === 'REJECTED' ? 75 : 45),
-          factors: [
+          factors: riskDecisionState.value === 'REJECTED' ? [
             { rule_id: 'RULE-D1', factor_name: '医生执业机构与病历归属', weight: 35, score: 35, triggered: true, description: '跨医疗机构调阅（非本院开具且无有效门诊关联）' },
             { rule_id: 'RULE-A1', factor_name: '知情授权策略状态', weight: 20, score: 20, triggered: true, description: '患者未显式预签发有效知情授权策略' },
+            { rule_id: 'RULE-T1', factor_name: '调阅时间窗口与频次', weight: 20, score: 20, triggered: true, description: '非工作时间/夜间跨机构调阅，触发敏感时段防泄露预警' },
+            { rule_id: 'RULE-F1', factor_name: '病历敏感度等级', weight: 15, score: 0, triggered: false, description: '常规病历数据，未触及极高敏感隐私标记' },
+          ] : [
+            { rule_id: 'RULE-D1', factor_name: '医生执业机构与病历归属', weight: 35, score: 25, triggered: true, description: '跨医疗机构协同调阅' },
+            { rule_id: 'RULE-A1', factor_name: '知情授权策略状态', weight: 20, score: 20, triggered: true, description: '需患者在线知情授权二次核准' },
             { rule_id: 'RULE-T1', factor_name: '调阅时间窗口与频次', weight: 15, score: 0, triggered: false, description: '正常工作时间窗口且调阅频次正常' },
             { rule_id: 'RULE-F1', factor_name: '病历敏感度等级', weight: 15, score: 0, triggered: false, description: '常规病历数据，未触及极高敏感隐私标记' },
           ]
         }
+        if (resEval.factors && resEval.factors.length > 0) {
+          const sumScore = resEval.factors.reduce((acc: number, cur: any) => acc + (cur.score || 0), 0)
+          if (sumScore > 0) resEval.total_score = sumScore
+        }
+        interceptRiskEval.value = resEval
         patientKey.value = ''
         breakGlassVisible.value = true
       }
     }
   } catch (err: any) {
-    if (err?.response?.status === 403 || err?.code === 403) {
-      const errData = err?.response?.data?.data || {}
+    const isForbidden = err?.response?.status === 403 || err?.code === 403 || err?.status === 403
+    if (isForbidden) {
+      // 兼容 axios 拦截器已提取 data 或未提取原生 response 的双重格式
+      const errData = err?.data || err?.response?.data?.data || {}
       riskDecisionState.value = 'REJECTED'
-      riskDecisionReason.value = err?.response?.data?.message || '高风险拦截：已被风控安全网关阻断 (HTTP 403 Forbidden)'
+      riskDecisionReason.value = err?.message || err?.response?.data?.message || '高风险拦截：已被风控安全网关阻断 (HTTP 403 Forbidden)'
       riskDecisionReqNo.value = errData.request_no || ''
       accessChannel.value = 'BREAK_GLASS'
-      interceptRiskEval.value = errData.risk_evaluation || {
+      const catchEval = errData.risk_evaluation || {
         strategy: 'RULE_ENGINE_WEIGHTED',
         level: 'HIGH',
         total_score: 75,
         factors: [
           { rule_id: 'RULE-D1', factor_name: '医生执业机构与病历归属', weight: 35, score: 35, triggered: true, description: '跨医疗机构调阅（非本院开具且无有效门诊关联）' },
           { rule_id: 'RULE-A1', factor_name: '知情授权策略状态', weight: 20, score: 20, triggered: true, description: '患者未显式预签发有效知情授权策略' },
-          { rule_id: 'RULE-T1', factor_name: '调阅时间窗口与频次', weight: 15, score: 0, triggered: false, description: '正常工作时间窗口且调阅频次正常' },
+          { rule_id: 'RULE-T1', factor_name: '调阅时间窗口与频次', weight: 20, score: 20, triggered: true, description: '非工作时间/夜间跨机构调阅，触发敏感时段防泄露预警' },
           { rule_id: 'RULE-F1', factor_name: '病历敏感度等级', weight: 15, score: 0, triggered: false, description: '常规病历数据，未触及极高敏感隐私标记' },
         ]
       }
+      if (catchEval.factors && catchEval.factors.length > 0) {
+        const sumScore = catchEval.factors.reduce((acc: number, cur: any) => acc + (cur.score || 0), 0)
+        if (sumScore > 0) catchEval.total_score = sumScore
+      }
+      interceptRiskEval.value = catchEval
       patientKey.value = ''
       breakGlassVisible.value = true
     } else {
