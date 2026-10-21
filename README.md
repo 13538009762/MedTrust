@@ -177,11 +177,13 @@ graph LR
 ### 6.2 一键全栈启动 (Windows 极速模式)
 在项目根目录下，双击预置的批处理快捷脚本：
 1. **`init_db.bat`**：一键自动创建 `medtrust` 数据库、自动迁移数据表并注入标准种子数据；
-2. **`start_all.bat`**：一键并发拉起所有微服务并在 3 秒后自动弹出默认浏览器打开系统：
+2. **`start_all.bat`**：一键并发拉起所有微服务（Fabric + Backend + AI + Frontend）并在 3 秒后自动弹出默认浏览器打开系统：
    - **Go 核心业务与网关**：`http://localhost:8080`
    - **Python AI Agent 服务**：`http://localhost:8000`
    - **Vue 3 现代化前端**：`http://localhost:5173`
-3. **`stop_all.bat`**：精准依据端口（8080, 8000, 5173, 8090）安全停止相关进程，不影响系统其他工作环境。
+3. **`stop_all.bat`**：精准依据端口（8080, 8000, 5173, 8090）安全停止相关微服务进程，不影响系统其他工作环境。
+
+> 各独立微服务子启动脚本统一收口至 `scripts/` 目录（如 `scripts/start_backend.bat`、`scripts/start_frontend.bat`、`scripts/start_ai.bat`、`scripts/start_tamper.bat`），保持项目根目录整洁清爽。
 
 ### 6.3 命令行手动启动各微服务
 ```bash

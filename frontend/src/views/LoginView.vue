@@ -530,14 +530,17 @@ async function handleRegister() {
 }
 
 .top-nav {
-  height: 64px;
-  padding: 0 40px;
+  height: 72px;
+  padding: 22px 72px 0;
+  max-width: 1720px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: rgba(255, 255, 255, 0.4);
-  backdrop-filter: blur(16px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.6);
+  background: transparent;
+  border: none;
   z-index: 10;
 }
 
@@ -545,12 +548,13 @@ async function handleRegister() {
   display: flex;
   align-items: center;
   gap: 12px;
+  margin-left: 20px;
 }
 
 .app-logo {
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
   box-shadow: 0 4px 14px rgba(14, 165, 233, 0.25);
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   object-fit: contain;
@@ -562,25 +566,29 @@ async function handleRegister() {
 .logo-text {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .brand {
-  font-size: 20px;
-  font-weight: 800;
-  color: #6366f1;
+  font-size: 22px;
+  font-weight: 850;
+  color: #4f46e5;
   letter-spacing: -0.5px;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.85);
 }
 
 .divider {
-  color: #cbd5e1;
+  color: #94a3b8;
   font-weight: 300;
+  font-size: 16px;
 }
 
 .app-name {
-  font-size: 15px;
-  font-weight: 600;
-  color: #334155;
+  font-size: 16px;
+  font-weight: 650;
+  color: #1e293b;
+  letter-spacing: 0.2px;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.85);
 }
 
 .main-content {
@@ -588,33 +596,34 @@ async function handleRegister() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 40px 60px;
-  max-width: 1440px;
+  padding: 24px 72px 36px;
+  max-width: 1720px;
   margin: 0 auto;
   width: 100%;
   box-sizing: border-box;
+  gap: 52px;
 }
 
 .hero-area {
   flex: 1;
-  max-width: 620px;
-  margin-right: 40px;
+  max-width: 760px;
+  margin-left: 20px;
 }
 
 .hero-brand-pill {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 14px 6px 10px;
-  background: rgba(255, 255, 255, 0.7);
+  gap: 9px;
+  padding: 7px 16px 7px 12px;
+  background: rgba(255, 255, 255, 0.75);
   backdrop-filter: blur(12px);
   border: 1px solid rgba(99, 102, 241, 0.25);
   border-radius: 30px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: #6366f1;
-  margin-bottom: 16px;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.08);
+  margin-bottom: 20px;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.08);
 }
 
 .hero-pill-icon {
@@ -634,12 +643,12 @@ async function handleRegister() {
 }
 
 .hero-title {
-  font-size: 38px;
-  font-weight: 800;
+  font-size: 42px;
+  font-weight: 850;
   color: #0f172a;
-  line-height: 1.2;
-  margin-bottom: 16px;
-  letter-spacing: -0.5px;
+  line-height: 1.25;
+  margin-bottom: 18px;
+  letter-spacing: -0.6px;
 }
 
 .text-gradient {
@@ -649,62 +658,63 @@ async function handleRegister() {
 }
 
 .hero-subtitle {
-  font-size: 16px;
-  color: #475569;
-  line-height: 1.6;
-  margin-bottom: 32px;
+  font-size: 16.5px;
+  color: #334155;
+  line-height: 1.7;
+  margin-bottom: 34px;
 }
 
 .feature-list {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  margin-bottom: 32px;
+  gap: 20px;
+  margin-bottom: 34px;
 }
 
 .feature-item {
   display: flex;
   align-items: flex-start;
-  gap: 14px;
+  gap: 16px;
 }
 
 .feature-icon {
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #6366f1;
-  font-size: 18px;
+  font-size: 20px;
   flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.1);
 }
 
 .feature-info h3 {
-  font-size: 15px;
-  font-weight: 700;
-  color: #1e293b;
-  margin: 0 0 4px 0;
+  font-size: 16.5px;
+  font-weight: 750;
+  color: #0f172a;
+  margin: 0 0 6px 0;
 }
 
 .feature-info p {
-  font-size: 13px;
+  font-size: 13.5px;
   color: #475569;
   margin: 0;
-  line-height: 1.35;
+  line-height: 1.55;
 }
 
 .system-intro-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  padding: 20px 24px;
-  background: rgba(255, 255, 255, 0.6);
+  gap: 24px;
+  padding: 22px 28px;
+  background: rgba(255, 255, 255, 0.65);
   backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.8);
-  border-radius: 18px;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 20px;
+  box-shadow: 0 14px 32px rgba(99, 102, 241, 0.05);
 }
 
 .intro-card-left {
@@ -712,16 +722,16 @@ async function handleRegister() {
 }
 
 .system-intro-card h3 {
-  font-size: 15px;
-  font-weight: 700;
-  color: #1e293b;
+  font-size: 16px;
+  font-weight: 750;
+  color: #0f172a;
   margin-bottom: 8px;
 }
 
 .system-intro-card p {
-  font-size: 13px;
+  font-size: 13.5px;
   color: #475569;
-  line-height: 1.5;
+  line-height: 1.6;
   margin: 0;
 }
 
@@ -745,7 +755,6 @@ async function handleRegister() {
 
 .login-panel {
   flex-shrink: 0;
-  margin-right: 20px;
 }
 
 .login-glass-card {

@@ -12,6 +12,7 @@ echo [3] 服务启动后将自动在浏览器中打开攻防控制面板: http:/
 echo.
 echo 正在启动攻防控制台后端服务...
 
+cd /d "%~dp0"
 start "" "http://127.0.0.1:8090"
 python server.py
 

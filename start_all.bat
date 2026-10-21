@@ -9,7 +9,7 @@ docker ps | findstr "peer0.org1.example.com" >nul 2>&1
 if %errorlevel% equ 0 goto FABRIC_OK
 
 echo    [TIP] Fabric 容器集群未运行，正在启动区块链网络 [唤醒 Docker Desktop]...
-start "MedTrust Blockchain Network" cmd /c "%~dp0start_blockchain.bat"
+start "MedTrust Blockchain Network" cmd /c "%~dp0scripts\start-fabric.bat"
 goto STEP_SERVICES
 
 :FABRIC_OK
@@ -18,13 +18,13 @@ echo    [OK] Fabric 容器集群正常运行中.
 :STEP_SERVICES
 echo.
 echo 1. 正在拉起 Go 核心业务与安全网关服务 (8080 端口)...
-start "MedTrust Go Backend (Port 8080)" cmd /k "%~dp0start_backend.bat"
+start "MedTrust Go Backend (Port 8080)" cmd /k "%~dp0scripts\start_backend.bat"
 
 echo 2. 正在拉起 Python FastAPI 受控 AI Agent (8000 端口)...
-start "MedTrust Python AI Agent (Port 8000)" cmd /k "%~dp0start_ai.bat"
+start "MedTrust Python AI Agent (Port 8000)" cmd /k "%~dp0scripts\start_ai.bat"
 
 echo 3. 正在拉起 Vue 3 现代化前端 (5173 端口)...
-start "MedTrust Vue3 Frontend (Port 5173)" cmd /k "%~dp0start_frontend.bat"
+start "MedTrust Vue3 Frontend (Port 5173)" cmd /k "%~dp0scripts\start_frontend.bat"
 
 echo.
 echo ==============================================================================
