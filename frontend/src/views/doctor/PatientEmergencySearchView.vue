@@ -1240,6 +1240,7 @@ async function submitBatchConsent() {
 function openKeyUnlockDialog() {
   if (!selectedPatient.value) return
   keyUnlockForm.value.medicalKey = selectedPatient.value.medical_key || '123456'
+  fetchKeyUnlockCaptcha()
   keyUnlockDialogVisible.value = true
 }
 
@@ -1249,11 +1250,17 @@ async function submitKeyUnlock() {
     ElMessage.warning('请输入患者提供的现场调阅密钥')
     return
   }
+  if (!keyUnlockForm.value.captchaAnswer.trim()) {
+    ElMessage.warning('请输入安全计算验证码以防密钥爆破')
+    return
+  }
   submittingKey.value = true
   try {
     const res: any = await api.post('/access/unlock-patient-key', {
       patient_id: selectedPatient.value.id,
       medical_key: keyUnlockForm.value.medicalKey.trim(),
+      captcha_answer: keyUnlockForm.value.captchaAnswer.trim(),
+      captcha_token: keyUnlockForm.value.captchaToken,
       purpose: '门诊床旁现场患者出示密钥核验放行',
       days: keyUnlockForm.value.days || 7,
     })
@@ -1261,7 +1268,8 @@ async function submitKeyUnlock() {
     keyUnlockDialogVisible.value = false
     refreshPatientRecords()
   } catch (err: any) {
-    ElMessage.error(err?.message || '密钥校验失败，请核对患者密钥')
+    fetchKeyUnlockCaptcha()
+    ElMessage.error(err?.response?.data?.message || err?.message || '密钥或验证码校验失败，请核对后重试')
   } finally {
     submittingKey.value = false
   }
@@ -2204,4 +2212,50 @@ onUnmounted(() => {
     padding-right: 20px !important;
   }
 }
+
+.captcha-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.captcha-input {
+  flex: 1;
+}
+
+.captcha-img-container {
+  width: 120px;
+  height: 40px;
+  cursor: pointer;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f8fafc;
+  transition: all 0.2s ease;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.captcha-img-container:hover {
+  border-color: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.2);
+  transform: translateY(-1px);
+}
+
+.captcha-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.captcha-loading {
+  font-size: 12px;
+  color: #10b981;
+  font-weight: 500;
+}
+
 </style>

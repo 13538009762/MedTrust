@@ -802,7 +802,7 @@
     </div>
 
         <!-- 视图二：跨院医疗数据已核准解密放行全景工作台 (DETAIL) -->
-    <div v-else-if="currentView === 'DETAIL'" class="inpage-workstation-wrapper">
+    <div v-else-if="currentView === 'DETAIL'" :class="['inpage-workstation-wrapper', { 'tampered-watermark-overlay': releasedRecord?.is_tampered }]">
       <!-- 顶部工作台粘性控制栏 (轻量纤细版 48px) -->
       <div class="ws-page-header-card sticky-header">
         <div class="ws-header-left">
@@ -819,7 +819,16 @@
           </el-button>
           <div class="ws-header-title-box">
             <span class="ws-page-title">跨院解密就诊全景病历</span>
-            <el-tag size="small" type="success" effect="light">已放行解密</el-tag>
+            <el-tag
+              v-if="releasedRecord?.is_tampered"
+              size="small"
+              type="danger"
+              effect="dark"
+              class="tamper-tag-glow"
+            >
+              <el-icon class="mr-1"><WarningFilled /></el-icon> ⚠️ 数据已被恶意篡改 · 存证不匹配
+            </el-tag>
+            <el-tag v-else size="small" type="success" effect="light">已放行解密</el-tag>
             <div v-if="releasedRecord" class="ws-record-chip">
               <span class="chip-lbl">单号</span>
               <span class="chip-val mono">{{ releasedRecord.record_no }}</span>
@@ -848,18 +857,46 @@
           />
         </div>
 
-        <!-- 篡改告警横幅 -->
+        <!-- 篡改告警横幅 (高危防护预警卡) -->
         <div v-if="releasedRecord.is_tampered" class="tamper-box danger">
+          <div class="tamper-top-badge-row">
+            <div class="tamper-pill-badge">
+              <el-icon class="pulse-icon"><WarningFilled /></el-icon>
+              <span>BLOCKCHAIN INTEGRITY ALERT / 联盟链存证指纹不匹配</span>
+            </div>
+            <span class="tamper-block-tag">已触发临床采信阻断</span>
+          </div>
+
           <div class="t-head">
-            <el-icon><WarningFilled /></el-icon>
-            <span>【高危安全警报】检测到该病历数据库数据已被恶意篡改！</span>
+            <el-icon class="t-head-icon"><WarningFilled /></el-icon>
+            <span class="t-title">【高危安全警报】检测到该病历底层数据已被恶意篡改！</span>
           </div>
+
           <div class="t-desc">
-            系统检测到底层 MySQL 数据库中的临床数据与 Fabric 联盟链上不可篡改的存证指纹不匹配！临床严禁直接采信该病历！
+            系统零信任存证网关检测到底层 MySQL 数据库中的临床就诊明细特征指纹与 Hyperledger Fabric 联盟链上不可篡改的存证指纹<strong>不匹配</strong>！该病历临床真实性已丧失，<strong>临床严禁直接采信该病历或据此开具医嘱</strong>！
           </div>
+
           <div class="t-hashes">
-            <div>数据库当前计算哈希: <code>{{ releasedRecord.current_hash }}</code></div>
-            <div>区块链不可篡改基准: <code>{{ releasedRecord.chain_hash }}</code></div>
+            <div class="hash-row danger-hash">
+              <span class="hash-label">数据库当前计算指纹 (已污染):</span>
+              <code class="hash-code">{{ releasedRecord.current_hash || '（计算生成中...）' }}</code>
+              <el-button size="small" link type="danger" @click.stop="copyToClipboard(releasedRecord.current_hash, '当前计算哈希')">复制</el-button>
+            </div>
+            <div class="hash-row chain-hash">
+              <span class="hash-label">区块链不可篡改基准 (Fabric 账本):</span>
+              <code class="hash-code">{{ releasedRecord.chain_hash || '（链上存证缺失 / 未通过共识锚定）' }}</code>
+              <el-button v-if="releasedRecord.chain_hash" size="small" link type="primary" @click.stop="copyToClipboard(releasedRecord.chain_hash, '区块链基准哈希')">复制</el-button>
+            </div>
+          </div>
+
+          <div class="tamper-footer-row">
+            <div class="tamper-reason">
+              <el-icon class="mr-1 text-red-600"><InfoFilled /></el-icon>
+              <span>{{ releasedRecord.tamper_reason || '【区块链安全告警】病历关键临床数据（诱因/用药/诊断）已被非法篡改，哈希指纹校验失败！' }}</span>
+            </div>
+            <div class="tamper-audit-pill">
+              <span>违规调阅已实时上报卫健区块链监督中心</span>
+            </div>
           </div>
         </div>
 
@@ -877,37 +914,47 @@
         </div>
 
         <el-alert
-          v-if="isBreakGlassRelease || releasedRecord.access_type === 'BREAK_GLASS'"
-          title="本次调阅为 Break-Glass 紧急破窗放行（24小时急救绿色通道生效中），事件单已上链存证并向卫健监管派发预警"
+          v-if="releasedRecord.is_tampered"
+          title="【安全风控介入】虽然该病历具备调阅权限，但由于底层数据库指纹与区块链存证不匹配，系统已锁定为只读存证审计模式，临床操作已被安全防护策略阻断！"
           type="error"
           show-icon
           class="mb-3 mt-3"
           :closable="false"
         />
-        <el-alert
-          v-else-if="releasedRecord.doctor_id === auth.user?.id"
-          title="本人开具病历：您作为接诊责任医生依法享有持续随诊与病史调阅权限，系统免申请直接放行"
-          type="success"
-          show-icon
-          class="mb-3 mt-3"
-          :closable="false"
-        />
-        <el-alert
-          v-else-if="releasedRecord.hospital_id === auth.user?.hospital_id"
-          title="院内诊疗互通：目标病历归属本医疗机构，遵循院内就诊连续性互认规范直接放行"
-          type="info"
-          show-icon
-          class="mb-3 mt-3"
-          :closable="false"
-        />
-        <el-alert
-          v-else
-          title="跨机构授权放行：目标机构已核准知情同意放行策略，数据经跨院零信任安全网关实时解密"
-          type="success"
-          show-icon
-          class="mb-3 mt-3"
-          :closable="false"
-        />
+        <template v-else>
+          <el-alert
+            v-if="isBreakGlassRelease || releasedRecord.access_type === 'BREAK_GLASS'"
+            title="本次调阅为 Break-Glass 紧急破窗放行（24小时急救绿色通道生效中），事件单已上链存证并向卫健监管派发预警"
+            type="error"
+            show-icon
+            class="mb-3 mt-3"
+            :closable="false"
+          />
+          <el-alert
+            v-else-if="releasedRecord.doctor_id === auth.user?.id"
+            title="本人开具病历：您作为接诊责任医生依法享有持续随诊与病史调阅权限，系统免申请直接放行"
+            type="success"
+            show-icon
+            class="mb-3 mt-3"
+            :closable="false"
+          />
+          <el-alert
+            v-else-if="releasedRecord.hospital_id === auth.user?.hospital_id"
+            title="院内诊疗互通：目标病历归属本医疗机构，遵循院内就诊连续性互认规范直接放行"
+            type="info"
+            show-icon
+            class="mb-3 mt-3"
+            :closable="false"
+          />
+          <el-alert
+            v-else
+            title="跨机构授权放行：目标机构已核准知情同意放行策略，数据经跨院零信任安全网关实时解密"
+            type="success"
+            show-icon
+            class="mb-3 mt-3"
+            :closable="false"
+          />
+        </template>
 
         <div class="ws-body-grid">
           <!-- 左侧栏：跨院档案属性、区块链凭据、附件文件 (380px) -->
@@ -1507,7 +1554,7 @@
             <p class="pk-desc">
               若患者本人在接诊现场，可由<strong>患者本人在下方输入其个人专属病历调阅密钥</strong>（或告知医生代为输入），系统将立即进行密码学核验并现场解密病历、存证上链，<strong>无需在线异步等待推送审批</strong>。
             </p>
-            <div class="pk-input-row">
+            <div class="pk-input-box">
               <el-input
                 v-model="patientKey"
                 type="password"
@@ -1515,20 +1562,37 @@
                 size="large"
                 placeholder="请输入患者专属病历调阅密钥（初始默认: 123456）"
                 :prefix-icon="Key"
-                class="pk-input"
+                class="pk-key-input"
                 @keyup.enter="handleUnlockByKey"
               />
-              <el-button
-                type="success"
-                size="large"
-                :icon="Key"
-                :loading="unlockingByKey"
-                :disabled="!patientKey"
-                @click="handleUnlockByKey"
-                class="pk-btn"
-              >
-                验证密钥并即时解密调阅
-              </el-button>
+              <div class="pk-captcha-row mt-2">
+                <div class="pk-captcha-wrapper">
+                  <el-input
+                    v-model="unlockCaptchaAnswer"
+                    size="large"
+                    placeholder="输入计算结果防爆破"
+                    :prefix-icon="Finished"
+                    class="pk-captcha-input"
+                    autocomplete="off"
+                    @keyup.enter="handleUnlockByKey"
+                  />
+                  <div class="pk-captcha-img-container" @click="fetchUnlockCaptcha" title="点击刷新验证码">
+                    <img v-if="unlockCaptchaImg" :src="unlockCaptchaImg" alt="验证码" class="pk-captcha-img" />
+                    <span v-else class="pk-captcha-loading">加载中...</span>
+                  </div>
+                </div>
+                <el-button
+                  type="success"
+                  size="large"
+                  :icon="Key"
+                  :loading="unlockingByKey"
+                  :disabled="!patientKey || !unlockCaptchaAnswer"
+                  @click="handleUnlockByKey"
+                  class="pk-btn"
+                >
+                  验证密钥并即时解密调阅
+                </el-button>
+              </div>
             </div>
             <div class="pk-tip">
               <span>提示：患者登录个人账号可在【数据授权管理】随时修改此密钥；初始默认密钥为 <code>123456</code>。</span>
@@ -1658,34 +1722,68 @@
         <!-- PDF 电子病历规范预览弹窗 -->
     <el-dialog
       v-model="pdfPreviewVisible"
-      title="临床就诊电子病历归档凭证 (PDF 规范视图)"
       width="1040px"
       top="2vh"
       :close-on-click-modal="false"
       class="pdf-preview-dialog"
     >
+      <template #header>
+        <div class="pdf-dialog-header">
+          <div class="pdf-header-title">
+            <el-icon class="pdf-header-icon"><Document /></el-icon>
+            <span class="pdf-header-text">临床就诊电子病历归档凭证</span>
+            <el-tag v-if="previewingRecord?.is_tampered" size="small" type="danger" effect="dark" class="tamper-tag-glow">⚠️ 篡改告警 · 校验失败</el-tag>
+            <el-tag v-else size="small" type="primary" effect="plain" class="pdf-header-tag">PDF 规范视图</el-tag>
+          </div>
+          <div class="pdf-header-actions no-print">
+            <el-button
+              type="primary"
+              size="small"
+              :icon="Printer"
+              class="pdf-action-btn pdf-btn-print"
+              @click="printPdfSheet"
+            >
+              打印 / 另存为 PDF 文件
+            </el-button>
+            <el-button
+              type="success"
+              plain
+              size="small"
+              :icon="Download"
+              class="pdf-action-btn pdf-btn-download"
+              @click="downloadRecordFile(previewingRecord.id)"
+            >
+              下载规范归档 PDF
+            </el-button>
+            <el-button
+              type="warning"
+              plain
+              size="small"
+              :icon="CircleCheckFilled"
+              class="pdf-action-btn pdf-btn-verify"
+              @click="verifyRecordIntegrity(previewingRecord.id)"
+            >
+              一键链上完整性核验
+            </el-button>
+          </div>
+        </div>
+      </template>
+
       <div v-if="previewingRecord" id="emr-print-container" class="emr-sheet-wrapper">
-        <!-- 打印与工具栏 -->
+        <!-- 存证规范与安全防护状态栏 -->
         <div class="emr-action-bar no-print">
           <div class="emr-tip-tag">
-            <el-tag type="success" effect="dark">密文解密验证通过</el-tag>
-            <el-tag type="info">国家卫健委《电子病历应用规范》甲级存证标准</el-tag>
+            <el-tag v-if="previewingRecord?.is_tampered" type="danger" effect="dark" class="action-tag tamper-tag-glow">
+              ⚠️ 底层数据已被恶意篡改 · 链上存证核验失败 (不可采信)
+            </el-tag>
+            <el-tag v-else type="success" effect="dark" class="action-tag">密文解密验证通过</el-tag>
+            <el-tag type="info" class="action-tag">国家卫健委《电子病历应用规范》甲级存证标准</el-tag>
+          </div>
+          <div v-if="previewingRecord?.infection_alert?.has_risk" class="emr-infection-slot">
             <InfectionSafetyAlert
-              v-if="previewingRecord?.infection_alert?.has_risk"
               :alert="previewingRecord.infection_alert"
               mode="badge"
             />
-          </div>
-          <div class="emr-btns">
-            <el-button type="primary" :icon="Printer" @click="printPdfSheet">
-              打印 / 另存为 PDF 文件
-            </el-button>
-            <el-button type="success" plain :icon="Download" @click="downloadRecordFile(previewingRecord.id)">
-              下载规范归档 PDF
-            </el-button>
-            <el-button type="warning" plain :icon="CircleCheckFilled" @click="verifyRecordIntegrity(previewingRecord.id)">
-              一键链上完整性核验
-            </el-button>
           </div>
         </div>
 
@@ -1932,8 +2030,8 @@ const currentView = ref<'QUERY' | 'DETAIL'>('QUERY')
 
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Search, WarningFilled, CircleCheckFilled, View, Download, Printer, OfficeBuilding, Lock, Compass, Refresh, Key, Setting, Document, Files, Picture, ArrowLeft, CopyDocument } from '@element-plus/icons-vue'
-import { ElMessage, ElNotification } from 'element-plus'
+import { Search, WarningFilled, CircleCheckFilled, View, Download, Printer, OfficeBuilding, Lock, Compass, Refresh, Key, Setting, Document, Files, Picture, ArrowLeft, CopyDocument, Finished, InfoFilled, CircleCloseFilled } from '@element-plus/icons-vue'
+import { ElMessage, ElNotification, ElMessageBox } from 'element-plus'
 import api from '../../api/client'
 import { useAuthStore } from '../../stores/auth'
 import { parseMedicalExamResult, highlightText, type ParsedMedicalReport } from '../../utils/medicalReportParser'
@@ -2389,6 +2487,64 @@ function openBreakGlassDirect(row: any) {
   breakGlassVisible.value = true
 }
 
+
+function promptTamperedRecordWarning(record: any) {
+  if (!record || !record.is_tampered) return
+
+  ElMessageBox.alert(
+    `<div class="tamper-alert-modal-content" style="text-align: left; padding: 4px 0;">
+      <div style="display: flex; align-items: flex-start; gap: 14px; margin-bottom: 14px;">
+        <div style="width: 48px; height: 48px; border-radius: 12px; background: #fee2e2; display: flex; align-items: center; justify-content: center; flex-shrink: 0; border: 2px solid #ef4444; box-shadow: 0 0 14px rgba(239,68,68,0.25);">
+          <span style="font-size: 26px;">🚨</span>
+        </div>
+        <div>
+          <div style="font-size: 16px; font-weight: 800; color: #991b1b; margin-bottom: 4px;">
+            【高危安全警报】检测到该病历底层数据已被恶意篡改！
+          </div>
+          <div style="font-size: 13px; color: #7f1d1d; line-height: 1.6;">
+            系统执行跨机构零信任核验时发现：底层数据库解密后的就诊特征指纹与 <strong>Hyperledger Fabric 联盟链不可篡改存证指纹不匹配</strong>！
+          </div>
+        </div>
+      </div>
+      
+      <div style="background: #fff1f2; border: 1.5px solid #fca5a5; border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; font-size: 12px; line-height: 1.7;">
+        <div style="color: #9f1239; font-weight: 700; margin-bottom: 6px;">🔍 区块链分布式存证比对详情：</div>
+        <div style="margin-bottom: 6px;">
+          <div style="color: #64748b; font-weight: 600;">· 数据库当前计算哈希 (非法篡改值)：</div>
+          <code style="display: block; background: #fee2e2; color: #991b1b; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 11px; word-break: break-all; margin-top: 2px; border: 1px solid #fecaca;">${record.current_hash || '（哈希计算异常）'}</code>
+        </div>
+        <div>
+          <div style="color: #64748b; font-weight: 600;">· 区块链不可篡改基准 (Fabric 账本原件)：</div>
+          <code style="display: block; background: #f1f5f9; color: #0f172a; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 11px; word-break: break-all; margin-top: 2px; border: 1px solid #cbd5e1;">${record.chain_hash || '（链上存证缺失 / 未通过共识背书锚定）'}</code>
+        </div>
+      </div>
+
+      <div style="background: #fef2f2; border-left: 4px solid #dc2626; padding: 10px 12px; border-radius: 4px; font-size: 12px; color: #991b1b; line-height: 1.6;">
+        <strong>🛑 临床接诊安全阻断声明：</strong><br/>
+        该病历的临床病情、诱因或医嘱已被非法修改，真实性已丧失。<strong>临床严禁直接采信或依据该病历下达处方！</strong>
+        本次高危异常调阅事件已实时存证并触发监管预警。
+      </div>
+    </div>`,
+    '高危安全预警：病历数据真实性校验失败',
+    {
+      dangerouslyUseHTMLString: true,
+      confirmButtonText: '已知晓篡改风险，仅作审计查验',
+      confirmButtonClass: 'el-button--danger',
+      customClass: 'tamper-warning-msgbox',
+      showClose: true,
+      center: false
+    }
+  )
+
+  ElNotification({
+    title: '⚠️ 病历已被恶意篡改',
+    message: '该病历数据指纹与区块链不可篡改基准不符，临床严禁采信！',
+    type: 'error',
+    duration: 8000,
+    position: 'top-right'
+  })
+}
+
 async function enterDetailFromAllowed() {
   if (!currentTarget.value) return
   breakGlassVisible.value = false
@@ -2398,6 +2554,9 @@ async function enterDetailFromAllowed() {
       releasedRecord.value = recRes.data
       currentView.value = 'DETAIL'
       recordModalVisible.value = true
+      if (releasedRecord.value.is_tampered) {
+        promptTamperedRecordWarning(releasedRecord.value)
+      }
     }
   } catch (err: any) {
     ElMessage.error(err?.message || '获取病历详情失败')
@@ -2797,7 +2956,11 @@ async function handleAccess(row: any) {
         isBreakGlassRelease.value = (row.access_type === 'BREAK_GLASS')
         currentView.value = 'DETAIL'
         recordModalVisible.value = true
-        ElMessage.success('【调阅放行】已核验权限凭据，解密病历成功')
+        if (releasedRecord.value.is_tampered) {
+          promptTamperedRecordWarning(releasedRecord.value)
+        } else {
+          ElMessage.success('【调阅放行】已核验权限凭据，解密病历成功')
+        }
         return
       }
     } catch (err: any) {
@@ -2828,6 +2991,9 @@ async function handleAccess(row: any) {
         currentView.value = 'DETAIL'
         recordModalVisible.value = true
         searchCrossRecords()
+        if (releasedRecord.value.is_tampered) {
+          promptTamperedRecordWarning(releasedRecord.value)
+        }
       } else {
         // 未直接放行：判断是待患者确认还是被拒绝
         if (d.decision === 'PENDING_CONFIRM' || d.decision === 'REQUIRE_AUTHORIZATION' || !d.decision) {
@@ -2899,11 +3065,38 @@ async function handleAccess(row: any) {
   }
 }
 
+const unlockCaptchaImg = ref('')
+const unlockCaptchaToken = ref('')
+const unlockCaptchaAnswer = ref('')
+
+async function fetchUnlockCaptcha() {
+  try {
+    const res: any = await api.get('/auth/captcha')
+    if (res.code === 200 && res.data) {
+      unlockCaptchaImg.value = res.data.captcha_img
+      unlockCaptchaToken.value = res.data.captcha_token
+      unlockCaptchaAnswer.value = ''
+    }
+  } catch (err) {
+    console.error('Failed to fetch unlock captcha', err)
+  }
+}
+
+watch(breakGlassVisible, (val) => {
+  if (val) {
+    fetchUnlockCaptcha()
+  }
+})
+
 async function handleUnlockByKey() {
   if (!currentTarget.value) return
   const key = patientKey.value.trim()
   if (!key) {
     ElMessage.warning('请输入患者专属病历调阅密钥（初始默认: 123456）')
+    return
+  }
+  if (!unlockCaptchaAnswer.value.trim()) {
+    ElMessage.warning('请输入安全计算验证码以防密钥爆破')
     return
   }
 
@@ -2912,6 +3105,8 @@ async function handleUnlockByKey() {
     const res: any = await api.post('/access/requests/unlock-by-key', {
       record_id: currentTarget.value.id,
       medical_key: key,
+      captcha_answer: unlockCaptchaAnswer.value.trim(),
+      captcha_token: unlockCaptchaToken.value,
       purpose: consentForm.value.purpose || '门诊现场患者密码授权解锁调阅',
       days: consentForm.value.days || 7
     })
@@ -2931,9 +3126,13 @@ async function handleUnlockByKey() {
       currentView.value = 'DETAIL'
         recordModalVisible.value = true
       refreshData()
+      if (releasedRecord.value.is_tampered) {
+        promptTamperedRecordWarning(releasedRecord.value)
+      }
     }
   } catch (err: any) {
-    ElMessage.error(err?.message || err?.response?.data?.message || '患者授权密钥校验失败，密码不正确')
+    fetchUnlockCaptcha()
+    ElMessage.error(err?.response?.data?.message || err?.message || '患者授权密钥或验证码校验失败')
   } finally {
     unlockingByKey.value = false
   }
@@ -2993,8 +3192,10 @@ async function submitBreakGlass() {
       isBreakGlassRelease.value = true
       currentView.value = 'DETAIL'
         recordModalVisible.value = true
-      // 破窗成功后立即刷新列表与统计数据，使列表上的按钮与状态标签立即显示为已放行
       refreshData()
+      if (releasedRecord.value.is_tampered) {
+        promptTamperedRecordWarning(releasedRecord.value)
+      }
     }
   } catch (err: any) {
     ElMessage.error(err?.message || '紧急放行申请失败')
@@ -4908,6 +5109,210 @@ async function submitBreakGlass() {
   white-space: nowrap !important;
 }
 
+/* 篡改告警高危卡片 */
+.tamper-box.danger {
+  background: linear-gradient(135deg, #fff1f2 0%, #fee2e2 50%, #fecdd3 100%);
+  border: 2px solid #ef4444;
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  box-shadow: 0 4px 20px rgba(239, 68, 68, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  position: relative;
+  overflow: hidden;
+}
+
+.tamper-box.danger::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, #dc2626, #ef4444, #f87171, #dc2626);
+  background-size: 200% 100%;
+  animation: tamper-stripe 2s linear infinite;
+}
+
+@keyframes tamper-stripe {
+  0% { background-position: 0% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.tamper-top-badge-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.tamper-pill-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #991b1b;
+  color: #fef2f2;
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 3px 10px;
+  border-radius: 20px;
+  letter-spacing: 0.5px;
+}
+
+.pulse-icon {
+  animation: pulse-red 1.2s infinite;
+}
+
+.tamper-block-tag {
+  background: #dc2626;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 6px;
+  letter-spacing: 0.5px;
+  box-shadow: 0 2px 6px rgba(220, 38, 38, 0.3);
+}
+
+.t-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+  font-size: 16px;
+  color: #991b1b;
+  margin-bottom: 8px;
+}
+
+.t-head-icon {
+  font-size: 20px;
+  color: #dc2626;
+}
+
+.t-title {
+  color: #991b1b;
+  letter-spacing: 0.3px;
+}
+
+.t-desc {
+  font-size: 13px;
+  color: #7f1d1d;
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
+
+.t-hashes {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.hash-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.hash-label {
+  font-weight: 700;
+  min-width: 195px;
+  flex-shrink: 0;
+}
+
+.hash-row.danger-hash .hash-label {
+  color: #dc2626;
+}
+
+.hash-row.chain-hash .hash-label {
+  color: #475569;
+}
+
+.hash-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  word-break: break-all;
+  flex-grow: 1;
+}
+
+.hash-row.danger-hash .hash-code {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+  font-weight: 700;
+}
+
+.hash-row.chain-hash .hash-code {
+  background: #f1f5f9;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
+}
+
+.tamper-footer-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 8px;
+  border-top: 1px dashed #fca5a5;
+  font-size: 12px;
+}
+
+.tamper-reason {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #991b1b;
+  font-weight: 600;
+}
+
+.tamper-audit-pill {
+  color: #dc2626;
+  font-size: 11px;
+  font-weight: 600;
+  background: #fee2e2;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid #fca5a5;
+}
+
+.tamper-tag-glow {
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.6);
+  animation: pulse-red 1.5s infinite;
+  font-weight: 700;
+}
+
+@keyframes pulse-red {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.85; transform: scale(1.04); }
+}
+
+/* 篡改水印覆盖 */
+.tampered-watermark-overlay {
+  position: relative;
+}
+
+.tampered-watermark-overlay::after {
+  content: "⚠️ 数据库数据已被篡改 · 严禁直接采信 · TAMPERED ⚠️";
+  position: fixed;
+  top: 52%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-22deg);
+  font-size: 46px;
+  font-weight: 900;
+  color: rgba(239, 68, 68, 0.06);
+  pointer-events: none;
+  z-index: 100;
+  white-space: nowrap;
+  letter-spacing: 6px;
+}
+
 /* 防篡改状态条 */
 .tamper-box.safe {
   background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
@@ -5548,6 +5953,78 @@ async function submitBreakGlass() {
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
 }
 
+.pdf-preview-dialog :deep(.el-dialog__header) {
+  margin-right: 0;
+  padding: 16px 20px 14px 20px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #ffffff;
+}
+
+.pdf-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding-right: 36px;
+}
+
+.pdf-header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pdf-header-icon {
+  font-size: 20px;
+  color: #059669;
+}
+
+.pdf-header-text {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: 0.5px;
+}
+
+.pdf-header-tag {
+  font-size: 11px;
+  border-radius: 4px;
+}
+
+.pdf-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: nowrap;
+}
+
+.pdf-action-btn {
+  font-weight: 500;
+  border-radius: 6px;
+  padding: 8px 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s ease;
+}
+
+.pdf-action-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+@media (max-width: 960px) {
+  .pdf-dialog-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    padding-right: 36px;
+  }
+  .pdf-header-actions {
+    flex-wrap: wrap;
+  }
+}
+
 .emr-action-bar {
   display: flex;
   justify-content: space-between;
@@ -5559,15 +6036,27 @@ async function submitBreakGlass() {
   border-radius: 8px;
   border: 1px solid #e2e8f0;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-  flex-wrap: nowrap;
 }
 
 .emr-tip-tag {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
+}
+
+.emr-infection-slot {
+  display: flex;
+  align-items: center;
   flex-shrink: 0;
+}
+
+.emr-btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  flex-wrap: nowrap;
 }
 
 .emr-sheet-paper {
@@ -5869,4 +6358,65 @@ async function submitBreakGlass() {
   color: #475569;
   line-height: 1.8;
 }
+
+.pk-input-box {
+  width: 100%;
+}
+
+.pk-key-input {
+  width: 100%;
+}
+
+.pk-captcha-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.pk-captcha-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+
+.pk-captcha-input {
+  flex: 1;
+}
+
+.pk-captcha-img-container {
+  width: 120px;
+  height: 40px;
+  cursor: pointer;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f8fafc;
+  transition: all 0.2s ease;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.pk-captcha-img-container:hover {
+  border-color: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.2);
+  transform: translateY(-1px);
+}
+
+.pk-captcha-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.pk-captcha-loading {
+  font-size: 12px;
+  color: #10b981;
+  font-weight: 500;
+}
+
 </style>

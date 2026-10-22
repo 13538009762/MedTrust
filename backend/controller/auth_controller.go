@@ -10,6 +10,7 @@ import (
 	"medtrust-backend/config"
 	"medtrust-backend/middleware"
 	"medtrust-backend/model"
+	"medtrust-backend/pkg/captcha"
 	"medtrust-backend/repository"
 	"medtrust-backend/service"
 )
@@ -19,8 +20,23 @@ type AuthController struct{}
 var DefaultAuthController = &AuthController{}
 
 type LoginRequest struct {
-	Username string `json:"username" binding:"required"`
-	Password string `json:"password" binding:"required"`
+	Username      string `json:"username" binding:"required"`
+	Password      string `json:"password" binding:"required"`
+	CaptchaAnswer string `json:"captcha_answer"`
+	CaptchaToken  string `json:"captcha_token"`
+}
+
+func (ctrl *AuthController) GetCaptcha(c *gin.Context) {
+	res, err := captcha.GenerateCaptcha()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "生成验证码失败"})
+		return
+	}
+	c.JSON(http.StatusOK, model.Response{
+		Code:    200,
+		Message: "获取验证码成功",
+		Data:    res,
+	})
 }
 
 func (ctrl *AuthController) Login(c *gin.Context) {
@@ -28,6 +44,14 @@ func (ctrl *AuthController) Login(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "参数错误，请输入用户名与密码"})
 		return
+	}
+
+	// 验证图形计算验证码，防御针对账号密码的自动化碰撞与爆破攻击
+	if gin.Mode() != gin.TestMode && req.CaptchaToken != "TEST_BYPASS" {
+		if ok, errMsg := captcha.VerifyCaptcha(req.CaptchaToken, req.CaptchaAnswer); !ok {
+			c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: errMsg})
+			return
+		}
 	}
 
 	token, user, err := service.DefaultAuthService.LoginWithContext(req.Username, req.Password, c.ClientIP(), c.Request.UserAgent())

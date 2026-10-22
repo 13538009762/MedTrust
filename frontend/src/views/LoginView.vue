@@ -168,6 +168,23 @@
                   />
                 </el-form-item>
 
+                <el-form-item>
+                  <div class="captcha-wrapper">
+                    <el-input
+                      v-model="captchaAnswer"
+                      placeholder="请输入安全计算验证码"
+                      :prefix-icon="Finished"
+                      size="large"
+                      class="captcha-input"
+                      autocomplete="off"
+                    />
+                    <div class="captcha-img-container" @click="fetchCaptcha" title="点击刷新验证码">
+                      <img v-if="captchaImg" :src="captchaImg" alt="验证码" class="captcha-img" />
+                      <span v-else class="captcha-loading">加载中...</span>
+                    </div>
+                  </div>
+                </el-form-item>
+
                 <el-button
                   type="primary"
                   class="login-btn"
@@ -304,7 +321,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { 
   User, Lock, Lock as KeyIcon, CircleCheck, Share, MagicStick, 
-  CreditCard, Iphone, Edit, ArrowDown
+  CreditCard, Iphone, Edit, ArrowDown, Finished
 } from '@element-plus/icons-vue'
 import { ElMessage, ElNotification } from 'element-plus'
 import api from '../api/client'
@@ -314,6 +331,22 @@ const mode = ref<'login' | 'register'>('login')
 const username = ref('doc_li')
 const password = ref('123456')
 const loading = ref(false)
+const captchaImg = ref('')
+const captchaToken = ref('')
+const captchaAnswer = ref('')
+
+async function fetchCaptcha() {
+  try {
+    const res: any = await api.get('/auth/captcha')
+    if (res.code === 200 && res.data) {
+      captchaImg.value = res.data.captcha_img
+      captchaToken.value = res.data.captcha_token
+      captchaAnswer.value = ''
+    }
+  } catch (err) {
+    console.error('Failed to fetch captcha', err)
+  }
+}
 const regLoading = ref(false)
 const activeDemoHosp = ref('HOSP_A')
 const showExtraAccounts = ref(false)
@@ -423,12 +456,18 @@ async function handleLogin() {
     ElMessage.warning('请输入用户名和密码')
     return
   }
+  if (!captchaAnswer.value.trim()) {
+    ElMessage.warning('请输入安全验证码计算结果，防止撞库爆破')
+    return
+  }
 
   loading.value = true
   try {
     const res: any = await api.post('/auth/login', {
       username: username.value,
       password: password.value,
+      captcha_answer: captchaAnswer.value.trim(),
+      captcha_token: captchaToken.value,
     })
 
     if (res.code === 200) {
@@ -1073,4 +1112,50 @@ async function handleRegister() {
   opacity: 0;
   transform: translateX(-12px);
 }
+
+.captcha-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.captcha-input {
+  flex: 1;
+}
+
+.captcha-img-container {
+  width: 124px;
+  height: 40px;
+  cursor: pointer;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f8fafc;
+  transition: all 0.2s ease;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.captcha-img-container:hover {
+  border-color: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.2);
+  transform: translateY(-1px);
+}
+
+.captcha-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.captcha-loading {
+  font-size: 12px;
+  color: #10b981;
+  font-weight: 500;
+}
+
 </style>

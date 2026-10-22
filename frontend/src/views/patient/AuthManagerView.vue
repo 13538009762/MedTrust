@@ -498,29 +498,58 @@
     <!-- 弹窗二：PDF 电子病历规范预览弹窗 -->
     <el-dialog
       v-model="pdfPreviewVisible"
-      title="临床就诊电子病历归档凭证 (PDF 规范视图)"
-      width="880px"
+      width="960px"
       top="3vh"
       :close-on-click-modal="false"
       class="pdf-preview-dialog"
     >
+      <template #header>
+        <div class="pdf-dialog-header">
+          <div class="pdf-header-title">
+            <el-icon class="pdf-header-icon"><Document /></el-icon>
+            <span class="pdf-header-text">临床就诊电子病历归档凭证</span>
+            <el-tag size="small" type="primary" effect="plain" class="pdf-header-tag">PDF 规范视图</el-tag>
+          </div>
+          <div class="pdf-header-actions no-print">
+            <el-button
+              type="primary"
+              size="small"
+              :icon="Printer"
+              class="pdf-action-btn pdf-btn-print"
+              @click="printPdfSheet"
+            >
+              打印 / 另存为 PDF 文件
+            </el-button>
+            <el-button
+              type="success"
+              plain
+              size="small"
+              :icon="Download"
+              class="pdf-action-btn pdf-btn-download"
+              @click="downloadRecordFile(previewingRecord.id)"
+            >
+              下载规范归档 PDF
+            </el-button>
+            <el-button
+              type="warning"
+              plain
+              size="small"
+              :icon="CircleCheckFilled"
+              class="pdf-action-btn pdf-btn-verify"
+              @click="verifyRecordIntegrity(previewingRecord.id)"
+            >
+              一键链上完整性核验
+            </el-button>
+          </div>
+        </div>
+      </template>
+
       <div v-if="previewingRecord" id="emr-print-container" class="emr-sheet-wrapper">
-        <!-- 打印与工具栏 -->
+        <!-- 存证规范与安全防护状态栏 -->
         <div class="emr-action-bar no-print">
           <div class="emr-tip-tag">
             <el-tag type="success" effect="dark">密文解密验证通过</el-tag>
             <el-tag type="info" class="ml-2">国家卫健委《电子病历应用规范》甲级存证标准</el-tag>
-          </div>
-          <div class="emr-btns">
-            <el-button type="primary" :icon="Printer" @click="printPdfSheet">
-              打印 / 另存为 PDF 文件
-            </el-button>
-            <el-button type="success" plain :icon="Download" @click="downloadRecordFile(previewingRecord.id)">
-              下载规范归档 PDF
-            </el-button>
-            <el-button type="warning" plain :icon="CircleCheckFilled" @click="verifyRecordIntegrity(previewingRecord.id)">
-              一键链上完整性核验
-            </el-button>
           </div>
         </div>
 
@@ -1171,6 +1200,14 @@ async function viewRecordDetail(item: any) {
       const res: any = await api.get(`/medical-records/${recordId}`)
       if (res.code === 200) {
         viewingRecord.value = res.data
+        if (viewingRecord.value?.is_tampered) {
+          ElNotification({
+            title: '⚠️ 病历数据异常警报',
+            message: '检测到该病历底层数据与区块链防篡改存证指纹不一致！',
+            type: 'error',
+            duration: 8000
+          })
+        }
       } else {
         viewingRecord.value = {
           record_no: item.record_no,
@@ -2050,5 +2087,71 @@ function getBarcodeData(code?: string) {
   font-size: 11px;
   color: #475569;
   line-height: 1.8;
+}
+
+.pdf-preview-dialog :deep(.el-dialog) {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
+.pdf-preview-dialog :deep(.el-dialog__header) {
+  margin-right: 0;
+  padding: 16px 20px 14px 20px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #ffffff;
+}
+
+.pdf-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding-right: 36px;
+}
+
+.pdf-header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pdf-header-icon {
+  font-size: 20px;
+  color: #059669;
+}
+
+.pdf-header-text {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: 0.5px;
+}
+
+.pdf-header-tag {
+  font-size: 11px;
+  border-radius: 4px;
+}
+
+.pdf-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: nowrap;
+}
+
+.pdf-action-btn {
+  font-weight: 500;
+  border-radius: 6px;
+  padding: 8px 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s ease;
+}
+
+.pdf-action-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
 }
 </style>

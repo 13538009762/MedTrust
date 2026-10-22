@@ -717,7 +717,7 @@ import {
   CopyDocument,
   ArrowRight
 } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElNotification } from 'element-plus'
 import api from '../../api/client'
 
 const records = ref<any[]>([])
@@ -824,6 +824,14 @@ async function viewFullDetail(rec: any) {
     selectedRec.value = rec
   }
   detailVisible.value = true
+  if (selectedRec.value?.is_tampered) {
+    ElNotification({
+      title: '⚠️ 病历真实性预警',
+      message: '检测到该病历底层数据与区块链防篡改存证指纹不一致，系统已提示医疗机构复核！',
+      type: 'error',
+      duration: 8000
+    })
+  }
 }
 
 function openAccessPolicyDialog(rec: any) {

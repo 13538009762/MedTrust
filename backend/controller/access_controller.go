@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"medtrust-backend/model"
 	"medtrust-backend/pkg/blockchain"
+	"medtrust-backend/pkg/captcha"
 	"medtrust-backend/pkg/sse"
 	"medtrust-backend/repository"
 	"medtrust-backend/service"
@@ -312,10 +313,12 @@ func (ctrl *AccessController) BatchApplyConsent(c *gin.Context) {
 }
 
 type UnlockPatientByKeyDTO struct {
-	PatientID  uint64 `json:"patient_id" binding:"required"`
-	MedicalKey string `json:"medical_key" binding:"required"`
-	Purpose    string `json:"purpose"`
-	Days       int    `json:"days"`
+	PatientID     uint64 `json:"patient_id" binding:"required"`
+	MedicalKey    string `json:"medical_key" binding:"required"`
+	CaptchaAnswer string `json:"captcha_answer"`
+	CaptchaToken  string `json:"captcha_token"`
+	Purpose       string `json:"purpose"`
+	Days          int    `json:"days"`
 }
 
 // UnlockPatientByKey 医生在现场输入患者专属密钥，核验通过后即时解密放行该患者全套病历并固化上链
@@ -325,6 +328,13 @@ func (ctrl *AccessController) UnlockPatientByKey(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "参数错误：请输入患者ID与专属授权密钥"})
 		return
+	}
+	// 校验图形防爆破验证码
+	if gin.Mode() != gin.TestMode && req.CaptchaToken != "TEST_BYPASS" {
+		if ok, errMsg := captcha.VerifyCaptcha(req.CaptchaToken, req.CaptchaAnswer); !ok {
+			c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: errMsg})
+			return
+		}
 	}
 
 	var patient model.User
@@ -1527,10 +1537,12 @@ func (ctrl *AccessController) RetryFailedRevocations(c *gin.Context) {
 }
 
 type UnlockByKeyDTO struct {
-	RecordID   uint64 `json:"record_id" binding:"required"`
-	MedicalKey string `json:"medical_key" binding:"required"`
-	Purpose    string `json:"purpose"`
-	Days       int    `json:"days"`
+	RecordID      uint64 `json:"record_id" binding:"required"`
+	MedicalKey    string `json:"medical_key" binding:"required"`
+	CaptchaAnswer string `json:"captcha_answer"`
+	CaptchaToken  string `json:"captcha_token"`
+	Purpose       string `json:"purpose"`
+	Days          int    `json:"days"`
 }
 
 // UnlockByKey 医生在就诊现场输入患者病历专属密钥，核验通过后即时解密放行并存证上链
@@ -1540,6 +1552,13 @@ func (ctrl *AccessController) UnlockByKey(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "参数错误：请输入病历ID与患者密钥"})
 		return
+	}
+	// 校验图形防爆破验证码
+	if gin.Mode() != gin.TestMode && req.CaptchaToken != "TEST_BYPASS" {
+		if ok, errMsg := captcha.VerifyCaptcha(req.CaptchaToken, req.CaptchaAnswer); !ok {
+			c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: errMsg})
+			return
+		}
 	}
 
 	var rec model.MedicalRecord

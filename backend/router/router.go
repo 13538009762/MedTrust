@@ -18,6 +18,7 @@ func SetupRouter() *gin.Engine {
 	v1 := r.Group("/api/v1")
 	{
 		// 认证模块 (公开)
+		v1.GET("/auth/captcha", controller.DefaultAuthController.GetCaptcha)
 		v1.POST("/auth/login", controller.DefaultAuthController.Login)
 		v1.POST("/auth/register", controller.DefaultAuthController.Register)
 
