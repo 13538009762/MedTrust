@@ -180,7 +180,12 @@
                     />
                     <div class="captcha-img-container" @click="fetchCaptcha" title="点击刷新验证码">
                       <img v-if="captchaImg" :src="captchaImg" alt="验证码" class="captcha-img" />
-                      <span v-else class="captcha-loading">加载中...</span>
+                      <span v-else-if="captchaLoading" class="captcha-loading">
+                        <el-icon class="is-loading" style="margin-right: 2px;"><Loading /></el-icon> 加载中...
+                      </span>
+                      <span v-else class="captcha-loading" style="color: #64748b; font-size: 12px; display: inline-flex; align-items: center; gap: 4px;">
+                        <el-icon><Refresh /></el-icon> 点击重试
+                      </span>
                     </div>
                   </div>
                 </el-form-item>
@@ -317,11 +322,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { 
   User, Lock, Lock as KeyIcon, CircleCheck, Share, MagicStick, 
-  CreditCard, Iphone, Edit, ArrowDown, Finished
+  CreditCard, Iphone, Edit, ArrowDown, Finished, Loading, Refresh
 } from '@element-plus/icons-vue'
 import { ElMessage, ElNotification } from 'element-plus'
 import api from '../api/client'
@@ -334,8 +339,11 @@ const loading = ref(false)
 const captchaImg = ref('')
 const captchaToken = ref('')
 const captchaAnswer = ref('')
+const captchaLoading = ref(false)
 
 async function fetchCaptcha() {
+  if (captchaLoading.value) return
+  captchaLoading.value = true
   try {
     const res: any = await api.get('/auth/captcha')
     if (res.code === 200 && res.data) {
@@ -345,6 +353,8 @@ async function fetchCaptcha() {
     }
   } catch (err) {
     console.error('Failed to fetch captcha', err)
+  } finally {
+    captchaLoading.value = false
   }
 }
 const regLoading = ref(false)
@@ -386,6 +396,7 @@ const accountDescMap: Record<string, string> = {
 }
 
 onMounted(async () => {
+  await fetchCaptcha()
   const autoUser = (route.query.auto_login || route.query.username) as string
   if (autoUser) {
     username.value = autoUser
@@ -396,11 +407,32 @@ onMounted(async () => {
   }
 })
 
+// 监听路由进入/回到登录页时自动刷新验证码
+watch(
+  () => route.fullPath,
+  (newPath) => {
+    if (newPath && newPath.includes('/login')) {
+      fetchCaptcha()
+    }
+  },
+  { immediate: true }
+)
+
+// 当从患者自主建档切回系统登录时，若无验证码也自动加载
+watch(mode, (newMode) => {
+  if (newMode === 'login' && !captchaImg.value) {
+    fetchCaptcha()
+  }
+})
+
 function fillAccount(acc: string) {
   username.value = acc
   password.value = '123456'
   const desc = accountDescMap[acc] || acc
   ElMessage.info(`已快捷载入：${desc}`)
+  if (!captchaImg.value) {
+    fetchCaptcha()
+  }
 }
 
 const regForm = ref({
@@ -493,6 +525,7 @@ async function handleLogin() {
     }
   } catch (err: any) {
     ElMessage.error(err?.message || '登录失败，请检查账号密码')
+    fetchCaptcha()
   } finally {
     loading.value = false
   }
