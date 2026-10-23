@@ -65,10 +65,10 @@
             <el-icon><Document /></el-icon>
             <span>我的电子健康档案</span>
           </el-menu-item>
-          <el-menu-item index="/patient/auth">
+          <el-menu-item index="/patient/auth" class="menu-item-with-badge">
             <el-icon><Key /></el-icon>
-            <span>授权策略管理</span>
-            <el-badge v-if="pendingCount > 0" :value="pendingCount" class="nav-badge" type="danger" />
+            <span class="menu-label-text">授权策略管理</span>
+            <span v-if="pendingCount > 0" class="nav-pill-badge">{{ pendingCount }}</span>
           </el-menu-item>
           <el-menu-item index="/patient/emergency">
             <el-icon><Bell /></el-icon>
@@ -184,14 +184,15 @@
             {{ getRoleName(auth.user?.role) }}
           </el-tag>
 
-          <!-- 账号执业/监管状态标签 -->
+          <!-- 账号执业/监管状态标签：仅当受限或停用时展示惩戒告警，避免在正常状态下与角色“执业医生”徽标叠词重复 -->
           <el-tag
-            :type="auth.user?.status === 'RESTRICTED' ? 'danger' : (auth.user?.status === 'DISABLED' ? 'info' : 'success')"
+            v-if="auth.user?.status === 'RESTRICTED' || auth.user?.status === 'DISABLED'"
+            :type="auth.user?.status === 'RESTRICTED' ? 'danger' : 'info'"
             :effect="auth.user?.status === 'RESTRICTED' ? 'dark' : 'light'"
             class="header-user-status-tag"
           >
-            <span class="status-mini-dot" :class="auth.user?.status === 'RESTRICTED' ? 'dot-red-mini' : (auth.user?.status === 'DISABLED' ? 'dot-gray-mini' : 'dot-green-mini')"></span>
-            {{ auth.user?.status === 'RESTRICTED' ? '监管受限 (RESTRICTED)' : (auth.user?.status === 'DISABLED' ? '已停用' : (auth.user?.role === 'doctor' ? '正常执业' : '正常状态')) }}
+            <span class="status-mini-dot" :class="auth.user?.status === 'RESTRICTED' ? 'dot-red-mini' : 'dot-gray-mini'"></span>
+            {{ auth.user?.status === 'RESTRICTED' ? '监管受限' : '已停用' }}
           </el-tag>
 
           <!-- 用户真实姓名与所属机构科室常驻展示 -->
@@ -497,6 +498,35 @@ async function onLogout() {
   border-right: none;
   flex: 1;
 }
+.medtrust-menu :deep(.el-menu-item.menu-item-with-badge) {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding-right: 16px !important;
+}
+.menu-label-text {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nav-pill-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background-color: #ef4444;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  line-height: 18px;
+  padding: 0 6px;
+  border-radius: 9999px;
+  box-shadow: 0 1px 3px rgba(239, 68, 68, 0.4);
+  margin-left: auto;
+  flex-shrink: 0;
+}
 .main-container {
   flex: 1;
   display: flex;
@@ -505,13 +535,15 @@ async function onLogout() {
 }
 .medtrust-header {
   height: 64px;
-  background: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid rgba(226, 232, 240, 0.8);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
+  padding: 0 20px;
+  overflow: hidden !important;
+  white-space: nowrap !important;
 }
 .header-left {
   display: flex;
@@ -547,8 +579,17 @@ async function onLogout() {
 .header-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex-shrink: 0;
+  overflow: hidden !important;
+  white-space: nowrap !important;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+.header-right::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 .header-right > * {
   flex-shrink: 0;
@@ -563,7 +604,7 @@ async function onLogout() {
 }
 
 .header-chain-badge {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
   padding: 5px 12px;
@@ -573,6 +614,7 @@ async function onLogout() {
   cursor: pointer;
   transition: all 0.2s ease;
   user-select: none;
+  white-space: nowrap;
 }
 .badge-fabric-ok {
   background: rgba(16, 185, 129, 0.12);
@@ -624,13 +666,17 @@ async function onLogout() {
 
 .chain-badge-text {
   letter-spacing: 0.3px;
+  white-space: nowrap;
 }
 .chain-block-num {
-  font-family: monospace;
+  font-family: 'JetBrains Mono', 'DIN Alternate', monospace !important;
+  font-variant-numeric: tabular-nums;
   font-weight: 800;
   padding: 1px 6px;
   border-radius: 10px;
   background: rgba(0, 0, 0, 0.06);
+  white-space: nowrap;
+  margin-left: 2px;
 }
 
 .header-sse-badge {

@@ -384,3 +384,44 @@ html[data-theme='admin'] .edms-header .el-dropdown-link {
   border-radius: 12px !important; 
 }
 
+/* ========================================== 
+   商业级医疗 SaaS: 等宽数字与防篡改凭证排版规范 
+========================================== */
+.font-mono,
+.mono,
+.tabular-nums,
+.tx-hash,
+.record-no,
+.encounter-no,
+.req-no,
+.icd-badge,
+.vital-val,
+.date-mono,
+.hash-fingerprint {
+  font-family: 'JetBrains Mono', 'DIN Alternate', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace !important;
+  font-variant-numeric: tabular-nums !important;
+}
+
+/* 全局隐藏多余意外产生的滚动条滑块（保持功能可滚，隐藏粗糙系统滑条） */
+.no-scrollbar {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* 统一的高级感 Accent Bar 语义色条 */
+.accent-card-blue {
+  border-left: 4px solid #3b82f6 !important;
+}
+.accent-card-amber {
+  border-left: 4px solid #f59e0b !important;
+}
+.accent-card-emerald {
+  border-left: 4px solid #10b981 !important;
+}
+
+

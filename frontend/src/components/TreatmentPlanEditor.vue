@@ -146,44 +146,64 @@
         <div
           v-for="(_, index) in localData.prescriptions"
           :key="'rx-' + index"
-          class="item-row rx-row"
+          class="rx-cpoe-card-item"
         >
-          <span class="item-index rx-index">{{ index + 1 }}.</span>
-          <el-autocomplete
-            v-model="localData.prescriptions[index]"
-            :fetch-suggestions="queryDrugSuggestions"
-            placeholder="输入药品名称、通用名或拼音缩写（如“硝苯”、“氨氯”、“阿司”、“二甲”、“头孢”）"
-            clearable
-            style="width: 100%;"
-            class="rx-autocomplete"
-            popper-class="rx-suggestion-popper"
-            @select="(item: any) => handleDrugSelect(index, item)"
-            @input="handleUpdate"
-          >
-            <template #default="{ item }">
-              <div class="drug-item-suggestion">
-                <div class="dis-top">
-                  <span class="drug-name font-bold">{{ item.name }}</span>
-                  <span v-if="item.brand" class="drug-brand">({{ item.brand }})</span>
-                  <el-tag size="small" :type="item.tagType || 'info'" effect="light" class="ml-2">
-                    {{ item.category }}
-                  </el-tag>
+          <div class="item-row rx-row">
+            <span class="item-index rx-index">{{ index + 1 }}.</span>
+            <el-autocomplete
+              v-model="localData.prescriptions[index]"
+              :fetch-suggestions="queryDrugSuggestions"
+              placeholder="输入药品名称、通用名或拼音缩写（如“硝苯”、“氨氯”、“阿司”、“二甲”、“头孢”）"
+              clearable
+              style="width: 100%;"
+              class="rx-autocomplete"
+              popper-class="rx-suggestion-popper"
+              @select="(item: any) => handleDrugSelect(index, item)"
+              @input="handleUpdate"
+            >
+              <template #default="{ item }">
+                <div class="drug-item-suggestion">
+                  <div class="dis-top">
+                    <span class="drug-name font-bold">{{ item.name }}</span>
+                    <span v-if="item.brand" class="drug-brand">({{ item.brand }})</span>
+                    <el-tag size="small" :type="item.tagType || 'info'" effect="light" class="ml-2">
+                      {{ item.category }}
+                    </el-tag>
+                  </div>
+                  <div class="dis-bottom text-xs text-slate-500">
+                    <span class="drug-spec">{{ item.spec }}</span>
+                    <span class="drug-usage">【用法用量】：{{ item.usage }}</span>
+                  </div>
                 </div>
-                <div class="dis-bottom text-xs text-slate-500">
-                  <span class="drug-spec">{{ item.spec }}</span>
-                  <span class="drug-usage">【用法用量】：{{ item.usage }}</span>
-                </div>
-              </div>
-            </template>
-          </el-autocomplete>
-          <el-button
-            type="danger"
-            link
-            :icon="Delete"
-            class="del-btn"
-            title="删除该药品"
-            @click="removePrescriptionRow(index)"
-          />
+              </template>
+            </el-autocomplete>
+            <el-button
+              type="danger"
+              link
+              :icon="Delete"
+              class="del-btn"
+              title="删除该药品"
+              @click="removePrescriptionRow(index)"
+            />
+          </div>
+
+          <!-- 结构化医嘱 CPOE 标签徽标栏 (对齐医院商业 SaaS 处方视图) -->
+          <div v-if="getParsedRx(localData.prescriptions[index])" class="rx-cpoe-tags-row">
+            <span class="cpoe-label">结构化解析：</span>
+            <span class="cpoe-drug-badge">{{ getParsedRx(localData.prescriptions[index])?.name }}</span>
+            <el-tag size="small" type="primary" effect="plain" class="cpoe-tag font-mono">
+              {{ getParsedRx(localData.prescriptions[index])?.dose }}
+            </el-tag>
+            <el-tag size="small" type="success" effect="plain" class="cpoe-tag">
+              {{ getParsedRx(localData.prescriptions[index])?.route }}
+            </el-tag>
+            <el-tag size="small" type="warning" effect="plain" class="cpoe-tag">
+              {{ getParsedRx(localData.prescriptions[index])?.freq }}
+            </el-tag>
+            <span v-if="getParsedRx(localData.prescriptions[index])?.instructions" class="cpoe-inst">
+              {{ getParsedRx(localData.prescriptions[index])?.instructions }}
+            </span>
+          </div>
         </div>
       </div>
     </div>
@@ -795,10 +815,31 @@ function setStructuredData(data: { disposals?: string[]; orders?: string[]; pres
   handleUpdate()
 }
 
+function getParsedRx(str: string) {
+  if (!str || !str.trim()) return null
+  const s = str.trim()
+  const tokens = s.split(/\s+/)
+  if (tokens.length >= 3) {
+    let name = tokens[0]
+    let idx = 1
+    if (tokens[1]?.startsWith('(') || tokens[1]?.startsWith('（')) {
+      name = `${tokens[0]} ${tokens[1]}`
+      idx = 2
+    }
+    const dose = tokens[idx] || '适量'
+    const route = tokens[idx + 1] || '口服'
+    const freq = tokens[idx + 2] || '每日一次'
+    const instructions = tokens.slice(idx + 3).join(' ') || ''
+    return { name, dose, route, freq, instructions }
+  }
+  return null
+}
+
 defineExpose({
   setStructuredData,
   parseTextToData,
-  localData
+  localData,
+  getParsedRx
 })
 </script>
 
@@ -808,25 +849,23 @@ defineExpose({
 }
 
 .section-card {
-  border-radius: 10px;
-  padding: 14px 16px;
-  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 14px 18px;
+  border: 1px solid #edf2f7;
+  background: #f8fafc;
   transition: all 0.2s ease;
 }
 
 .disposal-section {
-  background: #f8fafc;
-  border-left: 4px solid #0284c7;
+  border-left: 4px solid #3b82f6 !important;
 }
 
 .orders-section {
-  background: #fbfbfb;
-  border-left: 4px solid #f59e0b;
+  border-left: 4px solid #f59e0b !important;
 }
 
 .rx-section {
-  background: #f0fdf4;
-  border-left: 4px solid #10b981;
+  border-left: 4px solid #10b981 !important;
 }
 
 .section-header {
@@ -869,14 +908,58 @@ defineExpose({
 
 .clickable-chip {
   cursor: pointer;
-  border-radius: 6px;
-  transition: all 0.15s ease;
+  border-radius: 9999px !important;
+  background-color: #f1f5f9 !important;
+  color: #334155 !important;
+  border: 1px solid #e2e8f0 !important;
+  transition: all 0.2s ease;
   font-size: 11px;
+  font-weight: 500;
+  padding: 2px 10px;
 }
 
 .clickable-chip:hover {
+  background-color: #e0f2fe !important;
+  color: #0284c7 !important;
+  border-color: #7dd3fc !important;
   transform: translateY(-1px);
-  filter: brightness(0.95);
+}
+
+.rx-cpoe-card-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rx-cpoe-tags-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: 30px;
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 11px;
+}
+
+.cpoe-label {
+  color: #64748b;
+  font-weight: 600;
+}
+
+.cpoe-drug-badge {
+  color: #0f172a;
+  font-weight: 700;
+  background: #e2e8f0;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.cpoe-inst {
+  color: #475569;
+  font-style: italic;
 }
 
 .items-list {

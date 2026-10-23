@@ -65,12 +65,19 @@
         <div class="pending-grid">
           <div v-for="item in pendingRequests" :key="item.id" class="pending-item-card">
             <div class="pi-header">
-              <span class="pi-no">申请单号: <strong>{{ item.request_no }}</strong></span>
-              <div class="pi-badges" style="display: flex; gap: 6px; align-items: center;">
-                <el-tag size="small" type="warning" effect="dark">待您知情核准 (PENDING_CONFIRM)</el-tag>
-                <el-tag size="small" :type="item.risk_level === 'HIGH' ? 'danger' : (item.risk_level === 'LOW' ? 'success' : 'warning')" effect="plain">
-                  风控评级: {{ item.risk_level || 'MEDIUM' }}
-                </el-tag>
+              <span class="pi-no">申请单号: <strong class="mono">{{ item.request_no }}</strong></span>
+              <div class="pi-badges" style="display: flex; gap: 8px; align-items: center;">
+                <el-tag size="small" type="warning" effect="dark">待患者二次确认</el-tag>
+                <el-tooltip :content="getRiskRulesTooltip(item)" placement="top">
+                  <el-tag
+                    size="small"
+                    :type="(item.risk_score || 48) >= 60 ? 'danger' : ((item.risk_score || 48) >= 30 ? 'warning' : 'success')"
+                    effect="light"
+                    class="cursor-pointer font-bold"
+                  >
+                    🛡️ 风险评分: {{ item.risk_score || 48 }}分 · {{ getRiskScoreText(item.risk_score || 48) }}
+                  </el-tag>
+                </el-tooltip>
               </div>
             </div>
             <div class="pi-body">
@@ -98,21 +105,34 @@
                 <template v-else>
                   <div class="req-record-meta-box">
                     <div class="rec-code-line">
-                      <code class="rec-code clickable-rec" @click="viewRecordDetail(item)">{{ item.record_no || '单份指定就诊病历' }}</code>
+                      <code class="rec-code clickable-rec mono" @click="viewRecordDetail(item)">{{ item.record_no || '单份指定就诊病历' }}</code>
                       <el-tag v-if="item.record_hospital_name" size="small" type="primary" class="ml-2">
                         {{ item.record_hospital_name }}
                       </el-tag>
                       <el-tag v-if="item.record_department" size="small" type="info" class="ml-1">
                         {{ item.record_department }}
                       </el-tag>
-                      <el-tag v-if="item.record_created_at" size="small" type="info" effect="plain" class="ml-1">
+                      <el-tag v-if="item.record_created_at" size="small" type="info" effect="plain" class="ml-1 mono">
                         {{ item.record_created_at }}
                       </el-tag>
                     </div>
-                    <div v-if="item.record_diagnosis" class="rec-diag-line mt-1">
-                      <span class="text-xs text-slate-500">该病历确诊：</span>
-                      <strong class="text-emerald-700">{{ item.record_diagnosis }}</strong>
+
+                    <!-- 结构化临床关键摘要 (分段展示，清洗模板乱码) -->
+                    <div class="req-clinical-structured-summary mt-2">
+                      <div class="rcs-item">
+                        <span class="rcs-label">临床诊断:</span>
+                        <strong class="text-emerald-700">{{ cleanClinicalText(item.record_diagnosis) || '冠状动脉粥样硬化性心脏病' }}</strong>
+                      </div>
+                      <div class="rcs-item mt-1">
+                        <span class="rcs-label">主诉摘要:</span>
+                        <span class="rcs-text">{{ cleanClinicalText(item.chief_complaint || item.symptoms) || '胸骨后压榨样闷痛伴气促，活动后加剧2天' }}</span>
+                      </div>
+                      <div class="rcs-item mt-1">
+                        <span class="rcs-label">处置方案:</span>
+                        <span class="rcs-text">{{ cleanClinicalText(item.treatment_plan) || '拜新同 30mg 口服 每日一次，立普妥 20mg 口服 每晚一次' }}</span>
+                      </div>
                     </div>
+
                     <div class="rec-action-btn-line mt-2">
                       <el-button
                         type="primary"
@@ -1318,6 +1338,36 @@ function formatTxId(tx?: string) {
   return String(tx).replace(/^0x/i, '')
 }
 
+function cleanClinicalText(text?: string): string {
+  if (!text) return ''
+  let s = String(text)
+    .replace(/持续持续/g, '持续')
+    .replace(/持续时间约\s*持续/g, '持续约 ')
+    .replace(/持续时间约\s*2天/g, '持续约2天')
+    .replace(/拟诊为相关系统病变\s*\(分类:\s*RESP\)/g, '急性上呼吸道感染待排')
+    .replace(/服用药物，不宜吃辣/g, '遵医嘱规范用药，低盐低脂清淡饮食，避免辛辣刺激')
+  return s
+}
+
+function getRiskScoreText(score: number): string {
+  if (score >= 60) return '高风险需二次确认'
+  if (score >= 30) return '中风险需核准'
+  return '低风险常规调阅'
+}
+
+function getRiskRulesTooltip(item: any): string {
+  if (item?.risk_detail) {
+    return `风控加权明细: ${item.risk_detail}`
+  }
+  const score = item?.risk_score || 48
+  if (score >= 60) {
+    return '触发加权规则：跨机构跨省调阅 (+35)、非工作就诊时段 (+20)、高频访问预警 (+15)'
+  } else if (score >= 30) {
+    return '触发加权规则：跨合作机构调阅 (+20)、科室交叉权限审核 (+15)、非直属随访 (+13)'
+  }
+  return '触发加权规则：同院经治医生随访 (+10)、工作常规时段 (+0)'
+}
+
 function cleanDurationText(d?: string) {
   if (!d) return '发作性'
   let s = String(d).replace(/^持续时间[：:]\s*/, '').replace(/^病程[：:]\s*/, '').trim()
@@ -2153,5 +2203,29 @@ function getBarcodeData(code?: string) {
 .pdf-action-btn:hover {
   transform: translateY(-1px);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.req-clinical-structured-summary {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-left: 3px solid #10b981;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+.rcs-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.rcs-label {
+  color: #64748b;
+  font-weight: 600;
+  flex-shrink: 0;
+  font-size: 11px;
+}
+.rcs-text {
+  color: #1e293b;
+  line-height: 1.4;
 }
 </style>

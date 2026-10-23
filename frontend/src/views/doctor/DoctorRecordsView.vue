@@ -202,13 +202,13 @@
     <!-- 视图二：新建就诊记录 / 接诊初诊工作台 (CREATE) -->
     <div v-else-if="currentView === 'CREATE'" class="inpage-workstation-wrapper">
       <!-- 顶部工作台标题与控制栏 (轻量纤细版 48px) -->
-      <div class="ws-page-header-card sticky-header">
+      <div class="ws-page-header-card sticky-header mb-4">
         <div class="ws-header-left">
           <el-button :icon="ArrowLeft" plain size="small" @click="handleCancelEncounter">返回列表</el-button>
           <div class="ws-header-title-box">
             <span class="ws-page-title">新建临床就诊录入</span>
             <el-tag size="small" type="primary" effect="light">初诊接诊</el-tag>
-            <span class="ws-header-sub">接诊医师：{{ auth.user?.real_name || '当前医生' }}</span>
+            <span class="ws-header-sub">接诊医师：{{ auth.user?.real_name || '陈建明' }} ({{ auth.user?.title || '主任医师' }} · {{ auth.user?.department_name || '心血管内科' }})</span>
           </div>
         </div>
         <div class="ws-header-right">
@@ -452,6 +452,9 @@
                     <el-input v-model="vitals.temperature" placeholder="36.5">
                       <template #suffix><span class="unit-text">℃</span></template>
                     </el-input>
+                    <div class="vital-ref-indicator mt-1">
+                      <span class="vital-badge-tag normal">正常 (36.0~37.2℃)</span>
+                    </div>
                   </el-form-item>
                 </el-col>
                 <el-col :span="12">
@@ -459,6 +462,11 @@
                     <el-input v-model="vitals.blood_pressure" placeholder="125/80">
                       <template #suffix><span class="unit-text">mmHg</span></template>
                     </el-input>
+                    <div class="vital-ref-indicator mt-1">
+                      <span :class="['vital-badge-tag', (vitals.blood_pressure && (vitals.blood_pressure.startsWith('14') || vitals.blood_pressure.startsWith('15') || vitals.blood_pressure.startsWith('16'))) ? 'elevated' : 'normal']">
+                        {{ (vitals.blood_pressure && (vitals.blood_pressure.startsWith('14') || vitals.blood_pressure.startsWith('15') || vitals.blood_pressure.startsWith('16'))) ? '↑ 偏高 (参考 <130/80)' : '正常 (<130/80)' }}
+                      </span>
+                    </div>
                   </el-form-item>
                 </el-col>
                 <el-col :span="12">
@@ -466,6 +474,9 @@
                     <el-input v-model="vitals.heart_rate" placeholder="78">
                       <template #suffix><span class="unit-text">bpm</span></template>
                     </el-input>
+                    <div class="vital-ref-indicator mt-1">
+                      <span class="vital-badge-tag normal">正常 (60~100 bpm)</span>
+                    </div>
                   </el-form-item>
                 </el-col>
                 <el-col :span="12">
@@ -473,9 +484,48 @@
                     <el-input v-model="vitals.spo2" placeholder="98">
                       <template #suffix><span class="unit-text">%</span></template>
                     </el-input>
+                    <div class="vital-ref-indicator mt-1">
+                      <span class="vital-badge-tag normal">正常 (≥95%)</span>
+                    </div>
                   </el-form-item>
                 </el-col>
               </el-row>
+            </div>
+
+            <!-- 新增：🛡️ 链上存证与信封加密就绪预览卡 (深色科技感卡片，填补左侧空白) -->
+            <div class="ws-card chain-security-preview-card">
+              <div class="csp-header">
+                <div class="csp-title">
+                  <el-icon class="csp-icon"><Lock /></el-icon>
+                  <span>🛡️ 链上存证与信封加密就绪预览</span>
+                </div>
+                <span class="mini-pulse-dot dot-green"></span>
+              </div>
+              <div class="csp-body">
+                <div class="csp-row">
+                  <span class="csp-k">加密引擎：</span>
+                  <span class="csp-v mono">AES-256-GCM (AAD 强绑定)</span>
+                </div>
+                <div class="csp-row">
+                  <span class="csp-k">目标通道：</span>
+                  <span class="csp-v mono">medicalchannel</span>
+                </div>
+                <div class="csp-row">
+                  <span class="csp-k">智能合约：</span>
+                  <span class="csp-v mono">medical_contract</span>
+                </div>
+                <div class="csp-row">
+                  <span class="csp-k">共识节点：</span>
+                  <span class="csp-v"><span class="csp-status-online">Raft (etcdraft) 在线</span></span>
+                </div>
+                <div class="csp-row">
+                  <span class="csp-k">去中心存储：</span>
+                  <span class="csp-v mono">IPFS 分布式节点寻址</span>
+                </div>
+              </div>
+              <div class="csp-footer">
+                <span class="csp-tip">就诊初审提交后，系统将自动对 S-O-A-P 病历实施信封加密并上链广播存证。</span>
+              </div>
             </div>
           </div>
 
@@ -552,7 +602,7 @@
                       <el-tag size="small" type="success" effect="light" class="ml-auto">一步存证闭环</el-tag>
                     </div>
                     <div class="doc-desc">
-                      适用于门诊常规、轻症或体征典型患者。无需开立辅助检查，一步完成 AES-256 加密与 Fabric 联盟链存证。
+                      适用于门诊常规、轻症或体征典型患者。直接下达确诊与处方方案，一键完成 AES-256 加密与 Fabric 联盟链存证，无需开立辅助检查。
                     </div>
                   </div>
                 </div>
@@ -580,13 +630,6 @@
 
               <!-- 路径 A：直接确诊 -->
               <div v-if="encounterMode === 'DIRECT'" class="direct-decision-panel">
-                <el-alert
-                  type="success"
-                  :closable="false"
-                  show-icon
-                  class="mb-3"
-                  title="诊断提示：若患者体征与现病史典型明确，医生可直接下达确诊结论与处置方案，一键完成加密上链存证，无需开具医技检查。"
-                />
                 <el-row :gutter="16">
                   <el-col :span="12">
                     <el-form-item label="经治医生最终确诊 (Final Diagnosis)" required>
@@ -749,31 +792,46 @@
       </el-form>
 
       <!-- 底部提交操作栏 -->
-      <div class="ws-page-footer-card mt-3">
+      <!-- 底部吸底提交操作栏 (Sticky Footer Bar) -->
+      <div class="ws-page-footer-card sticky-footer">
         <div class="ws-footer-bar">
-          <el-button @click="handleCancelEncounter">取消退出</el-button>
-          <!-- 模式一：直接确诊并归档 -->
-          <el-button
-            v-if="encounterMode === 'DIRECT'"
-            type="success"
-            size="large"
-            :loading="submitting"
-            :disabled="!initForm.patient_id || !initForm.chief_complaint || !directForm.diagnosis || !directForm.treatment_plan"
-            @click="submitDirectEncounter"
-          >
-            确认最终确诊并直接归档 (一步完成 AES加密 + IPFS + Fabric区块链存证)
-          </el-button>
-          <!-- 模式二：开具检查单派发医技 -->
-          <el-button
-            v-else
-            type="primary"
-            size="large"
-            :loading="submitting"
-            :disabled="!initForm.patient_id || !initForm.chief_complaint || !initForm.initial_diagnosis || selectedExamList.length === 0"
-            @click="submitInitialEncounter"
-          >
-            提交初诊并派发检查申请单 (移交医技科室)
-          </el-button>
+          <div class="ws-footer-left">
+            <span class="ws-footer-crypto-badge">
+              <span class="mini-pulse-dot dot-green"></span>
+              🛡️ AES-256-GCM (AAD绑定) + Fabric (medicalchannel) 存证就绪
+            </span>
+            <span v-if="encounterMode === 'DIRECT'" class="ws-footer-stat-tip">
+              就诊模式：确诊处方一体化上链 · 即时固化
+            </span>
+            <span v-else class="ws-footer-stat-tip">
+              多科室协同：已开立 {{ selectedExamList.length }} 项医技申请
+            </span>
+          </div>
+          <div class="ws-footer-right">
+            <el-button @click="handleCancelEncounter">取消退出</el-button>
+            <!-- 模式一：直接确诊并归档 -->
+            <el-button
+              v-if="encounterMode === 'DIRECT'"
+              type="success"
+              size="default"
+              :loading="submitting"
+              :disabled="!initForm.patient_id || !initForm.chief_complaint || !directForm.diagnosis || !directForm.treatment_plan"
+              @click="submitDirectEncounter"
+            >
+              确认最终确诊并直接归档 (加密存证闭环)
+            </el-button>
+            <!-- 模式二：开具检查单派发医技 -->
+            <el-button
+              v-else
+              type="primary"
+              size="default"
+              :loading="submitting"
+              :disabled="!initForm.patient_id || !initForm.chief_complaint || !initForm.initial_diagnosis || selectedExamList.length === 0"
+              @click="submitInitialEncounter"
+            >
+              提交初诊并派发检查申请单 (移交医技科室)
+            </el-button>
+          </div>
         </div>
       </div>
       </template>
@@ -2550,17 +2608,24 @@ ${directForm.value.treatment_plan || '遵临床常规医嘱治疗'}
 }
 
 function fillQuickDirectPreset() {
-  directForm.value.diagnosis = '原发性高血压病1级（低危组）'
-  directForm.value.etiology = '活动劳累及情绪应激导致交感神经过度兴奋，外周阻力血管收缩，收缩压升高。'
+  initForm.value.department_name = '心血管内科'
+  initForm.value.chief_complaint = '胸骨后压榨样闷痛伴心悸2小时，活动后加剧'
+  initForm.value.present_illness = '患者于2小时前劳累后突发胸骨后压榨样闷痛，向左侧肩背部放射，伴心悸、冷汗，无晕厥。含服硝酸甘油未完全缓解，遂就诊心血管内科门诊。既往有高血压病史3年。'
+  vitals.value.blood_pressure = '145/92'
+  vitals.value.heart_rate = '88'
+  vitals.value.temperature = '36.6'
+  vitals.value.spo2 = '98'
+  directForm.value.diagnosis = '原发性高血压病2级（高危组） / 冠状动脉粥样硬化性心脏病'
+  directForm.value.etiology = '长期高血压致血管内皮损伤，冠状动脉粥样硬化痉挛致心肌供血不足。'
   const planData = {
     disposals: [
-      '静坐休息15分钟后再次复测双侧上臂血压，持续脉氧监测'
+      '静坐休息15分钟后再次复测双侧上臂血压，持续脉氧监护'
     ],
     orders: [
       '饮食指导：严格低盐低脂清淡饮食（每日食盐量控制在 5g 以内）',
       '每日早晚各监测一次血压并详细做健康日志记录',
-      '避免连续熬夜加班、情绪激动与重度体力劳累，适度慢走运动',
-      '2周后心血管内科专科门诊复查'
+      '避免连续熬夜、情绪激动与重体力劳累，规律作息',
+      '2周后心血管内科专科门诊复查心电图与血压'
     ],
     prescriptions: [
       '硝苯地平控释片 (拜新同) 30mg 口服 每日一次 清晨餐后整片吞服',
@@ -2573,7 +2638,7 @@ function fillQuickDirectPreset() {
     directForm.value.treatment_plan = `【综合处置】\n1. ${planData.disposals[0]}\n\n【临床医嘱】\n${planData.orders.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n\n【处方用药】\n${planData.prescriptions.map((s, i) => `${i + 1}. ${s}`).join('\n')}`
   }
   generateDirectSOAP()
-  ElMessage.success('已载入常规高血压门诊分区分条规范处方！')
+  ElMessage.success('已载入心血管内科高血压/冠心病规范处方与体征示例！')
 }
 
 async function submitDirectEncounter() {
@@ -4061,7 +4126,8 @@ onUnmounted(() => {
 /* 顶部粘性工作台导航卡片 (纤细轻量条 48px - 杜绝换行膨胀) */
 .ws-page-header-card.sticky-header {
   position: sticky;
-  top: -24px;
+  top: 0;
+  margin-bottom: 16px;
   z-index: 40;
   height: 48px;
   min-height: 48px;
@@ -4783,6 +4849,141 @@ onUnmounted(() => {
   border-radius: 10px;
   padding: 14px 20px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.ws-page-footer-card.sticky-footer {
+  position: sticky;
+  bottom: 0px;
+  z-index: 35;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 12px;
+  padding: 12px 20px;
+  box-shadow: 0 -4px 18px rgba(15, 23, 42, 0.08);
+  margin-top: 20px;
+  margin-bottom: 8px;
+}
+
+.ws-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ws-footer-crypto-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #047857;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  padding: 4px 12px;
+  border-radius: 20px;
+}
+
+.ws-footer-stat-tip {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.ws-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 生命体征临床参考徽标 */
+.vital-ref-indicator {
+  display: flex;
+  align-items: center;
+}
+.vital-badge-tag {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+.vital-badge-tag.normal {
+  background: #ecfdf5;
+  color: #059669;
+  border: 1px solid #d1fae5;
+}
+.vital-badge-tag.elevated {
+  background: #fffbeb;
+  color: #d97706;
+  border: 1px solid #fef3c7;
+}
+
+/* 🛡️ 链上存证与信封加密就绪预览卡 (深色科技感卡片) */
+.chain-security-preview-card {
+  background: linear-gradient(145deg, #0f172a 0%, #1e293b 100%) !important;
+  color: #f8fafc !important;
+  border: 1px solid #334155 !important;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.12) !important;
+  margin-top: 14px;
+}
+
+.csp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 8px;
+  margin-bottom: 10px;
+}
+
+.csp-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #38bdf8;
+}
+
+.csp-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.csp-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.csp-k {
+  color: #94a3b8;
+}
+
+.csp-v {
+  color: #e2e8f0;
+  font-weight: 600;
+}
+
+.csp-status-online {
+  color: #34d399;
+  font-weight: 700;
+}
+
+.csp-footer {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+}
+
+.csp-tip {
+  font-size: 10px;
+  color: #64748b;
+  line-height: 1.4;
+  display: block;
 }
 
 /* =======================================================

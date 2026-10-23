@@ -152,44 +152,111 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="管理与处置操作" width="240" fixed="right">
+        <el-table-column label="管理与处置操作" width="260" fixed="right">
           <template #default="{ row }">
-            <el-button
-              size="small"
-              type="primary"
-              link
-              :icon="View"
-              @click="openUserDrawer(row)"
-            >
-              查看档案
-            </el-button>
-            <el-button
-              v-if="row.status !== 'NORMAL'"
-              size="small"
-              type="success"
-              link
-              @click="changeStatus(row.id, 'NORMAL')"
-            >
-              解封正常
-            </el-button>
-            <el-button
-              v-if="row.status !== 'RESTRICTED'"
-              size="small"
-              type="warning"
-              link
-              @click="changeStatus(row.id, 'RESTRICTED')"
-            >
-              限制跨院
-            </el-button>
-            <el-button
-              v-if="row.status !== 'DISABLED'"
-              size="small"
-              type="danger"
-              link
-              @click="changeStatus(row.id, 'DISABLED')"
-            >
-              停用账号
-            </el-button>
+            <!-- 1. 临床医生 (doctor): 资质档案 | 限制跨院/恢复正常 | 停用账号 -->
+            <template v-if="row.role === 'doctor'">
+              <el-button
+                size="small"
+                type="primary"
+                link
+                :icon="View"
+                @click="openUserDrawer(row)"
+              >
+                资质档案
+              </el-button>
+              <el-button
+                v-if="row.status === 'RESTRICTED'"
+                size="small"
+                type="success"
+                link
+                @click="changeStatus(row.id, 'NORMAL')"
+              >
+                恢复正常
+              </el-button>
+              <el-button
+                v-else
+                size="small"
+                type="warning"
+                link
+                :disabled="row.status === 'DISABLED'"
+                @click="changeStatus(row.id, 'RESTRICTED')"
+              >
+                限制跨院
+              </el-button>
+              <el-button
+                v-if="row.status !== 'DISABLED'"
+                size="small"
+                type="danger"
+                link
+                @click="changeStatus(row.id, 'DISABLED')"
+              >
+                停用账号
+              </el-button>
+              <el-button
+                v-else
+                size="small"
+                type="success"
+                link
+                @click="changeStatus(row.id, 'NORMAL')"
+              >
+                启用账号
+              </el-button>
+            </template>
+
+            <!-- 2. 就诊患者 (patient): 严格禁止查看病历档案与限制跨院，仅脱敏核验与启停用 -->
+            <template v-else-if="row.role === 'patient'">
+              <el-button
+                size="small"
+                type="info"
+                link
+                :icon="User"
+                @click="openUserDrawer(row)"
+              >
+                脱敏身份核验
+              </el-button>
+              <el-button
+                v-if="row.status !== 'DISABLED'"
+                size="small"
+                type="danger"
+                link
+                @click="changeStatus(row.id, 'DISABLED')"
+              >
+                停用账号
+              </el-button>
+              <el-button
+                v-else
+                size="small"
+                type="success"
+                link
+                @click="changeStatus(row.id, 'NORMAL')"
+              >
+                恢复账号
+              </el-button>
+            </template>
+
+            <!-- 3. 管理员 / 监管员 (admin / supervisor): 权限审计详情，主管理员账号受保护禁止停用 -->
+            <template v-else>
+              <el-button
+                size="small"
+                type="primary"
+                link
+                :icon="View"
+                @click="openUserDrawer(row)"
+              >
+                权限审计详情
+              </el-button>
+              <el-button
+                size="small"
+                type="danger"
+                link
+                :disabled="row.username === 'admin' || row.id === auth.user?.id"
+                :title="row.username === 'admin' ? '主管理员账号受核心保护，禁止停用' : ''"
+                @click="changeStatus(row.id, row.status === 'DISABLED' ? 'NORMAL' : 'DISABLED')"
+              >
+                {{ row.status === 'DISABLED' ? '启用账号' : '停用账号' }}
+              </el-button>
+            </template>
           </template>
         </el-table-column>
       </el-table>
@@ -348,15 +415,16 @@
             解封账号 (恢复正常)
           </el-button>
           <el-button
-            v-if="selectedUser.status !== 'RESTRICTED'"
+            v-if="selectedUser.role === 'doctor' && selectedUser.status !== 'RESTRICTED'"
             type="warning"
             @click="changeStatus(selectedUser.id, 'RESTRICTED')"
           >
-            限制跨院访问 (RESTRICTED)
+            限制跨院执业 (RESTRICTED)
           </el-button>
           <el-button
             v-if="selectedUser.status !== 'DISABLED'"
             type="danger"
+            :disabled="selectedUser.username === 'admin'"
             @click="changeStatus(selectedUser.id, 'DISABLED')"
           >
             停用此账号 (DISABLED)
@@ -475,7 +543,9 @@ import { ref, computed, onMounted } from 'vue'
 import { Plus, User, Search, Refresh, View, FirstAidKit, UserFilled, Management } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import api from '../../api/client'
+import { useAuthStore } from '../../stores/auth'
 
+const auth = useAuthStore()
 const users = ref<any[]>([])
 const loading = ref(false)
 const dialogVisible = ref(false)
@@ -848,5 +918,24 @@ async function submitAddUser() {
   flex-wrap: wrap;
   gap: 10px;
   padding-top: 16px;
+}
+
+/* 修复表格右侧固定列 fixed="right" 样式污染与绿色垂直割裂线 */
+:deep(.el-table__fixed-right) {
+  background: #ffffff !important;
+  box-shadow: -4px 0 12px rgba(15, 23, 42, 0.05) !important;
+}
+:deep(.el-table__fixed-right::before) {
+  display: none !important;
+}
+:deep(.el-table__fixed-right-patch) {
+  background: #ffffff !important;
+  border-bottom: 1px solid #f1f5f9 !important;
+}
+:deep(.el-table__fixed-right .el-table__cell) {
+  background: #ffffff !important;
+}
+:deep(.el-table__body tr:hover > td.el-table__fixed-right-column) {
+  background-color: #f8fafc !important;
 }
 </style>

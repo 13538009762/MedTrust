@@ -68,20 +68,20 @@
     <!-- 监管裁决对话框 -->
     <el-dialog v-model="dialogVisible" title="紧急调阅合规审查与裁决" width="580px">
       <div v-if="currentEvent" class="audit-info-box">
-        <p><strong>事件单号：</strong>{{ currentEvent.event_no }}</p>
+        <p><strong>事件单号：</strong><span class="mono font-bold">{{ currentEvent.event_no }}</span></p>
         <p><strong>调阅医生：</strong>{{ currentEvent.doctor_name }} ({{ currentEvent.source_hospital_name }})</p>
         <p><strong>就诊患者：</strong>{{ currentEvent.patient_name }}</p>
-        <p><strong>医生抢救说明：</strong>{{ currentEvent.description }}</p>
+        <p><strong>医生抢救说明：</strong>{{ getCleanDoctorDesc(currentEvent.description) }}</p>
         <p><strong>患者反馈结论：</strong>
           <el-tag size="small" :type="currentEvent.patient_feedback === 'OBJECTED' ? 'danger' : 'success'">
-            {{ currentEvent.patient_feedback === 'OBJECTED' ? '⚠️ 已提出异议投诉' : (currentEvent.patient_feedback === 'CONFIRMED' ? '已确认无异议 (正常抢救)' : '等待确认') }}
+            {{ currentEvent.patient_feedback === 'OBJECTED' ? '⚠️ 已提出异议申诉' : (currentEvent.patient_feedback === 'CONFIRMED' ? '已确认无异议 (正常抢救)' : '等待患者核验') }}
           </el-tag>
         </p>
         <el-alert
-          v-if="currentEvent.patient_feedback === 'OBJECTED'"
+          v-if="currentEvent.patient_feedback === 'OBJECTED' || (currentEvent.description && currentEvent.description.includes('|'))"
           type="error"
           title="【患者异议投诉预警】该紧急事件已被患者提出异议！"
-          :description="`患者陈述理由: ${currentEvent.patient_comment || '当时我意识完全清醒，医生未经我同意擅自调阅，涉嫌违规套取隐私。'}`"
+          :description="`患者陈述理由: ${getExtractedPatientObjection(currentEvent)}`"
           show-icon
           :closable="false"
           class="mt-2 mb-2"
@@ -92,15 +92,15 @@
       <el-form :model="form" label-width="110px">
         <el-form-item label="合规审查判定" required>
           <el-select v-model="form.audit_status" style="width: 100%;">
-            <el-option label="CLOSED_APPROVED - 真实急救调阅，予以合规正常结案" value="CLOSED_APPROVED" />
-            <el-option label="UNDER_INVESTIGATION - 存在疑问，要求补充临床病历佐证" value="UNDER_INVESTIGATION" />
-            <el-option label="CLOSED_VIOLATION - 判定属于虚假救治违规套取，予以处罚" value="CLOSED_VIOLATION" />
+            <el-option label="合规结案 · 真实急危重症抢救，符合避险合规要求" value="CLOSED_APPROVED" />
+            <el-option label="补充证据 · 存在存疑，责令医生补充出具急救处置证据" value="UNDER_INVESTIGATION" />
+            <el-option label="违规处罚 · 判定属于违规越权套取隐私，予以惩戒" value="CLOSED_VIOLATION" />
           </el-select>
         </el-form-item>
         <el-form-item label="阶梯惩戒措施" v-if="form.audit_status === 'CLOSED_VIOLATION'" required>
           <el-select v-model="form.punishment" style="width: 100%;">
-            <el-option label="RESTRICTED - 限制该医生账号跨院访问及紧急访问权限" value="RESTRICTED" />
-            <el-option label="DISABLED - 情节极其恶劣，彻底停用封禁医生账号" value="DISABLED" />
+            <el-option label="限制执业 · 暂停该医生跨院调阅与急救破窗权限 (RESTRICTED)" value="RESTRICTED" />
+            <el-option label="封禁停用 · 情节恶劣严重，彻底停用医生账号 (DISABLED)" value="DISABLED" />
           </el-select>
         </el-form-item>
         <el-form-item label="监管处置意见" required>
@@ -192,6 +192,25 @@ async function loadEvents() {
   } finally {
     loading.value = false
   }
+}
+
+function getCleanDoctorDesc(desc?: string): string {
+  if (!desc) return '急重症突发昏迷急救，启动 Break-Glass 紧急访问通道调阅'
+  return desc.split(/\|\s*\[(?:患者反馈|患者异议|患者陈述)[:：]?/)[0].trim()
+}
+
+function getExtractedPatientObjection(ev?: any): string {
+  if (!ev) return ''
+  if (ev.patient_comment && ev.patient_comment.trim()) {
+    return ev.patient_comment.trim()
+  }
+  if (ev.description && ev.description.includes('|')) {
+    const parts = ev.description.split(/\|\s*\[(?:患者反馈|患者异议|患者陈述)[:：]?\s*/)
+    if (parts.length > 1) {
+      return parts[1].replace(/\]\s*$/, '').trim()
+    }
+  }
+  return '当时我意识完全清醒，并未发生急重抢救，涉嫌违规调阅个人病历。'
 }
 
 function openAuditModal(row: any) {

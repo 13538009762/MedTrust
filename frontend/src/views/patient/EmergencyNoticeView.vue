@@ -24,18 +24,27 @@
 
           <div class="event-body">
             <p><strong>调阅医生：</strong>{{ ev.doctor_name }} ({{ ev.source_hospital_name }})</p>
-            <p><strong>调阅病历编号：</strong>{{ ev.record_no }}</p>
-            <p><strong>紧急原因：</strong><el-tag size="small" type="danger">{{ ev.emergency_reason }}</el-tag></p>
-            <p><strong>医生急救临床说明：</strong>{{ ev.description }}</p>
-            <p v-if="ev.patient_comment" class="objection-text"><strong>我的异议理由：</strong><span style="color: #dc2626; font-weight: 500;">{{ ev.patient_comment }}</span></p>
+            <p><strong>调阅病历编号：</strong><code class="mono font-bold">{{ ev.record_no }}</code></p>
+            <p><strong>紧急原因：</strong><el-tag size="small" type="danger" effect="plain">{{ formatEmergencyReason(ev.emergency_reason) }}</el-tag></p>
+            <p><strong>医生急救临床说明：</strong>{{ getCleanDoctorDesc(ev.description) }}</p>
+
+            <!-- 独立醒目的异议申诉记录区块 (严禁与医生说明粘连) -->
+            <div v-if="getExtractedObjection(ev)" class="objection-alert-card mt-2 mb-2">
+              <div class="oac-title">
+                <el-icon class="mr-1 text-red-600"><WarningFilled /></el-icon>
+                <span>📢 我的异议申诉记录：</span>
+              </div>
+              <p class="oac-text">{{ getExtractedObjection(ev) }}</p>
+            </div>
+
             <p v-if="ev.audit_status">
               <strong>监管合规裁决：</strong>
               <el-tag size="small" :type="ev.audit_status === 'CLOSED_APPROVED' ? 'success' : (ev.audit_status === 'CLOSED_VIOLATION' ? 'danger' : 'warning')">
                 {{ ev.audit_status === 'CLOSED_APPROVED' ? '合规正常结案' : (ev.audit_status === 'CLOSED_VIOLATION' ? '判定违规 (已惩戒医生)' : '调查核实中') }}
               </el-tag>
             </p>
-            <p><strong>上链存证 TxID：</strong><code class="tx-hash">{{ ev.fabric_tx_id }}</code></p>
-            <p><strong>调阅时间：</strong>{{ ev.created_at ? ev.created_at.substring(0, 16).replace('T', ' ') : '' }}</p>
+            <p><strong>上链存证 TxID：</strong><code class="tx-hash mono">{{ formatTxIdClean(ev.fabric_tx_id) }}</code></p>
+            <p><strong>调阅时间：</strong><span class="mono">{{ formatEventTime(ev.created_at) }}</span></p>
           </div>
 
           <div v-if="ev.patient_feedback === 'PENDING'" class="event-actions">
@@ -107,6 +116,43 @@ function openObjectionModal(ev: any) {
   dialogVisible.value = true
 }
 
+function getCleanDoctorDesc(desc?: string): string {
+  if (!desc) return '急诊突发急症抢救，启动 Break-Glass 紧急避险快速绿色通道调阅'
+  return desc.split(/\|\s*\[(?:患者反馈|患者异议|患者陈述)[:：]?/)[0].trim()
+}
+
+function getExtractedObjection(ev: any): string {
+  if (ev.patient_comment && ev.patient_comment.trim()) {
+    return ev.patient_comment.trim()
+  }
+  if (ev.description && ev.description.includes('|')) {
+    const parts = ev.description.split(/\|\s*\[(?:患者反馈|患者异议|患者陈述)[:：]?\s*/)
+    if (parts.length > 1) {
+      return parts[1].replace(/\]\s*$/, '').trim()
+    }
+  }
+  return ''
+}
+
+function formatEmergencyReason(reason?: string): string {
+  if (!reason) return '急性昏迷抢救 (COMA)'
+  if (reason === 'COMA' || reason.includes('COMA')) return '急性昏迷抢救 (COMA)'
+  if (reason === 'CARDIAC_ARREST') return '心搏骤停急救 (CARDIAC_ARREST)'
+  if (reason === 'SEVERE_TRAUMA') return '严重复合多发创伤 (SEVERE_TRAUMA)'
+  if (reason === 'ACUTE_STROKE') return '急性脑卒中绿色通道 (ACUTE_STROKE)'
+  return reason
+}
+
+function formatTxIdClean(txId?: string): string {
+  if (!txId) return '-'
+  return txId.replace(/^0x/i, '')
+}
+
+function formatEventTime(t?: string): string {
+  if (!t) return '-'
+  return t.replace('T', ' ').replace(/\s+/g, ' ').substring(0, 16)
+}
+
 function submitObjection() {
   dialogVisible.value = false
   handleFeedback(targetEventNo.value, 'OBJECTED', comment.value)
@@ -168,4 +214,27 @@ function submitObjection() {
   display: flex;
   gap: 12px;
 }
+
+.objection-alert-card {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-left: 4px solid #ef4444;
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.oac-title {
+  display: flex;
+  align-items: center;
+  font-weight: 700;
+  color: #b91c1c;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.oac-text {
+  color: #991b1b;
+  font-size: 13px;
+  margin: 0;
+  line-height: 1.5;
+}
+
 </style>
