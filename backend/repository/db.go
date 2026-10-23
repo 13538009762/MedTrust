@@ -150,16 +150,33 @@ func SeedInitialData(db *gorm.DB) {
 		if err := db.Where("username = ?", u.Username).First(&existing).Error; err != nil {
 			_ = db.Create(&u)
 		} else {
-			// 更新关键属性保持同步
+			// 更新关键属性保持同步，重置密码为预置 123456 并清空错误尝试与解除锁定
 			db.Model(&existing).Updates(map[string]interface{}{
-				"role":          u.Role,
-				"hospital_id":   u.HospitalID,
-				"department_id": u.DepartmentID,
-				"title":         u.Title,
-				"status":        u.Status,
+				"password_hash":      u.PasswordHash,
+				"role":               u.Role,
+				"hospital_id":        u.HospitalID,
+				"department_id":      u.DepartmentID,
+				"title":              u.Title,
+				"status":             u.Status,
+				"failed_login_count": 0,
+				"locked_until":       nil,
 			})
 		}
 	}
+
+	// 4. 确保所有答辩演示辅助账号统一密码为 123456，清空错误尝试并解除锁定
+	demoUsernames := []string{
+		"admin", "pat_zhang", "doc_li", "doc_wang", "doc_chen", "sup_zhao",
+		"doc_a", "doc_b", "doc_c", "doc_a2", "doc_a3", "doc_b2", "doc_b3", "doc_b4", "doc_c2", "doc_c3", "doc_c4",
+		"pat_li", "pat_wang", "pat_zhao", "pat_qian", "pat_sun", "pat_zhou", "pat_chen", "pat_zhouhq", "pat_linxz",
+		"tech_lab_a", "tech_pacs_a", "tech_lab_b", "tech_pacs_b", "tech_lab_c", "tech_pacs_c", "supervisor",
+	}
+	db.Model(&model.User{}).Where("username IN ?", demoUsernames).Updates(map[string]interface{}{
+		"password_hash":      hashStr,
+		"failed_login_count": 0,
+		"locked_until":       nil,
+		"status":             "NORMAL",
+	})
 
 	// 主动迁移：扫描 users 表中所有长度小于 32 的明文 medical_key，自动哈希加密并清空明文
 	var plainKeyUsers []model.User
