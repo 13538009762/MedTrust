@@ -38,20 +38,20 @@
 
           <div class="quick-candidates">
             <span class="candidate-label">快捷定位：</span>
-            <el-button
-              v-for="cand in candidatePatients"
-              :key="cand.id"
-              size="small"
-              :type="selectedPatient?.id === cand.id ? 'primary' : 'default'"
-              :effect="selectedPatient?.id === cand.id ? 'dark' : 'plain'"
-              class="candidate-chip"
-              @click="selectPatient(cand)"
-            >
-              <el-icon class="mr-1"><User /></el-icon>
-              <span>{{ cand.real_name }}</span>
-              <span class="chip-sub">({{ cand.gender }} · {{ cand.age }}岁)</span>
-              <span v-if="cand.allergies" class="chip-alert-dot" title="有过敏史">⚠️</span>
-            </el-button>
+            <div class="candidate-chips-wrap">
+              <button
+                v-for="cand in candidatePatients"
+                :key="cand.id"
+                type="button"
+                :class="['candidate-chip-btn', { active: selectedPatient?.id === cand.id }]"
+                @click="selectPatient(cand)"
+              >
+                <span class="chip-avatar">{{ cand.real_name ? cand.real_name.charAt(0) : '患' }}</span>
+                <span class="chip-name">{{ cand.real_name }}</span>
+                <span class="chip-meta">{{ cand.gender || '男' }} · {{ cand.age }}岁</span>
+                <span v-if="hasRealAllergy(cand)" class="chip-alert-badge" title="有过敏史">过敏</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -160,22 +160,29 @@
           </div>
 
           <!-- 2. 致命药物过敏史 (高危预警) -->
-          <div class="bento-card allergy-card" :class="selectedPatient.allergies ? 'has-danger' : ''">
+          <div class="bento-card allergy-card" :class="hasRealAllergy(selectedPatient) ? 'has-danger' : 'is-safe'">
             <div class="bento-header">
-              <span class="bento-icon allergy"><el-icon><Warning /></el-icon></span>
+              <span class="bento-icon allergy" :class="hasRealAllergy(selectedPatient) ? 'danger' : 'safe'">
+                <el-icon><Warning v-if="hasRealAllergy(selectedPatient)" /><CircleCheckFilled v-else /></el-icon>
+              </span>
               <span class="bento-title">用药禁忌与致命过敏史</span>
-              <span v-if="selectedPatient.allergies" class="danger-pill">严密防范</span>
+              <span v-if="hasRealAllergy(selectedPatient)" class="danger-pill">严密防范</span>
+              <span v-else class="safe-pill">未见药物过敏</span>
             </div>
             <div class="bento-body">
-              <div v-if="selectedPatient.allergies" class="allergy-content-box">
+              <div v-if="hasRealAllergy(selectedPatient)" class="allergy-content-box">
                 <div class="allergy-text font-bold">
                   ⚠️ {{ selectedPatient.allergies }}
                 </div>
                 <div class="allergy-rule">严禁下达含致敏成分抗生素或同类静脉针剂</div>
               </div>
               <div v-else class="allergy-safe-box">
-                <el-icon color="#059669"><CircleCheckFilled /></el-icon>
-                <span>暂未报告已知药物过敏 (阴性)</span>
+                <div class="allergy-safe-title font-bold">
+                  ✓ {{ selectedPatient.allergies || '暂未报告已知药物过敏 (阴性)' }}
+                </div>
+                <div class="allergy-safe-sub text-muted">
+                  电子健康档案未见致敏记录 · 常规用药仍需询问过敏史及皮试观察
+                </div>
               </div>
             </div>
           </div>
@@ -258,6 +265,89 @@
         </div>
       </div>
 
+      <!-- ================= 界面中上层：调阅授权与急救指令指挥台 (Emergency Command Deck) ================= -->
+      <div class="emergency-command-deck">
+        <div class="deck-main-card">
+          <div class="deck-brand-col">
+            <div class="deck-tag-row">
+              <span class="deck-dot"></span>
+              <span class="deck-heading">跨院调阅授权与急救指令指挥中心</span>
+              <span class="deck-chip">COMMAND DECK</span>
+            </div>
+            <p class="deck-sub-text">
+              支持一键全量授权推送、分批勾选病历申请、现场专属密钥秒开、急救法定绿色通道及 AI 全景跨期推演
+            </p>
+          </div>
+
+          <div class="deck-action-buttons">
+            <!-- 1. 一键申请全量权限 -->
+            <el-button
+              type="primary"
+              class="deck-btn btn-primary-gradient"
+              :icon="Key"
+              @click="openAllConsentDialog"
+            >
+              一键申请全量权限
+              <span v-if="unauthorizedCount > 0" class="btn-micro-badge primary">
+                {{ unauthorizedCount }}份待批
+              </span>
+            </el-button>
+
+            <!-- 2. 分批申请权限 -->
+            <el-badge
+              :value="selectedUnauthorizedRows.length"
+              :hidden="selectedUnauthorizedRows.length === 0"
+              type="danger"
+              class="deck-badge"
+            >
+              <el-button
+                type="success"
+                class="deck-btn btn-success-gradient"
+                :icon="DocumentCopy"
+                :disabled="selectedUnauthorizedRows.length === 0"
+                @click="openBatchConsentDialog"
+              >
+                分批申请已选病历
+                <span v-if="selectedUnauthorizedRows.length > 0" class="btn-count-hint">
+                  ({{ selectedUnauthorizedRows.length }}份)
+                </span>
+              </el-button>
+            </el-badge>
+
+            <!-- 3. 现场密钥核验放行 -->
+            <el-button
+              type="warning"
+              plain
+              class="deck-btn btn-warning-outline"
+              :icon="Unlock"
+              @click="openKeyUnlockDialog"
+            >
+              现场密钥核验放行 (秒开)
+            </el-button>
+
+            <!-- 4. 急救绿色通道 (破窗) -->
+            <el-button
+              type="danger"
+              class="deck-btn btn-danger-gradient break-glass-anim"
+              :icon="FirstAidKit"
+              @click="openEmergencyBreakGlassDialog"
+            >
+              <span class="deck-pulse-ring"></span>
+              【急救绿色通道】紧急破窗
+            </el-button>
+
+            <!-- 5. AI 跨期全景分析 -->
+            <el-button
+              class="deck-btn btn-ai-gradient"
+              @click="aiDiagnosticVisible = true"
+            >
+              <el-icon class="mr-1"><MagicStick /></el-icon>
+              <span>✨ AI 跨期全景分析</span>
+            </el-button>
+          </div>
+        </div>
+      </div>
+
       <!-- ================= 界面中间：主要病例列表与多维调阅 ================= -->
       <div class="tier-middle-medical-records">
         <el-card class="records-card" shadow="never">
@@ -323,13 +413,14 @@
             </div>
           </div>
 
-          <!-- 病历档案表格 -->
+          <!-- 病历档案表格 (带内部视口滚动与冻结表头) -->
           <el-table
             ref="recordsTableRef"
             :data="filteredPatientRecords"
             v-loading="loadingRecords"
             stripe
             style="width: 100%"
+            max-height="540"
             class="patient-records-table"
             row-key="id"
             @selection-change="handleSelectionChange"
@@ -484,69 +575,25 @@
               </template>
             </el-table-column>
           </el-table>
-        </el-card>
-      </div>
 
-      <!-- ================= 快捷操作栏 (Bottom Actions Bar) ================= -->
-      <div class="tier-bottom-quick-actions">
-        <div class="quick-actions-card">
-          <div class="qa-left">
-            <div class="qa-label">
-              <el-icon color="#059669"><Lightning /></el-icon>
-              <strong>抢救调阅快捷通道：</strong>
-            </div>
-            <span class="qa-desc">
-              遇到急救抢救、会诊或查体场景，可通过以下快捷功能免去繁琐操作：
+          <!-- 表格底部汇总信息 -->
+          <div class="table-card-footer">
+            <span class="tcf-stats text-muted">
+              当前显示 {{ filteredPatientRecords.length }} / {{ patientRecords.length }} 份病历档案
+              <span v-if="selectedRecordRows.length > 0" class="text-primary font-bold ml-2">
+                · 已勾选 {{ selectedRecordRows.length }} 份
+              </span>
             </span>
-          </div>
-
-          <div class="qa-buttons-row">
-            <!-- 操作一：一键申请所有权限 -->
-            <el-button
-              type="primary"
-              :icon="Key"
-              @click="openAllConsentDialog"
-            >
-              一键申请所有权限 (全量推送)
-            </el-button>
-
-            <!-- 操作二：分批申请权限 -->
-            <el-badge
-              :value="selectedUnauthorizedRows.length"
-              :hidden="selectedUnauthorizedRows.length === 0"
-              type="danger"
-            >
-              <el-button
-                type="success"
-                :icon="DocumentCopy"
-                :disabled="selectedUnauthorizedRows.length === 0"
-                @click="openBatchConsentDialog"
-              >
-                分批申请权限 (已选 {{ selectedUnauthorizedRows.length }} 份)
+            <div class="tcf-right">
+              <el-button v-if="selectedRecordRows.length > 0" size="small" text type="primary" @click="clearSelection">
+                清除勾选
               </el-button>
-            </el-badge>
-
-            <!-- 操作三：现场密钥一键解锁 -->
-            <el-button
-              type="warning"
-              plain
-              :icon="Unlock"
-              @click="openKeyUnlockDialog"
-            >
-              现场密钥核验放行 (免审秒开)
-            </el-button>
-
-            <!-- 操作四：急救绿色通道 (紧急破窗调阅) -->
-            <el-button
-              type="danger"
-              class="break-glass-quick-btn"
-              :icon="FirstAidKit"
-              @click="openEmergencyBreakGlassDialog"
-            >
-              【急救绿色通道】紧急破窗调阅 (全量解密)
-            </el-button>
+              <el-button size="small" text :icon="Refresh" @click="refreshPatientRecords" :loading="loadingRecords">
+                刷新列表
+              </el-button>
+            </div>
           </div>
-        </div>
+        </el-card>
       </div>
     </div>
 
@@ -698,6 +745,22 @@
             >
               <template #prefix><el-icon><Key /></el-icon></template>
             </el-input>
+          </el-form-item>
+          <el-form-item label="安全防爆破计算验证码" required>
+            <div class="captcha-wrapper">
+              <el-input
+                v-model="keyUnlockForm.captchaAnswer"
+                placeholder="请输入计算结果 (如 4)"
+                size="default"
+                clearable
+                class="captcha-input"
+                @keyup.enter="submitKeyUnlock"
+              />
+              <div class="captcha-img-container" @click="fetchKeyUnlockCaptcha" title="点击刷新验证码">
+                <img v-if="keyUnlockCaptchaImg" :src="keyUnlockCaptchaImg" alt="验证码" class="captcha-img" />
+                <span v-else class="captcha-loading">加载中...</span>
+              </div>
+            </div>
           </el-form-item>
           <el-form-item label="调阅有效期">
             <el-radio-group v-model="keyUnlockForm.days">
@@ -898,6 +961,16 @@
         </div>
       </div>
     </el-drawer>
+
+    <!-- AI 跨期全景病历关联辅助推演工作台弹窗 -->
+    <AIDiagnosticModal
+      v-model="aiDiagnosticVisible"
+      :patient="selectedPatient"
+      :current-symptoms="''"
+      :present-illness="''"
+      :vital-signs="selectedPatient?.latest_vital_signs || ''"
+      :department-name="'急诊与全景调阅中心'"
+    />
   </div>
 </template>
 
@@ -914,7 +987,6 @@ const isWideScreen = computed(() => windowWidth.value >= 1200)
 
 import {
   Search,
-  User,
   FirstAidKit,
   CircleCheck,
   CircleCheckFilled,
@@ -933,16 +1005,35 @@ import {
   Document,
   DocumentCopy,
   Unlock,
-  Lightning,
   EditPen,
   Tickets,
   Compass,
+  MagicStick,
 } from '@element-plus/icons-vue'
 import api from '../../api/client'
 import { useAuthStore } from '../../stores/auth'
+import AIDiagnosticModal from '../../components/AIDiagnosticModal.vue'
 
 const auth = useAuthStore()
 const route = useRoute()
+
+// 临床真实致敏史判定 (排除阴性描述如“未发现明确药物过敏史”、“无”等)
+function hasRealAllergy(candOrAllergies?: any): boolean {
+  if (!candOrAllergies) return false
+  if (typeof candOrAllergies === 'object') {
+    if (typeof candOrAllergies.has_allergies === 'boolean') {
+      return candOrAllergies.has_allergies
+    }
+    return hasRealAllergy(candOrAllergies.allergies)
+  }
+  const t = String(candOrAllergies).trim()
+  if (!t) return false
+  const safeKeywords = ['未发现', '暂未', '无', '暂无', '未见', '阴性', '否认', '未报告']
+  if (safeKeywords.some(kw => t.includes(kw))) {
+    return false
+  }
+  return true
+}
 
 // 检索与患者状态
 const searchKeyword = ref('')
@@ -982,10 +1073,30 @@ const batchConsentForm = ref({
   days: 7,
 })
 
+// AI 跨期全景推演弹窗状态
+const aiDiagnosticVisible = ref(false)
+
+// 密钥核验验证码状态
+const keyUnlockCaptchaImg = ref('')
 const keyUnlockForm = ref({
   medicalKey: '123456',
   days: 7,
+  captchaAnswer: '',
+  captchaToken: '',
 })
+
+async function fetchKeyUnlockCaptcha() {
+  try {
+    const res: any = await api.get('/auth/captcha')
+    if (res?.data) {
+      keyUnlockCaptchaImg.value = res.data.captcha_img
+      keyUnlockForm.value.captchaToken = res.data.captcha_token
+      keyUnlockForm.value.captchaAnswer = ''
+    }
+  } catch (err) {
+    console.error('获取验证码失败', err)
+  }
+}
 
 const emergencyForm = ref({
   emergencyReason: 'CRITICAL',
@@ -1339,7 +1450,7 @@ onUnmounted(() => {
 
 <style scoped>
 .patient-emergency-container {
-  padding: 16px 20px 120px;
+  padding: 16px 20px 60px;
   background: var(--edms-body-bg, #f8fafc);
   min-height: calc(100vh - 70px);
 }
@@ -1450,19 +1561,81 @@ onUnmounted(() => {
   color: #475569;
 }
 
-.candidate-chip {
-  border-radius: 16px;
+.candidate-chips-wrap {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.chip-sub {
+.candidate-chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  padding: 4px 12px 4px 6px;
+  font-size: 13px;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  outline: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+.candidate-chip-btn:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  transform: translateY(-1px);
+}
+
+.candidate-chip-btn.active {
+  background: linear-gradient(135deg, #059669, #047857);
+  border-color: #059669;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(5, 150, 105, 0.28);
+}
+
+.chip-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #475569;
   font-size: 11px;
-  opacity: 0.8;
-  margin-left: 4px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.chip-alert-dot {
-  font-size: 12px;
-  margin-left: 4px;
+.candidate-chip-btn.active .chip-avatar {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
+.chip-name {
+  font-weight: 600;
+}
+
+.chip-meta {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.chip-alert-badge {
+  font-size: 10px;
+  background: #fee2e2;
+  color: #dc2626;
+  padding: 1px 5px;
+  border-radius: 10px;
+  font-weight: 700;
+}
+
+.candidate-chip-btn.active .chip-alert-badge {
+  background: #ffffff;
+  color: #dc2626;
 }
 
 /* 空态提示 */
@@ -1606,16 +1779,16 @@ onUnmounted(() => {
 .emergency-bento-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 14px;
+  gap: 12px;
 }
 
-@media (max-width: 1080px) {
+@media (max-width: 1100px) {
   .emergency-bento-grid {
     grid-template-columns: repeat(2, 1fr);
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 700px) {
   .emergency-bento-grid {
     grid-template-columns: 1fr;
   }
@@ -1624,35 +1797,37 @@ onUnmounted(() => {
 .bento-card {
   background: #ffffff;
   border-radius: 10px;
-  padding: 14px 16px;
+  padding: 12px 14px;
   border: 1px solid #e2e8f0;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  min-height: 96px;
+  transition: all 0.2s ease;
 }
 
 .bento-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05);
 }
 
 .bento-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .bento-icon {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: 14px;
+  flex-shrink: 0;
 }
 
 .bento-icon.blood { background: #fee2e2; color: #dc2626; }
@@ -1663,76 +1838,112 @@ onUnmounted(() => {
 .bento-icon.infection { background: #fce7f3; color: #be185d; }
 
 .bento-title {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 700;
-  color: #1e293b;
+  color: #334155;
   flex: 1;
 }
 
 .bento-note {
   font-size: 11px;
   color: #94a3b8;
-  margin: 6px 0 0;
+  margin: 4px 0 0;
+  line-height: 1.3;
 }
 
 /* 血型卡片 */
 .blood-card {
-  border-left: 4px solid #dc2626;
-  background: linear-gradient(135deg, #ffffff 70%, #fef2f2 100%);
+  border-left: 3px solid #ef4444;
+  background: linear-gradient(135deg, #ffffff 60%, #fef2f2 100%);
 }
 
 .blood-big {
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 900;
   color: #dc2626;
-  letter-spacing: 1px;
+  letter-spacing: 0.5px;
 }
 
 /* 过敏卡片 */
 .allergy-card {
-  border-left: 4px solid #d97706;
+  border-left: 3px solid #10b981;
+  background: #ffffff;
 }
 
 .allergy-card.has-danger {
-  border-left: 4px solid #dc2626;
-  background: #fff8f8;
+  border-left: 3px solid #dc2626;
+  background: linear-gradient(135deg, #ffffff 60%, #fff8f8 100%);
+}
+
+.allergy-card.is-safe {
+  border-left: 3px solid #10b981;
+  background: linear-gradient(135deg, #ffffff 60%, #f0fdf4 100%);
+}
+
+.bento-icon.allergy.danger {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.bento-icon.allergy.safe {
+  background: #dcfce7;
+  color: #059669;
 }
 
 .danger-pill {
-  font-size: 11px;
+  font-size: 10px;
   background: #dc2626;
   color: #ffffff;
-  padding: 2px 6px;
+  padding: 1px 6px;
   border-radius: 4px;
-  font-weight: bold;
+  font-weight: 700;
+}
+
+.safe-pill {
+  font-size: 10px;
+  background: #dcfce7;
+  color: #059669;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 700;
 }
 
 .allergy-text {
   color: #b91c1c;
-  font-size: 13px;
-  line-height: 1.4;
+  font-size: 12.5px;
+  line-height: 1.35;
 }
 
 .allergy-rule {
   font-size: 11px;
   color: #ef4444;
-  margin-top: 4px;
+  margin-top: 3px;
 }
 
 .allergy-safe-box {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.allergy-safe-title {
   color: #059669;
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
+.allergy-safe-sub {
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.3;
 }
 
 /* 家属联系人 */
 .contact-person-name {
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 700;
   color: #0f172a;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 .contact-phone-row {
@@ -1742,67 +1953,88 @@ onUnmounted(() => {
 }
 
 .contact-phone-num {
-  font-size: 15px;
+  font-size: 14px;
   font-family: monospace;
   font-weight: 700;
   color: #2563eb;
 }
 
 /* 生命体征 */
+.vitals-card {
+  border-left: 3px solid #059669;
+  background: linear-gradient(135deg, #ffffff 60%, #f0fdf4 100%);
+}
+
 .vitals-display-row {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   color: #0f172a;
-  line-height: 1.5;
-  background: #f0fdf4;
-  padding: 6px 10px;
+  line-height: 1.4;
+  background: rgba(240, 253, 244, 0.7);
+  padding: 4px 8px;
   border-radius: 6px;
   border: 1px solid #bbf7d0;
 }
 
 .vitals-tags-row {
   display: flex;
-  gap: 6px;
-  margin-top: 6px;
+  gap: 5px;
+  margin-top: 5px;
 }
 
 .v-tag {
   font-size: 10px;
   color: #047857;
   background: #d1fae5;
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 600;
 }
 
 /* 慢病史 */
+.chronic-card {
+  border-left: 3px solid #64748b;
+  background: linear-gradient(135deg, #ffffff 60%, #f8fafc 100%);
+}
+
 .chronic-text {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
   color: #334155;
-  line-height: 1.4;
+  line-height: 1.35;
 }
 
 /* 传染病防护 */
+.infection-card {
+  border-left: 3px solid #10b981;
+  background: #ffffff;
+}
+
+.infection-card.is-infectious {
+  border-left: 3px solid #be185d;
+  background: linear-gradient(135deg, #ffffff 60%, #fdf2f8 100%);
+}
+
 .infect-danger-pill {
-  font-size: 11px;
+  font-size: 10px;
   background: #be185d;
   color: #ffffff;
-  padding: 2px 8px;
+  padding: 1px 6px;
   border-radius: 4px;
-  font-weight: bold;
+  font-weight: 700;
   white-space: nowrap;
 }
 
 .infect-summary {
   color: #9d174d;
-  font-size: 13px;
-  line-height: 1.4;
+  font-size: 12.5px;
+  line-height: 1.35;
 }
 
 .infect-guide {
   font-size: 11px;
   color: #be185d;
-  margin-top: 4px;
+  margin-top: 3px;
 }
 
 .infect-safe-box {
@@ -1929,59 +2161,198 @@ onUnmounted(() => {
   color: #64748b;
 }
 
-/* ================= 快捷操作栏 (Bottom Bar) ================= */
-.tier-bottom-quick-actions {
-  position: fixed;
-  bottom: 0;
-  left: 250px;
-  right: 0;
-  z-index: 99;
-  padding-right: 140px;
-  transition: left 0.3s ease;
+/* ================= 临床调阅授权与急救指令指挥台 (Emergency Command Deck) ================= */
+.emergency-command-deck {
+  margin-bottom: 16px;
 }
 
-.quick-actions-card {
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(12px);
-  border-top: 2px solid #059669;
-  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08);
-  padding: 12px 24px;
+.deck-main-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px 20px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 14px;
+  position: relative;
+  background-image: radial-gradient(circle at 10% 50%, rgba(5, 150, 105, 0.03) 0%, transparent 40%);
 }
 
-.qa-left {
+.deck-brand-col {
   display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.deck-tag-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.deck-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+  animation: pulse-ring 1.8s infinite;
+}
+
+.deck-heading {
+  font-size: 14px;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: 0.3px;
+}
+
+.deck-chip {
+  font-size: 10px;
+  font-family: monospace;
+  font-weight: 700;
+  background: #f1f5f9;
+  color: #475569;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid #e2e8f0;
+}
+
+.deck-sub-text {
+  font-size: 11.5px;
+  color: #64748b;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.deck-action-buttons {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.deck-btn {
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 8px;
+  padding: 8px 16px;
+  height: 38px;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.qa-label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: #059669;
-  font-size: 14px;
+.deck-btn:hover {
+  transform: translateY(-1px);
 }
 
-.qa-desc {
+.btn-primary-gradient {
+  background: linear-gradient(135deg, #2563eb, #1d4ed8) !important;
+  border: none !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+}
+
+.btn-primary-gradient:hover {
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+}
+
+.btn-success-gradient {
+  background: linear-gradient(135deg, #059669, #047857) !important;
+  border: none !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(5, 150, 105, 0.25);
+}
+
+.btn-success-gradient:hover {
+  box-shadow: 0 4px 14px rgba(5, 150, 105, 0.35);
+}
+
+.btn-warning-outline {
+  background: #fffbeb !important;
+  border: 1px solid #f59e0b !important;
+  color: #b45309 !important;
+}
+
+.btn-warning-outline:hover {
+  background: #fef3c7 !important;
+  border-color: #d97706 !important;
+}
+
+.btn-danger-gradient {
+  background: linear-gradient(135deg, #dc2626, #b91c1c) !important;
+  border: none !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 10px rgba(220, 38, 38, 0.35);
+  font-weight: 700 !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-danger-gradient:hover {
+  box-shadow: 0 4px 16px rgba(220, 38, 38, 0.45);
+}
+
+.btn-ai-gradient {
+  background: linear-gradient(135deg, #8b5cf6, #7c3aed) !important;
+  border: none !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.28);
+}
+
+.btn-ai-gradient:hover {
+  box-shadow: 0 4px 14px rgba(139, 92, 246, 0.4);
+}
+
+.deck-pulse-ring {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: #ffffff;
+  border-radius: 50%;
+  margin-right: 2px;
+  animation: pulse-ring 1s infinite;
+}
+
+.btn-micro-badge {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  margin-left: 4px;
+}
+
+.btn-micro-badge.primary {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
+.btn-count-hint {
   font-size: 12px;
-  color: #64748b;
+  opacity: 0.9;
+  margin-left: 2px;
 }
 
-.qa-buttons-row {
+.table-card-footer {
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: space-between;
+  padding: 12px 16px 0;
+  border-top: 1px solid #f1f5f9;
+  margin-top: 8px;
 }
 
-.break-glass-quick-btn {
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  box-shadow: 0 2px 10px rgba(220, 38, 38, 0.3);
+.tcf-stats {
+  font-size: 12px;
+}
+
+.tcf-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 /* 弹窗样式 */
@@ -2200,18 +2571,7 @@ onUnmounted(() => {
   scrollbar-color: #64748b #f1f5f9 !important;
 }
 
-@media (max-width: 1200px) {
-  .tier-bottom-quick-actions {
-    left: 64px !important;
-    padding-right: 120px !important;
-  }
-}
-@media (max-width: 768px) {
-  .tier-bottom-quick-actions {
-    left: 0 !important;
-    padding-right: 20px !important;
-  }
-}
+/* Responsive deck handled via flex */
 
 .captcha-wrapper {
   display: flex;

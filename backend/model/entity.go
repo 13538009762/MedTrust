@@ -17,6 +17,7 @@ type User struct {
 	Title        string     `gorm:"size:50;default:''" json:"title"`
 	Phone        string     `gorm:"size:20;default:''" json:"phone"`
 	IDCard       string     `gorm:"size:20;default:''" json:"id_card"`
+	Avatar       string     `gorm:"type:longtext" json:"avatar"`
 	MedicalKey   string     `gorm:"size:64;default:''" json:"-"`
 	MedicalKeyHash string   `gorm:"size:128;default:''" json:"-"`
 	MustChangePwd bool      `gorm:"default:false" json:"must_change_pwd"`
@@ -35,6 +36,7 @@ type User struct {
 	Age              int                 `gorm:"-" json:"age,omitempty"`
 	BloodType        string              `gorm:"-" json:"blood_type,omitempty"`
 	Allergies        string              `gorm:"-" json:"allergies,omitempty"`
+	HasAllergies     bool                `gorm:"-" json:"has_allergies"`
 	EmergencyContact string              `gorm:"-" json:"emergency_contact,omitempty"`
 	EmergencyPhone   string              `gorm:"-" json:"emergency_phone,omitempty"`
 	ChronicDiseases  string              `gorm:"-" json:"chronic_diseases,omitempty"`

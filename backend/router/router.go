@@ -33,6 +33,8 @@ func SetupRouter() *gin.Engine {
 			authGroup.POST("/auth/logout", controller.DefaultAuthController.Logout)
 			authGroup.GET("/auth/profile", controller.DefaultAuthController.Profile)
 			authGroup.PUT("/auth/profile", controller.DefaultAuthController.UpdateProfile)
+			authGroup.PUT("/auth/avatar", controller.DefaultAuthController.UpdateAvatar)
+			authGroup.POST("/auth/avatar/upload", controller.DefaultAuthController.UploadAvatar)
 			authGroup.PUT("/auth/password", controller.DefaultAuthController.ChangePassword)
 			authGroup.PUT("/auth/medical-key", controller.DefaultAuthController.ChangeMedicalKey)
 
@@ -53,6 +55,7 @@ func SetupRouter() *gin.Engine {
 			authGroup.GET("/patients/:id/infection-risks", middleware.RequireRoles("doctor", "admin", "supervisor"), controller.DefaultMedicalController.GetPatientInfectionRisks)
 			authGroup.GET("/medical-records/:id/infection-risks", controller.DefaultMedicalController.GetRecordInfectionRisks)
 			authGroup.POST("/infection-risks/evaluate-text", middleware.RequireRoles("doctor"), controller.DefaultMedicalController.EvaluateInfectionText)
+			authGroup.POST("/ai/diagnostic-assist", middleware.RequireRoles("doctor"), controller.DefaultMedicalController.DiagnosticAssist)
 
 			// 医技检查中心模块 (检验科/放射科/医生)
 			authGroup.GET("/exam-orders", controller.DefaultMedicalController.ListExamOrders)

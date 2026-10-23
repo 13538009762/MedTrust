@@ -17,6 +17,7 @@ export interface User {
   status: 'NORMAL' | 'RESTRICTED' | 'DISABLED'
   hospital_name?: string
   department_name?: string
+  avatar?: string
 }
 
 // 清理历史遗留的全局 localStorage 登录信息，杜绝跨标签页账号冲突

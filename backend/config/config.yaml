@@ -40,3 +40,13 @@ redis:
   password: ""
   db: 0
 
+# AI 跨期病历关联辅助诊断与临床大模型接入配置
+# 支持接入任意 OpenAI 兼容大模型 API (如 DeepSeek, GPT-4o, Qwen, GLM 等)
+# 当 api_key 留空时，系统自动无缝启用内置高精度医疗知识时空演变推理引擎
+ai:
+  enabled: true
+  api_url: "" # 填入您的 AI API 端点 (例如: https://api.deepseek.com/v1 或 https://api.openai.com/v1)
+  api_key: "" # 填入您的 API Key (例如: sk-xxxxxxxxxxxx)
+  model: "deepseek-chat" # 模型名称 (如: deepseek-chat, gpt-4o, qwen-turbo)
+  temperature: 0.2
+

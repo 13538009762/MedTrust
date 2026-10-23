@@ -196,7 +196,7 @@
 
           <!-- 用户真实姓名与所属机构科室常驻展示 -->
           <div class="user-profile clickable" @click="router.push('/personal')" title="点击查看并维护个人信息">
-            <el-avatar size="small" :style="{ backgroundColor: '#8b5cf6' }">
+            <el-avatar size="small" :src="auth.user?.avatar" :style="{ backgroundColor: '#8b5cf6' }">
               {{ (auth.user?.real_name || '用').charAt(0) }}
             </el-avatar>
             <div class="user-meta-stacked">

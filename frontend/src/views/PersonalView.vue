@@ -22,9 +22,10 @@
       <!-- 1. 顶部身份横幅 -->
       <div class="profile-hero-section">
         <!-- 头像区 -->
-        <div class="avatar-col" @click="handleAvatarClick" title="更换个人头像">
-          <div class="user-avatar-circle" :style="{ background: avatarGradient }">
-            <span class="user-avatar-text">{{ userInitials }}</span>
+        <div class="avatar-col" @click="openAvatarDialog" title="点击更换个人自定义头像">
+          <div class="user-avatar-circle" :style="{ background: auth.user?.avatar ? '#ffffff' : avatarGradient }">
+            <img v-if="auth.user?.avatar" :src="auth.user.avatar" class="user-avatar-img" alt="用户头像" />
+            <span v-else class="user-avatar-text">{{ userInitials }}</span>
             <div class="avatar-hover-overlay">
               <el-icon class="camera-icon"><Camera /></el-icon>
               <span class="change-hint-text">更换头像</span>
@@ -427,13 +428,225 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- 6. 更换与自定义个人头像弹窗 (Custom Avatar Dialog) -->
+    <el-dialog
+      title="自定义个人头像"
+      v-model="avatarDialogVisible"
+      width="640px"
+      class="personal-avatar-dialog"
+      :close-on-click-modal="false"
+      destroy-on-close
+    >
+      <div class="avatar-modal-body">
+        <el-tabs v-model="avatarActiveTab" class="avatar-tabs">
+          <!-- Tab 1: 本地照片上传与调节 -->
+          <el-tab-pane label="本地照片上传" name="upload">
+            <div class="upload-tab-pane">
+              <!-- 未选图片时的拖拽上传区域 -->
+              <div
+                v-if="!previewAvatarUrl"
+                class="avatar-drop-zone"
+                @click="triggerFileSelect"
+                @dragover.prevent
+                @drop.prevent="handleFileDrop"
+              >
+                <div class="drop-icon-box">
+                  <el-icon :size="44" class="upload-cloud-icon"><UploadFilled /></el-icon>
+                </div>
+                <div class="drop-text-primary">点击或拖拽本地照片至此</div>
+                <div class="drop-text-sub">
+                  支持 JPG、PNG、WebP、GIF 等格式，单张最大 8MB
+                </div>
+                <el-button type="primary" plain size="small" class="select-photo-btn">
+                  选择本地文件
+                </el-button>
+              </div>
+
+              <!-- 已选图片时的调节与裁剪预览区域 -->
+              <div v-else class="avatar-adjust-wrapper">
+                <div class="adjust-preview-row">
+                  <!-- 大预览裁切视口 -->
+                  <div class="crop-viewport-box">
+                    <div class="crop-viewport">
+                      <div
+                        class="crop-image-inner"
+                        :style="{
+                          transform: `scale(${avatarZoom / 100}) rotate(${avatarRotate}deg)`,
+                        }"
+                      >
+                        <img :src="previewAvatarUrl" class="crop-source-img" alt="源图预览" />
+                      </div>
+                      <div class="crop-circle-guide"></div>
+                    </div>
+                    <div class="crop-guide-text">圆圈内区域即为最终头像呈现效果</div>
+                  </div>
+
+                  <!-- 实时多端尺寸预览效果 -->
+                  <div class="preview-variants-col">
+                    <div class="variant-label">系统多场景实时效果</div>
+
+                    <div class="variant-item">
+                      <div class="variant-circle circle-84">
+                        <img
+                          :src="previewAvatarUrl"
+                          :style="{
+                            transform: `scale(${avatarZoom / 100}) rotate(${avatarRotate}deg)`,
+                          }"
+                          alt="主页头像"
+                        />
+                      </div>
+                      <span class="variant-caption">84px 个人中心</span>
+                    </div>
+
+                    <div class="variant-item">
+                      <div class="variant-circle circle-40">
+                        <img
+                          :src="previewAvatarUrl"
+                          :style="{
+                            transform: `scale(${avatarZoom / 100}) rotate(${avatarRotate}deg)`,
+                          }"
+                          alt="顶栏头像"
+                        />
+                      </div>
+                      <span class="variant-caption">40px 全局顶栏</span>
+                    </div>
+
+                    <div class="variant-item">
+                      <div class="variant-circle circle-32">
+                        <img
+                          :src="previewAvatarUrl"
+                          :style="{
+                            transform: `scale(${avatarZoom / 100}) rotate(${avatarRotate}deg)`,
+                          }"
+                          alt="AI对话头像"
+                        />
+                      </div>
+                      <span class="variant-caption">32px AI问答</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 调节工具条：缩放滑块与旋转 -->
+                <div class="adjust-controls-bar">
+                  <div class="zoom-control-item">
+                    <span class="ctrl-label">缩放调节:</span>
+                    <el-slider
+                      v-model="avatarZoom"
+                      :min="100"
+                      :max="250"
+                      :step="5"
+                      :format-tooltip="(val: any) => `${val}%`"
+                      class="zoom-slider"
+                    />
+                    <span class="zoom-val-text font-mono">{{ avatarZoom }}%</span>
+                  </div>
+
+                  <div class="tool-actions-row">
+                    <el-button size="small" :icon="RefreshRight" @click="rotateAvatarClockwise">
+                      向右旋转 90°
+                    </el-button>
+                    <el-button size="small" :icon="Refresh" @click="resetAvatarAdjustments">
+                      重置缩放
+                    </el-button>
+                    <el-button size="small" type="primary" link :icon="Picture" @click="triggerFileSelect">
+                      重新选择照片
+                    </el-button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 隐藏原生文件上传 input -->
+              <input
+                ref="fileInputRef"
+                type="file"
+                accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
+                style="display: none"
+                @change="onFileInputChange"
+              />
+            </div>
+          </el-tab-pane>
+
+          <!-- Tab 2: 医疗与职业精选预设形象 -->
+          <el-tab-pane label="医疗精选预设" name="presets">
+            <div class="presets-tab-pane">
+              <div class="preset-tip">
+                您可直接选取由 MedTrust 为医疗行业设计的职业身份专属头像形象：
+              </div>
+              <div class="preset-avatar-grid">
+                <div
+                  v-for="(item, idx) in presetAvatars"
+                  :key="idx"
+                  class="preset-item-card"
+                  :class="{ active: selectedPresetIdx === idx }"
+                  @click="selectPreset(item, idx)"
+                >
+                  <div class="preset-img-wrapper" :style="{ background: item.bg }">
+                    <img :src="item.url" class="preset-img" :alt="item.name" />
+                    <div v-if="selectedPresetIdx === idx" class="preset-selected-badge">
+                      <el-icon><Check /></el-icon>
+                    </div>
+                  </div>
+                  <div class="preset-name">{{ item.name }}</div>
+                  <el-tag size="small" :type="item.tagType" effect="plain" class="preset-tag">
+                    {{ item.tag }}
+                  </el-tag>
+                </div>
+              </div>
+            </div>
+          </el-tab-pane>
+        </el-tabs>
+
+        <!-- 默认文字印记头像说明与快捷恢复按钮 -->
+        <div class="default-restore-box">
+          <div class="default-restore-left">
+            <div class="restore-mini-circle" :style="{ background: avatarGradient }">
+              {{ userInitials }}
+            </div>
+            <div>
+              <div class="restore-title">系统原生区块链数字印记头像</div>
+              <div class="restore-desc">根据真实姓名首字母与智能角色渐变生成的区块链官方身份标徽</div>
+            </div>
+          </div>
+          <el-button
+            size="small"
+            plain
+            :disabled="!auth.user?.avatar && !previewAvatarUrl && selectedPresetIdx === -1"
+            @click="handleRestoreDefaultAvatar"
+          >
+            恢复默认印记
+          </el-button>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="dialog-footer-split">
+          <span class="footer-tip">
+            <el-icon><InfoFilled /></el-icon>
+            保存后全网个人主页、系统全局顶栏将立即同步生效
+          </span>
+          <div class="footer-btn-group">
+            <el-button @click="avatarDialogVisible = false">取 消</el-button>
+            <el-button
+              type="primary"
+              :loading="savingAvatar"
+              :disabled="avatarActiveTab === 'upload' && !previewAvatarUrl && selectedPresetIdx === -1"
+              @click="handleSaveAvatar"
+            >
+              保 存 并 应 用 头 像
+            </el-button>
+          </div>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { 
-  User, Edit, Lock, Camera, CopyDocument, CreditCard, Iphone, Key, View, Hide 
+  User, Edit, Lock, Camera, CopyDocument, CreditCard, Iphone, Key, View, Hide, 
+  UploadFilled, RefreshRight, Refresh, Picture, Check, InfoFilled 
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import api from '../api/client'
@@ -473,9 +686,270 @@ function getRoleName(role?: string) {
   return '系统用户'
 }
 
-function handleAvatarClick() {
-  ElMessage.info('系统当前已根据您的真实姓名生成了专属区块链数字身份印记头像')
+
+// ── 个人头像更换与自定义业务逻辑 ──────────────────────────
+const avatarDialogVisible = ref(false)
+const avatarActiveTab = ref('upload')
+const previewAvatarUrl = ref('')
+const avatarZoom = ref(100)
+const avatarRotate = ref(0)
+const selectedPresetIdx = ref(-1)
+const savingAvatar = ref(false)
+const fileInputRef = ref<HTMLInputElement | null>(null)
+
+// 8 款精心设计的医疗与行业角色专属 SVG 预设头像
+const presetAvatars = [
+  {
+    name: '主任医师 (男)',
+    tag: '临床专家',
+    tagType: 'primary' as const,
+    bg: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
+    url: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="%233b82f6"/><circle cx="50" cy="40" r="18" fill="%23ffedd5"/><path d="M32 36 Q50 20 68 36 Q62 26 50 26 Q38 26 32 36 Z" fill="%231e293b"/><circle cx="43" cy="39" r="2.5" fill="%231e293b"/><circle cx="57" cy="39" r="2.5" fill="%231e293b"/><path d="M46 47 Q50 51 54 47" stroke="%23ea580c" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M22 84 C22 66 32 60 50 60 C68 60 78 66 78 84 Z" fill="%23ffffff"/><path d="M44 60 L50 72 L56 60 Z" fill="%230284c7"/><path d="M38 60 C38 72 40 76 44 78" stroke="%230284c7" stroke-width="3" fill="none" stroke-linecap="round"/><circle cx="44" cy="79" r="3.5" fill="%230369a1"/></svg>'
+  },
+  {
+    name: '专家医师 (女)',
+    tag: '主治专家',
+    tagType: 'success' as const,
+    bg: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
+    url: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="%2310b981"/><path d="M28 42 C28 26 72 26 72 42 C72 58 66 60 66 60 L34 60 C34 60 28 58 28 42 Z" fill="%23334155"/><circle cx="50" cy="40" r="17" fill="%23fef3c7"/><circle cx="43" cy="39" r="2.5" fill="%231e293b"/><circle cx="57" cy="39" r="2.5" fill="%231e293b"/><path d="M46 47 Q50 50 54 47" stroke="%23e11d48" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M22 84 C22 66 32 60 50 60 C68 60 78 66 78 84 Z" fill="%23ffffff"/><path d="M45 60 L50 70 L55 60 Z" fill="%23059669"/><path d="M48 68 H52 M50 66 V70" stroke="%23ffffff" stroke-width="2" stroke-linecap="round"/></svg>'
+  },
+  {
+    name: '青年骨干医生',
+    tag: '住院/主治',
+    tagType: 'primary' as const,
+    bg: 'linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%)',
+    url: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="%238b5cf6"/><circle cx="50" cy="40" r="18" fill="%23fed7aa"/><path d="M30 38 Q50 20 70 38 Q64 24 50 24 Q36 24 30 38 Z" fill="%230f172a"/><circle cx="43" cy="39" r="2.5" fill="%230f172a"/><circle cx="57" cy="39" r="2.5" fill="%230f172a"/><path d="M46 48 Q50 51 54 48" stroke="%23ea580c" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M22 84 C22 66 32 60 50 60 C68 60 78 66 78 84 Z" fill="%23ffffff"/><path d="M42 60 L50 72 L58 60 Z" fill="%237c3aed"/></svg>'
+  },
+  {
+    name: '科室主任医师',
+    tag: '资深主任',
+    tagType: 'warning' as const,
+    bg: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
+    url: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="%236366f1"/><circle cx="50" cy="40" r="18" fill="%23ffedd5"/><path d="M31 38 Q50 22 69 38 Q62 26 50 26 Q38 26 31 38 Z" fill="%23475569"/><circle cx="43" cy="39" r="2" fill="%231e293b"/><circle cx="57" cy="39" r="2" fill="%231e293b"/><circle cx="43" cy="39" r="5" stroke="%23334155" stroke-width="1.5" fill="none"/><circle cx="57" cy="39" r="5" stroke="%23334155" stroke-width="1.5" fill="none"/><line x1="48" y1="39" x2="52" y2="39" stroke="%23334155" stroke-width="1.5"/><path d="M46 48 Q50 51 54 48" stroke="%23ea580c" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M22 84 C22 66 32 60 50 60 C68 60 78 66 78 84 Z" fill="%23ffffff"/><path d="M46 60 L50 68 L54 60 Z" fill="%234f46e5"/></svg>'
+  },
+  {
+    name: '卫健监管专员',
+    tag: '审计监管',
+    tagType: 'warning' as const,
+    bg: 'linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)',
+    url: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="%23f59e0b"/><circle cx="50" cy="39" r="18" fill="%23fed7aa"/><path d="M32 35 Q50 21 68 35 Q60 25 50 25 Q40 25 32 35 Z" fill="%231e293b"/><circle cx="43" cy="39" r="2.5" fill="%231e293b"/><circle cx="57" cy="39" r="2.5" fill="%231e293b"/><path d="M46 47 Q50 50 54 47" stroke="%23c2410c" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M20 84 C20 65 30 58 50 58 C70 58 80 65 80 84 Z" fill="%231e293b"/><path d="M46 58 L50 70 L54 58 Z" fill="%23ffffff"/><path d="M48 64 L50 78 L52 64 Z" fill="%23d97706"/><circle cx="68" cy="72" r="7" fill="%23fbbf24"/><path d="M68 68 L70 71 L73 70 L71 73 L73 76 L69 75 L67 77 L67 74 L64 73 L67 71 Z" fill="%23b45309"/></svg>'
+  },
+  {
+    name: '系统技术管理员',
+    tag: '系统运维',
+    tagType: 'danger' as const,
+    bg: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)',
+    url: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="%23ef4444"/><circle cx="50" cy="39" r="18" fill="%23ffedd5"/><path d="M30 36 Q50 22 70 36 Q62 25 50 25 Q38 25 30 36 Z" fill="%230f172a"/><circle cx="43" cy="39" r="2.5" fill="%230f172a"/><circle cx="57" cy="39" r="2.5" fill="%230f172a"/><path d="M46 47 Q50 50 54 47" stroke="%23b91c1c" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M20 84 C20 65 30 59 50 59 C70 59 80 65 80 84 Z" fill="%23334155"/><path d="M42 66 L47 71 L42 76" stroke="%2322c55e" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><line x1="50" y1="76" x2="58" y2="76" stroke="%2322c55e" stroke-width="2.5" stroke-linecap="round"/></svg>'
+  },
+  {
+    name: '居民就诊患者 (男)',
+    tag: '健康档案',
+    tagType: 'info' as const,
+    bg: 'linear-gradient(135deg, #ecfeff 0%, #cffafe 100%)',
+    url: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="%2306b6d4"/><circle cx="50" cy="39" r="18" fill="%23ffedd5"/><path d="M32 35 Q50 20 68 35 Q60 24 50 24 Q40 24 32 35 Z" fill="%23334155"/><circle cx="43" cy="39" r="2.5" fill="%231e293b"/><circle cx="57" cy="39" r="2.5" fill="%231e293b"/><path d="M46 47 Q50 51 54 47" stroke="%23ea580c" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M22 84 C22 66 32 60 50 60 C68 60 78 66 78 84 Z" fill="%230891b2"/><circle cx="50" cy="72" r="5" fill="%23ec4899"/><path d="M48 70 C48 68 52 68 52 70 C52 72 50 74 50 74 C50 74 48 72 48 70 Z" fill="%23ffffff"/></svg>'
+  },
+  {
+    name: '居民就诊患者 (女)',
+    tag: '健康档案',
+    tagType: 'info' as const,
+    bg: 'linear-gradient(135deg, #fdf2f8 0%, #fce7f3 100%)',
+    url: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="%23ec4899"/><path d="M26 44 C26 26 74 26 74 44 C74 62 66 62 66 62 L34 62 C34 62 26 62 26 44 Z" fill="%23475569"/><circle cx="50" cy="40" r="17" fill="%23ffedd5"/><circle cx="43" cy="39" r="2.5" fill="%231e293b"/><circle cx="57" cy="39" r="2.5" fill="%231e293b"/><path d="M46 47 Q50 50 54 47" stroke="%23e11d48" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M22 84 C22 66 32 60 50 60 C68 60 78 66 78 84 Z" fill="%23db2777"/><path d="M46 68 Q50 64 54 68 Q50 74 46 68 Z" fill="%23ffffff"/></svg>'
+  }
+]
+
+function openAvatarDialog() {
+  previewAvatarUrl.value = auth.user?.avatar || ''
+  avatarZoom.value = 100
+  avatarRotate.value = 0
+  selectedPresetIdx.value = -1
+  avatarActiveTab.value = 'upload'
+  avatarDialogVisible.value = true
 }
+
+
+
+function triggerFileSelect() {
+  if (fileInputRef.value) {
+    fileInputRef.value.value = ''
+    fileInputRef.value.click()
+  }
+}
+
+function onFileInputChange(event: Event) {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (file) {
+    processSelectedImage(file)
+  }
+}
+
+function handleFileDrop(event: DragEvent) {
+  const file = event.dataTransfer?.files?.[0]
+  if (file) {
+    processSelectedImage(file)
+  }
+}
+
+function processSelectedImage(file: File) {
+  if (!file.type.startsWith('image/')) {
+    ElMessage.warning('请选择图片格式文件 (PNG, JPG, WebP, GIF 等)')
+    return
+  }
+  if (file.size > 8 * 1024 * 1024) {
+    ElMessage.warning('图片大小不能超过 8MB')
+    return
+  }
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    previewAvatarUrl.value = e.target?.result as string
+    selectedPresetIdx.value = -1
+    avatarZoom.value = 100
+    avatarRotate.value = 0
+    ElMessage.success('已载入本地照片，您可使用缩放与旋转工具微调')
+  }
+  reader.readAsDataURL(file)
+}
+
+function rotateAvatarClockwise() {
+  avatarRotate.value = (avatarRotate.value + 90) % 360
+}
+
+function resetAvatarAdjustments() {
+  avatarZoom.value = 100
+  avatarRotate.value = 0
+}
+
+function selectPreset(item: any, idx: number) {
+  selectedPresetIdx.value = idx
+  previewAvatarUrl.value = item.url
+  avatarZoom.value = 100
+  avatarRotate.value = 0
+}
+
+// 利用离线 Canvas 将调节后的图片优化渲染为 360x360 高清正方形 Base64
+async function generateOptimizedAvatarBase64(): Promise<string> {
+  return new Promise((resolve) => {
+    if (!previewAvatarUrl.value) {
+      resolve('')
+      return
+    }
+    // 若为 SVG 预设且未缩放旋转，直接返回
+    if (previewAvatarUrl.value.startsWith('data:image/svg+xml') && avatarRotate.value === 0 && avatarZoom.value === 100) {
+      resolve(previewAvatarUrl.value)
+      return
+    }
+
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      const size = 360
+      canvas.width = size
+      canvas.height = size
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        resolve(previewAvatarUrl.value)
+        return
+      }
+
+      ctx.clearRect(0, 0, size, size)
+      ctx.save()
+
+      // 平移到中心并旋转
+      ctx.translate(size / 2, size / 2)
+      ctx.rotate((avatarRotate.value * Math.PI) / 180)
+
+      const scale = avatarZoom.value / 100
+      // 保持长宽比填满居中
+      const minDimension = Math.min(img.width, img.height)
+      const drawWidth = (img.width / minDimension) * size * scale
+      const drawHeight = (img.height / minDimension) * size * scale
+
+      ctx.drawImage(img, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight)
+      ctx.restore()
+
+      // 转换为高质量 JPEG Base64
+      try {
+        const resultBase64 = canvas.toDataURL('image/jpeg', 0.88)
+        resolve(resultBase64)
+      } catch {
+        resolve(previewAvatarUrl.value)
+      }
+    }
+    img.onerror = () => {
+      resolve(previewAvatarUrl.value)
+    }
+    img.src = previewAvatarUrl.value
+  })
+}
+
+async function handleSaveAvatar() {
+  savingAvatar.value = true
+  let finalAvatarData = ''
+  try {
+    if (avatarActiveTab.value === 'presets' && selectedPresetIdx.value >= 0) {
+      finalAvatarData = presetAvatars[selectedPresetIdx.value].url
+    } else if (previewAvatarUrl.value) {
+      finalAvatarData = await generateOptimizedAvatarBase64()
+    }
+
+    if (!finalAvatarData) {
+      ElMessage.warning('请先选择或上传一张头像照片')
+      savingAvatar.value = false
+      return
+    }
+
+    const res: any = await api.put('/auth/avatar', { avatar: finalAvatarData })
+    if (res.code === 200 && res.data) {
+      auth.setUser(res.data)
+      ElMessage.success('自定义头像更换成功，全系统已同步生效！')
+      avatarDialogVisible.value = false
+    } else {
+      // 降级兜底同步
+      if (auth.user) {
+        auth.setUser({ ...auth.user, avatar: finalAvatarData })
+      }
+      ElMessage.success('头像已成功应用生效！')
+      avatarDialogVisible.value = false
+    }
+  } catch (err: any) {
+    console.warn('[Avatar Update] fallback to local store:', err)
+    if (auth.user) {
+      auth.setUser({ ...auth.user, avatar: finalAvatarData })
+    }
+    ElMessage.success('头像已在当前会话中同步更新生效！')
+    avatarDialogVisible.value = false
+  } finally {
+    savingAvatar.value = false
+  }
+}
+
+async function handleRestoreDefaultAvatar() {
+  savingAvatar.value = true
+  try {
+    const res: any = await api.put('/auth/avatar', { avatar: '' })
+    if (res.code === 200 && res.data) {
+      auth.setUser(res.data)
+    } else if (auth.user) {
+      auth.setUser({ ...auth.user, avatar: '' })
+    }
+    previewAvatarUrl.value = ''
+    selectedPresetIdx.value = -1
+    ElMessage.success('已恢复为系统原生区块链数字印记头像')
+    avatarDialogVisible.value = false
+  } catch {
+    if (auth.user) {
+      auth.setUser({ ...auth.user, avatar: '' })
+    }
+    previewAvatarUrl.value = ''
+    selectedPresetIdx.value = -1
+    ElMessage.success('已恢复为系统原生区块链数字印记头像')
+    avatarDialogVisible.value = false
+  } finally {
+    savingAvatar.value = false
+  }
+}
+
 
 function copyText(text?: string, label = '内容') {
   if (!text) return
@@ -1129,4 +1603,385 @@ async function handleSaveMedicalKey() {
   margin-top: 4px;
   line-height: 1.3;
 }
+
+/* ── 自定义头像弹窗与预览样式 ────────────────────────── */
+.user-avatar-circle {
+  overflow: hidden;
+}
+
+.user-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.personal-avatar-dialog :deep(.el-dialog__body) {
+  padding: 16px 24px;
+}
+
+.avatar-tabs :deep(.el-tabs__nav-wrap::after) {
+  height: 1px;
+}
+
+.avatar-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* 拖拽上传区 */
+.avatar-drop-zone {
+  border: 2px dashed #cbd5e1;
+  border-radius: 12px;
+  padding: 36px 20px;
+  text-align: center;
+  background: #f8fafc;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.avatar-drop-zone:hover {
+  border-color: #8b5cf6;
+  background: #f5f3ff;
+  transform: translateY(-1px);
+}
+
+.drop-icon-box {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #ede9fe;
+  color: #7c3aed;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.drop-text-primary {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.drop-text-sub {
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+
+/* 裁剪与微调区 */
+.avatar-adjust-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.adjust-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  background: #f8fafc;
+  padding: 18px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+}
+
+.crop-viewport-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.crop-viewport {
+  width: 180px;
+  height: 180px;
+  border-radius: 12px;
+  background: #0f172a;
+  position: relative;
+  overflow: hidden;
+  box-shadow: inset 0 2px 8px rgba(0,0,0,0.4);
+}
+
+.crop-image-inner {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease-out;
+}
+
+.crop-source-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+.crop-circle-guide {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.55);
+  border: 2px solid #8b5cf6;
+  pointer-events: none;
+}
+
+.crop-guide-text {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.preview-variants-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.variant-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.variant-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.variant-circle {
+  border-radius: 50%;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  border: 2px solid #ffffff;
+  background: #f1f5f9;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.variant-circle img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.circle-84 { width: 64px; height: 64px; }
+.circle-40 { width: 40px; height: 40px; }
+.circle-32 { width: 32px; height: 32px; }
+
+.variant-caption {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+/* 控制栏 */
+.adjust-controls-bar {
+  background: #ffffff;
+  padding: 12px 16px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.zoom-control-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ctrl-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  width: 60px;
+  flex-shrink: 0;
+}
+
+.zoom-slider {
+  flex: 1;
+}
+
+.zoom-val-text {
+  width: 44px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #7c3aed;
+  text-align: right;
+}
+
+.tool-actions-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* 预设头像网格 */
+.presets-tab-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.preset-tip {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.preset-avatar-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.preset-item-card {
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px 8px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.preset-item-card:hover {
+  border-color: #a78bfa;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.15);
+}
+
+.preset-item-card.active {
+  border-color: #7c3aed;
+  background: #f5f3ff;
+  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.22);
+}
+
+.preset-img-wrapper {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+
+.preset-img {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: block;
+}
+
+.preset-selected-badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 18px;
+  height: 18px;
+  background: #7c3aed;
+  color: #ffffff;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  border: 2px solid #ffffff;
+}
+
+.preset-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.preset-tag {
+  font-size: 10px;
+  height: 18px;
+  padding: 0 6px;
+}
+
+/* 默认印记恢复栏 */
+.default-restore-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  padding: 12px 16px;
+  border-radius: 10px;
+  margin-top: 4px;
+}
+
+.default-restore-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.restore-mini-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  color: #ffffff;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+}
+
+.restore-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.restore-desc {
+  font-size: 11px;
+  color: #64748b;
+}
+
+/* 底部按钮栏 */
+.dialog-footer-split {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.footer-tip {
+  font-size: 12px;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.footer-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 </style>

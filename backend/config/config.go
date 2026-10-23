@@ -51,6 +51,14 @@ type Config struct {
 		Password string `yaml:"password"`
 		DB       int    `yaml:"db"`
 	} `yaml:"redis"`
+
+	AI struct {
+		Enabled     bool    `yaml:"enabled"`
+		APIURL      string  `yaml:"api_url"`
+		APIKey      string  `yaml:"api_key"`
+		Model       string  `yaml:"model"`
+		Temperature float64 `yaml:"temperature"`
+	} `yaml:"ai"`
 }
 
 func (c *Config) GetAESMasterKey() []byte {
@@ -82,6 +90,16 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if v := os.Getenv("AES_MASTER_KEY"); v != "" {
 		AppConfig.Security.AESMasterKey = v
+	}
+	if v := os.Getenv("AI_API_KEY"); v != "" {
+		AppConfig.AI.APIKey = v
+		AppConfig.AI.Enabled = true
+	}
+	if v := os.Getenv("AI_API_URL"); v != "" {
+		AppConfig.AI.APIURL = v
+	}
+	if v := os.Getenv("AI_MODEL"); v != "" {
+		AppConfig.AI.Model = v
 	}
 	return &AppConfig, nil
 }

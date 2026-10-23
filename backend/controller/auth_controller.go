@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"encoding/base64"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -113,6 +115,7 @@ type UpdateProfileRequest struct {
 	Phone    string `json:"phone"`
 	IDCard   string `json:"id_card"`
 	Title    string `json:"title"`
+	Avatar   string `json:"avatar"`
 }
 
 func (ctrl *AuthController) UpdateProfile(c *gin.Context) {
@@ -123,7 +126,7 @@ func (ctrl *AuthController) UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	user, err := service.DefaultAuthService.UpdateProfileWithContext(userID, req.RealName, req.Phone, req.IDCard, req.Title, c.ClientIP(), c.Request.UserAgent())
+	user, err := service.DefaultAuthService.UpdateProfileWithContext(userID, req.RealName, req.Phone, req.IDCard, req.Title, req.Avatar, c.ClientIP(), c.Request.UserAgent())
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: err.Error()})
 		return
@@ -132,6 +135,79 @@ func (ctrl *AuthController) UpdateProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, model.Response{
 		Code:    200,
 		Message: "个人信息更新成功",
+		Data:    user,
+	})
+}
+
+type UpdateAvatarRequest struct {
+	Avatar string `json:"avatar"`
+}
+
+func (ctrl *AuthController) UpdateAvatar(c *gin.Context) {
+	userID := c.GetUint64("user_id")
+	var req UpdateAvatarRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "参数错误"})
+		return
+	}
+
+	user, err := service.DefaultAuthService.UpdateAvatar(userID, req.Avatar, c.ClientIP(), c.Request.UserAgent())
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, model.Response{
+		Code:    200,
+		Message: "头像更新成功",
+		Data:    user,
+	})
+}
+
+func (ctrl *AuthController) UploadAvatar(c *gin.Context) {
+	userID := c.GetUint64("user_id")
+	file, err := c.FormFile("avatar")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "请选择要上传的头像图片"})
+		return
+	}
+
+	if file.Size > 5*1024*1024 {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "头像文件大小不能超过 5MB"})
+		return
+	}
+
+	f, err := file.Open()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "打开上传文件失败"})
+		return
+	}
+	defer f.Close()
+
+	buf := make([]byte, file.Size)
+	if _, err := f.Read(buf); err != nil {
+		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "读取图片内容失败"})
+		return
+	}
+
+	contentType := http.DetectContentType(buf)
+	if !strings.HasPrefix(contentType, "image/") {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "上传的文件不是有效的图片格式"})
+		return
+	}
+
+	base64Str := base64.StdEncoding.EncodeToString(buf)
+	avatarData := fmt.Sprintf("data:%s;base64,%s", contentType, base64Str)
+
+	user, err := service.DefaultAuthService.UpdateAvatar(userID, avatarData, c.ClientIP(), c.Request.UserAgent())
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, model.Response{
+		Code:    200,
+		Message: "头像上传成功",
 		Data:    user,
 	})
 }

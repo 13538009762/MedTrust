@@ -486,13 +486,39 @@
               <div class="ws-card-title">
                 <span class="step-badge">4</span>
                 <span>初诊信息采集 (S + O 初步)</span>
+                <el-button
+                  type="primary"
+                  size="small"
+                  class="ml-auto ai-diagnose-capsule-btn"
+                  @click="openAIDiagnosticAssist"
+                >
+                  <el-icon class="ai-spark-icon"><MagicStick /></el-icon>
+                  <span>AI 跨期病历关联辅助诊断</span>
+                </el-button>
               </div>
-              <el-form-item label="患者主诉 (Chief Complaint)" required>
+
+              <div class="symptom-input-header-row">
+                <span class="symptom-req-label">患者主诉 (Chief Complaint) <span class="text-danger">*</span></span>
+                <span class="symptom-ai-tip text-muted">输入患者主要症状后，可点击右侧按钮调用已授权跨期病历进行综合推演</span>
+              </div>
+
+              <div class="symptom-input-with-action mb-3">
                 <el-input
                   v-model="initForm.chief_complaint"
                   placeholder="简明记录患者就诊主要症状和持续时间，例如：胸闷心悸伴气促2天，劳累后加剧"
+                  class="symptom-flex-input"
                 />
-              </el-form-item>
+                <el-button
+                  type="primary"
+                  class="btn-trigger-ai-inline"
+                  @click="openAIDiagnosticAssist"
+                  title="调阅已授权跨期病历及化验单，分析发病间隔与疑似疾病"
+                >
+                  <el-icon><MagicStick /></el-icon>
+                  <span>AI 辅助诊断</span>
+                </el-button>
+              </div>
+
               <el-form-item label="现病史与诱因 (Present Illness)">
                 <el-input
                   v-model="initForm.present_illness"
@@ -1777,12 +1803,73 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- AI 跨期病历关联辅助诊断与鉴别推演工作台弹窗 -->
+    <AIDiagnosticModal
+      v-model="aiDiagnosticVisible"
+      :patient="selectedPatientInfo"
+      :current-symptoms="initForm.chief_complaint"
+      :present-illness="initForm.present_illness"
+      :vital-signs="formatVitalSignsText()"
+      :department-name="initForm.department_name"
+      @adopt-diagnosis="handleAdoptDiagnosisFromAI"
+      @adopt-treatment="handleAdoptTreatmentFromAI"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 // 当前主工作区视图: LIST-就诊记录列表, CREATE-接诊初诊工作台, FINAL-确诊存证工作台, DETAIL-全景病历详情工作台
 const currentView = ref<'LIST' | 'CREATE' | 'FINAL' | 'DETAIL'>('LIST')
+
+// ── AI 跨期病历关联辅助诊断状态与交互逻辑 ──────────────────────
+const aiDiagnosticVisible = ref(false)
+
+function openAIDiagnosticAssist() {
+  if (!initForm.value.patient_id && !selectedPatientInfo.value?.id) {
+    ElMessage.warning('请先在第 1 步选择或核验就诊患者')
+    return
+  }
+  aiDiagnosticVisible.value = true
+}
+
+function handleAdoptDiagnosisFromAI(item: any) {
+  if (encounterMode.value === 'DIRECT') {
+    directForm.value.diagnosis = item.disease_name
+    if (!directForm.value.etiology) {
+      directForm.value.etiology = item.clinical_basis || ''
+    }
+    generateDirectSOAP()
+  } else {
+    initForm.value.initial_diagnosis = item.disease_name
+    if (!initForm.value.diagnostic_basis) {
+      initForm.value.diagnostic_basis = item.clinical_basis || ''
+    }
+  }
+  ElMessage.success(`已成功采纳 AI 诊断建议：【${item.disease_name}】并回填至接诊表单`)
+}
+
+function handleAdoptTreatmentFromAI(treatment: any) {
+  if (treatment?.treatment_plan_text) {
+    if (encounterMode.value === 'DIRECT') {
+      directForm.value.treatment_plan = treatment.treatment_plan_text
+      generateDirectSOAP()
+    }
+  }
+  ElMessage.success('已成功采纳 AI 推荐处方用药方案')
+}
+
+function formatVitalSignsText() {
+  const parts = []
+  const v = vitals.value as any
+  if (v?.sbp && v?.dbp) parts.push(`血压 ${v.sbp}/${v.dbp} mmHg`)
+  else if (v?.blood_pressure) parts.push(`血压 ${v.blood_pressure}`)
+  if (v?.hr || v?.heart_rate) parts.push(`心率 ${v.hr || v.heart_rate} bpm`)
+  if (v?.temp || v?.temperature) parts.push(`体温 ${v.temp || v.temperature} ℃`)
+  if (v?.spo2) parts.push(`血氧 ${v.spo2} %`)
+  return parts.join('; ')
+}
+
 
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
@@ -1793,11 +1880,13 @@ function handleResize() {
 }
 const isWideScreen = computed(() => windowWidth.value >= 1200)
 
-import { Plus, Refresh, Search, View, Download, Printer, OfficeBuilding, Timer, Document, CircleCheckFilled, Picture, Files, ArrowLeft, CopyDocument, WarningFilled, InfoFilled, CircleCloseFilled } from '@element-plus/icons-vue'
+import { Plus, Refresh, Search, View, Download, Printer, OfficeBuilding, Timer, Document, CircleCheckFilled, Picture, Files, ArrowLeft, CopyDocument, WarningFilled, InfoFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import api from '../../api/client'
 import { useAuthStore } from '../../stores/auth'
 import TreatmentPlanEditor from '../../components/TreatmentPlanEditor.vue'
+import AIDiagnosticModal from '../../components/AIDiagnosticModal.vue'
+import { MagicStick } from '@element-plus/icons-vue'
 import InfectionSafetyAlert from '../../components/InfectionSafetyAlert.vue'
 import { scanTextForInfections } from '../../utils/infectionGuard'
 
@@ -5604,4 +5693,70 @@ onUnmounted(() => {
   scrollbar-width: thin !important;
   scrollbar-color: #64748b #f1f5f9 !important;
 }
+
+/* ── AI 辅助诊断按钮与布局样式 ────────────────────── */
+.ai-diagnose-capsule-btn {
+  background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%) !important;
+  border: none !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.28);
+  transition: all 0.25s ease;
+}
+
+.ai-diagnose-capsule-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.4);
+}
+
+.ai-spark-icon {
+  margin-right: 4px;
+}
+
+.symptom-input-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.symptom-req-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.symptom-ai-tip {
+  font-size: 11px;
+}
+
+.symptom-input-with-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.symptom-flex-input {
+  flex: 1;
+}
+
+.btn-trigger-ai-inline {
+  background: #ede9fe !important;
+  color: #7c3aed !important;
+  border: 1px solid #c4b5fd !important;
+  font-weight: 700 !important;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  height: 38px;
+  padding: 0 14px;
+}
+
+.btn-trigger-ai-inline:hover {
+  background: #ddd6fe !important;
+  color: #6d28d9 !important;
+}
+
 </style>

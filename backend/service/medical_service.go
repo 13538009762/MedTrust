@@ -1007,16 +1007,19 @@ func (s *MedicalService) EnrichPatientEmergencyProfile(user *model.User) {
 
 	if user.ID%3 == 1 {
 		user.Allergies = "青霉素类抗生素、头孢菌素轻度过敏"
+		user.HasAllergies = true
 		user.ChronicDiseases = "原发性高血压(2级中危), 2型糖尿病"
 		user.EmergencyContact = "李秀兰 (配偶)"
 		user.EmergencyPhone = "13800138021"
 	} else if user.ID%3 == 2 {
 		user.Allergies = "磺胺类药物过敏, 鱼虾等海鲜蛋白过敏"
+		user.HasAllergies = true
 		user.ChronicDiseases = "支气管哮喘, 慢性浅表性胃炎"
 		user.EmergencyContact = "张宏伟 (父亲)"
 		user.EmergencyPhone = "13911223344"
 	} else {
 		user.Allergies = "未发现明确药物过敏史"
+		user.HasAllergies = false
 		user.ChronicDiseases = "高脂血症, 偶发性心律不齐"
 		user.EmergencyContact = "王晓敏 (家属)"
 		user.EmergencyPhone = "13766554433"

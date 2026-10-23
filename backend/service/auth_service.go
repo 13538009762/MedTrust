@@ -388,10 +388,10 @@ func (s *AuthService) RegisterPatientWithContext(username, password, realName, i
 
 // UpdateProfile 修改个人基本信息（真实姓名、手机号、身份证号、职称）
 func (s *AuthService) UpdateProfile(userID uint64, realName, phone, idCard, title string) (*model.User, error) {
-	return s.UpdateProfileWithContext(userID, realName, phone, idCard, title, "SYSTEM_INTERNAL", "Internal")
+	return s.UpdateProfileWithContext(userID, realName, phone, idCard, title, "", "SYSTEM_INTERNAL", "Internal")
 }
 
-func (s *AuthService) UpdateProfileWithContext(userID uint64, realName, phone, idCard, title, clientIP, userAgent string) (*model.User, error) {
+func (s *AuthService) UpdateProfileWithContext(userID uint64, realName, phone, idCard, title, avatar, clientIP, userAgent string) (*model.User, error) {
 	if clientIP == "" {
 		clientIP = "UNKNOWN"
 	}
@@ -429,6 +429,10 @@ func (s *AuthService) UpdateProfileWithContext(userID uint64, realName, phone, i
 		updates["title"] = title
 		u.Title = title
 	}
+	if avatar != "" {
+		updates["avatar"] = avatar
+		u.Avatar = avatar
+	}
 
 	if err := repository.DB.Model(&model.User{}).Where("id = ?", userID).Updates(updates).Error; err != nil {
 		return nil, err
@@ -458,6 +462,59 @@ func (s *AuthService) UpdateProfileWithContext(userID uint64, realName, phone, i
 		IPAddress:     clientIP,
 		UserAgent:     userAgent,
 	})
+	return &u, nil
+}
+
+// UpdateAvatar 更新或清除用户自定义头像
+func (s *AuthService) UpdateAvatar(userID uint64, avatarData, clientIP, userAgent string) (*model.User, error) {
+	if clientIP == "" {
+		clientIP = "UNKNOWN"
+	}
+	if userAgent == "" {
+		userAgent = "Unknown"
+	}
+
+	var u model.User
+	if err := repository.DB.First(&u, userID).Error; err != nil {
+		return nil, errors.New("用户不存在")
+	}
+
+	updates := map[string]interface{}{
+		"avatar":     avatarData,
+		"updated_at": time.Now(),
+	}
+
+	if err := repository.DB.Model(&model.User{}).Where("id = ?", userID).Updates(updates).Error; err != nil {
+		return nil, err
+	}
+	u.Avatar = avatarData
+
+	if u.HospitalID > 0 {
+		var hosp model.Hospital
+		_ = repository.DB.First(&hosp, u.HospitalID)
+		u.HospitalName = hosp.Name
+	}
+	if u.DepartmentID > 0 {
+		var dept model.Department
+		_ = repository.DB.First(&dept, u.DepartmentID)
+		u.DepartmentName = dept.Name
+	}
+
+	DefaultAuditService.LogDetailed(AuditEntry{
+		UserID:        u.ID,
+		OperationType: "UPDATE_AVATAR",
+		TargetType:    "USER",
+		TargetID:      u.UserNo,
+		HospitalID:    u.HospitalID,
+		Result:        "SUCCESS",
+		RiskLevel:     "LOW",
+		RiskScore:     0,
+		Source:        "WEB",
+		Reason:        "更新个人自定义头像",
+		IPAddress:     clientIP,
+		UserAgent:     userAgent,
+	})
+
 	return &u, nil
 }
 

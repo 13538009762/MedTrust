@@ -28,7 +28,7 @@
             :class="['chat-bubble', msg.sender === 'user' ? 'user-msg' : 'ai-msg']"
           >
             <div class="sender-avatar">
-              <el-avatar v-if="msg.sender === 'user'" :size="32" style="background: #8b5cf6">
+              <el-avatar v-if="msg.sender === 'user'" :size="32" :src="auth.user?.avatar" style="background: #8b5cf6">
                 我
               </el-avatar>
               <img v-else src="/emblem.png" class="ai-msg-avatar" alt="MedTrust AI" />

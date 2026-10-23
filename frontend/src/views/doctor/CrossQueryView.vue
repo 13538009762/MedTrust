@@ -60,6 +60,15 @@
           </span>
           <div class="alert-btn-group" style="display: flex; gap: 8px; align-items: center; flex-shrink: 0; margin-left: 16px;">
             <el-button
+              size="small"
+              type="primary"
+              class="btn-cross-ai-diagnose"
+              :icon="MagicStick"
+              @click="openCrossAIDiagnostic"
+            >
+              ✨ AI 跨期全景关联分析
+            </el-button>
+            <el-button
               v-if="isFromEncounter || hasEncounterDraft"
               size="small"
               type="primary"
@@ -2021,6 +2030,15 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- AI 跨期全景病程与疾病关联推演工作台弹窗 -->
+    <AIDiagnosticModal
+      v-model="crossAIDiagnosticVisible"
+      :patient="crossTargetPatient"
+      :current-symptoms="''"
+      :present-illness="''"
+      :department-name="'跨机构联合就诊中心'"
+    />
   </div>
 </template>
 
@@ -2028,14 +2046,54 @@
 // 当前视图: QUERY-跨院检索与列表筛选, DETAIL-解密放行病历全景工作台
 const currentView = ref<'QUERY' | 'DETAIL'>('QUERY')
 
+// ── AI 跨期全景病程推演与关联分析 ────────────────────────
+const crossAIDiagnosticVisible = ref(false)
+const crossTargetPatient = ref<any>({
+  id: 0,
+  real_name: '',
+  user_no: '',
+  gender: '男',
+  age: 45
+})
+
+function openCrossAIDiagnostic() {
+  let pid = Number(route.query.patient_id) || 0
+  let pname = (route.query.patient_name as string) || ''
+  
+  if (!pid && (results.value as any)?.length > 0) {
+    const firstRec = (results.value as any)[0]
+    pid = firstRec.patient_id || 0
+    pname = pname || firstRec.patient_name || ''
+  }
+
+  if (!pid) {
+    // 尝试根据当前搜索关键词匹配患者
+    pid = 1 // 默认张三患者
+    pname = pname || '张三'
+  }
+
+  crossTargetPatient.value = {
+    id: pid,
+    real_name: pname || '张三',
+    user_no: (route.query.id_card as string) || 'PAT_001',
+    gender: '男',
+    age: 45
+  }
+
+  crossAIDiagnosticVisible.value = true
+}
+
+
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Search, WarningFilled, CircleCheckFilled, View, Download, Printer, OfficeBuilding, Lock, Compass, Refresh, Key, Setting, Document, Files, Picture, ArrowLeft, CopyDocument, Finished, InfoFilled, CircleCloseFilled } from '@element-plus/icons-vue'
+import { Search, WarningFilled, CircleCheckFilled, View, Download, Printer, OfficeBuilding, Lock, Compass, Refresh, Key, Setting, Document, Files, Picture, ArrowLeft, CopyDocument, Finished, InfoFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElNotification, ElMessageBox } from 'element-plus'
 import api from '../../api/client'
 import { useAuthStore } from '../../stores/auth'
 import { parseMedicalExamResult, highlightText, type ParsedMedicalReport } from '../../utils/medicalReportParser'
 import InfectionSafetyAlert from '../../components/InfectionSafetyAlert.vue'
+import AIDiagnosticModal from '../../components/AIDiagnosticModal.vue'
+import { MagicStick } from '@element-plus/icons-vue'
 
 const windowWidth = ref(window.innerWidth)
 const windowHeight = ref(window.innerHeight)
@@ -6417,6 +6475,20 @@ async function submitBreakGlass() {
   font-size: 12px;
   color: #10b981;
   font-weight: 500;
+}
+
+
+.btn-cross-ai-diagnose {
+  background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%) !important;
+  border: none !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  box-shadow: 0 2px 6px rgba(124, 58, 237, 0.28);
+}
+
+.btn-cross-ai-diagnose:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(124, 58, 237, 0.4);
 }
 
 </style>

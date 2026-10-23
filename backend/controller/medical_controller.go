@@ -875,3 +875,31 @@ func (ctrl *MedicalController) EvaluateInfectionText(c *gin.Context) {
 	alert := service.GetInfectionService().EvaluateDirectText(req.Text)
 	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "success", Data: alert})
 }
+
+// DiagnosticAssist 医生工作台：AI 跨期病历关联辅助诊断与鉴别分析
+func (ctrl *MedicalController) DiagnosticAssist(c *gin.Context) {
+	currentUserID := c.GetUint64("user_id")
+	role := c.GetString("role")
+	if role != "doctor" {
+		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "仅执业医师角色可调用 AI 辅助诊断服务"})
+		return
+	}
+
+	var req model.DiagnosticAssistRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "参数错误: " + err.Error()})
+		return
+	}
+
+	result, err := service.GetAIDiagnosticService().AnalyzePatientDiagnosticCorrelation(currentUserID, req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "AI 辅助诊断执行失败: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, model.Response{
+		Code:    200,
+		Message: "AI 跨期病历关联辅助诊断推演成功",
+		Data:    result,
+	})
+}
