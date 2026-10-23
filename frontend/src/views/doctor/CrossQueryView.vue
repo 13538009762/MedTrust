@@ -1114,7 +1114,7 @@
 
               <div class="archive-files-section">
                 <div v-if="releasedRecord.files && releasedRecord.files.length" class="file-cards-list">
-                  <div v-for="file in releasedRecord.files" :key="file.id" class="file-item-bento">
+                  <div v-for="file in getDistinctFiles(releasedRecord.files)" :key="file.id" class="file-item-bento">
                     <!-- 顶部行：图标 + 文件名 + 类型与大小 -->
                     <div class="fib-top-row">
                       <div class="fib-icon">
@@ -1124,10 +1124,10 @@
                       </div>
                       <div class="fib-meta">
                         <div class="fib-name-box">
-                          <span class="fib-name" :title="file.file_name">{{ file.file_name }}</span>
+                          <span class="fib-name" :title="file.file_name || '临床就诊规范归档凭据.pdf'">{{ file.file_name || '临床就诊规范归档凭据.pdf' }}</span>
                         </div>
                         <div class="fib-tags">
-                          <el-tag size="small" type="primary" effect="light" class="type-tag">{{ file.file_type.toUpperCase() }}</el-tag>
+                          <el-tag size="small" type="primary" effect="light" class="type-tag">{{ (file.file_type || 'PDF').toUpperCase() }}</el-tag>
                           <el-tag size="small" type="success" effect="plain" class="size-tag">{{ formatFileSize(file.file_size) }}</el-tag>
                         </div>
                       </div>
@@ -2631,6 +2631,17 @@ const previewingRecord = ref<any>(null)
 const imageModalVisible = ref(false)
 const imageModalUrl = ref('')
 const imageModalTitle = ref('')
+
+function getDistinctFiles(files: any[]) {
+  if (!files || !files.length) return []
+  const seen = new Set<string>()
+  return files.filter((f: any) => {
+    const key = f.ipfs_cid || String(f.id)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
 
 function isImageFileType(ft?: string) {
   if (!ft) return false

@@ -108,6 +108,12 @@ func (s *ConsistencyService) CreateRecordWithConsistency(p UploadRecordParams, i
 		p.FileName = fmt.Sprintf("临床就诊规范归档凭据_%s.pdf", recordNo)
 		p.FileType = "pdf"
 	}
+	if p.FileName == "" {
+		p.FileName = fmt.Sprintf("临床就诊规范归档凭据_%s.pdf", recordNo)
+	}
+	if p.FileType == "" {
+		p.FileType = "pdf"
+	}
 
 	// 初始草稿记录（处于 PENDING 状态）
 	record := model.MedicalRecord{
@@ -190,9 +196,11 @@ func (s *ConsistencyService) CreateRecordWithConsistency(p UploadRecordParams, i
 		record.SyncStatus = SyncStatusRetrying
 		record.SyncError = fmt.Sprintf("Fabric 上链背书失败: %v", err)
 		if repository.DB != nil {
+			record.Files = nil
 			_ = repository.DB.Create(&record)
 			fileRecord.RecordID = record.ID
 			_ = repository.DB.Create(&fileRecord)
+			record.Files = []model.MedicalFile{fileRecord}
 		}
 		return nil, fmt.Errorf("阶段二 Fabric 上链失败(已置为 RETRYING 待补偿): %w", err)
 	}
@@ -205,6 +213,7 @@ func (s *ConsistencyService) CreateRecordWithConsistency(p UploadRecordParams, i
 	if repository.DB != nil {
 		tx := repository.DB.Begin()
 		record.SyncStatus = SyncStatusDBSuccess
+		record.Files = nil
 		if err := tx.Create(&record).Error; err != nil {
 			tx.Rollback()
 			record.SyncStatus = SyncStatusFailed
@@ -218,6 +227,7 @@ func (s *ConsistencyService) CreateRecordWithConsistency(p UploadRecordParams, i
 			return nil, fmt.Errorf("保存病历附件失败: %w", err)
 		}
 		tx.Commit()
+		record.Files = []model.MedicalFile{fileRecord}
 	}
 
 	// 阶段 4: 终态确认 (COMPLETED)

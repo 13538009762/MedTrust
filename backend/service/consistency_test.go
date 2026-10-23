@@ -66,7 +66,10 @@ func TestConsistency_StateMachineAndReconciliation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateRecordWithConsistency failed: %v", err)
 	}
-	defer repository.DB.Delete(rec)
+	defer func() {
+		repository.DB.Where("record_id = ?", rec.ID).Delete(&model.MedicalFile{})
+		repository.DB.Delete(rec)
+	}()
 
 	if rec.SyncStatus != service.SyncStatusCompleted {
 		t.Fatalf("预期状态机终态为 COMPLETED，实际为: %s", rec.SyncStatus)
