@@ -30,13 +30,13 @@ echo "[OK] 组织证书与 MSP 配置就绪."
 echo "[3/5] 启动 Fabric 容器 (Orderer, Peer0.Org1, Peer0.Org2, CLI)..."
 docker compose -f deploy/fabric/docker-compose-test-net.yaml up -d
 
-# 4. 创建通道 medchannel
-echo "[4/5] 创建统一通道 medchannel 并加入组织节点..."
+# 4. 创建通道 medicalchannel
+echo "[4/5] 创建统一通道 medicalchannel 并加入组织节点..."
 sleep 3
 docker exec cli /bin/bash /opt/gopath/src/github.com/hyperledger/fabric/peer/scripts/network.sh channel
 
-# 5. 部署智能合约 medical
-echo "[5/5] 打包、审批并提交 medical 医疗智能合约..."
+# 5. 部署智能合约 medical_contract
+echo "[5/5] 打包、审批并提交 medical_contract 医疗智能合约..."
 docker exec cli /bin/bash /opt/gopath/src/github.com/hyperledger/fabric/peer/scripts/network.sh deploy
 
 echo "====================================================================="

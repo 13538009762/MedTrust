@@ -318,7 +318,7 @@ type BlockchainTransaction struct {
 	BusinessID    string    `gorm:"size:64;index" json:"business_id"`
 	TxID          string    `gorm:"size:128;uniqueIndex" json:"tx_id"`
 	BlockNo       uint64    `gorm:"default:0;index" json:"block_no"`
-	ChannelName   string    `gorm:"size:64;default:'medchannel'" json:"channel_name"`
+	ChannelName   string    `gorm:"size:64;default:'medicalchannel'" json:"channel_name"`
 	ChaincodeName string    `gorm:"size:64;default:'medical_contract'" json:"chaincode_name"`
 	Status        string    `gorm:"size:20;default:'VALID'" json:"status"` // VALID, INVALID
 	CreatedAt     time.Time `gorm:"index" json:"created_at"`

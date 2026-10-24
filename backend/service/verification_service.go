@@ -126,7 +126,7 @@ func (s *VerificationService) Verify(recordID uint64, clientIP ...string) (*Veri
 		StageName: "阶段三：联盟链分布式背书与出块凭据核验",
 		Passed:    stage3Pass,
 		LocalVal:  record.FabricTxID,
-		ChainVal:  fmt.Sprintf("Block #%d | Channel: medchannel | Peers: Org1MSP, Org2MSP", record.BlockHeight),
+		ChainVal:  fmt.Sprintf("Block #%d | Channel: medicalchannel | Peers: Org1MSP, Org2MSP", record.BlockHeight),
 		Detail: func() string {
 			if stage3Pass {
 				return "Hyperledger Fabric 2.5 智能合约多组织背书有效，区块真实固化存证"

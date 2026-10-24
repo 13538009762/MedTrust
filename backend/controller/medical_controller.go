@@ -629,7 +629,7 @@ func (ctrl *MedicalController) ViewMedicalFile(c *gin.Context) {
 					contentType = "application/pdf"
 				}
 				c.Header("Content-Type", contentType)
-				c.Header("Content-Disposition", "inline; filename="+file.FileName)
+				c.Header("Content-Disposition", fmt.Sprintf("inline; filename*=UTF-8''%s", url.QueryEscape(file.FileName)))
 				c.Data(http.StatusOK, contentType, plainData)
 				return
 			}

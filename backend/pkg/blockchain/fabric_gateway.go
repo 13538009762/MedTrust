@@ -57,10 +57,10 @@ func NewFabricGatewayService(cfg FabricGatewayConfig) *FabricGatewayService {
 	}
 
 	if s.cfg.ChannelID == "" {
-		s.cfg.ChannelID = "medchannel"
+		s.cfg.ChannelID = "medicalchannel"
 	}
 	if s.cfg.ChaincodeID == "" {
-		s.cfg.ChaincodeID = "medical"
+		s.cfg.ChaincodeID = "medical_contract"
 	}
 	if s.cfg.GatewayPeer == "" {
 		s.cfg.GatewayPeer = "peer0.org1.example.com"

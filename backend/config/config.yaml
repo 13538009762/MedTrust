@@ -15,8 +15,8 @@ ipfs:
 # 区块链存证与账本服务 (双模设计: 具备完整 Fabric 2.5 链码与 gRPC 网关，亦具备单机离线容灾引擎)
 blockchain:
   mode: "fabric" # "fabric" 或 "mock"，支持环境变量 BLOCKCHAIN_MODE 覆盖 (最高优先级)
-  channel_id: "medchannel"
-  chaincode_id: "medical"
+  channel_id: "medicalchannel"
+  chaincode_id: "medical_contract"
   ledger_dir: "./data/fabric_ledger"
   fabric:
     enabled: true

@@ -5,7 +5,7 @@ echo "====================================================================="
 
 docker compose -f deploy/fabric/docker-compose-test-net.yaml down -v --remove-orphans
 docker ps -a --filter "name=dev-peer" -q | xargs -r docker rm -f >/dev/null 2>&1 || true
-rm -f deploy/fabric/channel-config/medchannel.block deploy/fabric/medchannel.block
+rm -f deploy/fabric/channel-config/medicalchannel.block deploy/fabric/medicalchannel.block deploy/fabric/channel-config/medchannel.block deploy/fabric/medchannel.block
 
 echo "====================================================================="
 echo "Fabric Network Stopped Successfully."

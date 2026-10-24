@@ -266,9 +266,9 @@
       <el-form :model="form" label-width="110px">
         <el-form-item label="授权目标类型" required>
           <el-radio-group v-model="form.auth_target_type" size="default" @change="onTargetTypeChange">
-            <el-radio-button value="ALL_DOCTORS">让所有医生都可见 (全联盟公开)</el-radio-button>
-            <el-radio-button value="DOCTOR">指定执业医生 (精确至个人)</el-radio-button>
+            <el-radio-button value="DOCTOR">指定执业医生 (精确至个人 · 推荐)</el-radio-button>
             <el-radio-button value="HOSPITAL">指定医院机构 (全院科室)</el-radio-button>
+            <el-radio-button value="ALL_DOCTORS">联盟全体医生 (全网公开)</el-radio-button>
           </el-radio-group>
         </el-form-item>
 
@@ -327,8 +327,8 @@
         <!-- 授权范围 -->
         <el-form-item label="授权数据范围" required>
           <el-radio-group v-model="form.scope_type" size="default" @change="onScopeTypeChange">
+            <el-radio value="SINGLE">指定单份就诊病历 (最小必要原则 · 推荐)</el-radio>
             <el-radio value="ALL">全部健康档案 (涵盖全网所有就诊记录)</el-radio>
-            <el-radio value="SINGLE">指定单份就诊病历 (最小必要原则，推荐)</el-radio>
           </el-radio-group>
         </el-form-item>
 
@@ -928,9 +928,9 @@ const loadingDoctors = ref(false)
 const loadingMyRecords = ref(false)
 
 const form = ref({
-  auth_target_type: 'ALL_DOCTORS' as 'DOCTOR' | 'HOSPITAL' | 'ALL_DOCTORS',
+  auth_target_type: 'DOCTOR' as 'DOCTOR' | 'HOSPITAL' | 'ALL_DOCTORS',
   auth_target_id: undefined as number | undefined,
-  scope_type: 'ALL' as 'ALL' | 'SINGLE',
+  scope_type: 'SINGLE' as 'ALL' | 'SINGLE',
   record_id: undefined as number | undefined,
   days: 30,
 })

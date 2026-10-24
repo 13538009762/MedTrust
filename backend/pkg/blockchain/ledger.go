@@ -82,8 +82,8 @@ func (l *MockLedgerService) GetBlockchainStatus() BlockchainStatusDTO {
 		Mode:        "mock",
 		Connected:   false,
 		Message:     "MockLedger Development Mode",
-		Network:     "medchannel",
-		Chaincode:   "medical",
+		Network:     "medicalchannel",
+		Chaincode:   "medical_contract",
 		Peer:        "peer0.org1.example.com (Mock)",
 		LatestBlock: l.currentHeight,
 	}
@@ -140,7 +140,7 @@ func (l *MockLedgerService) CommitAsset(assetType, assetID string, payload map[s
 	l.persist()
 
 	if TxRecorder != nil {
-		TxRecorder(assetType, assetID, txID, l.currentHeight, "medchannel", "medical_contract", "VALID")
+		TxRecorder(assetType, assetID, txID, l.currentHeight, "medicalchannel", "medical_contract", "VALID")
 	}
 
 	return txID, l.currentHeight, nil

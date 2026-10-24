@@ -1,0 +1,61 @@
+{
+  "mcpServers": {
+    "context7": {
+      "command": "cmd.exe",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@upstash/context7-mcp"
+      ]
+    },
+    "playwright": {
+      "command": "cmd.exe",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@executeautomation/playwright-mcp-server"
+      ]
+    },
+    "docker-mcp": {
+      "command": "cmd.exe",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "mcp-server-docker"
+      ]
+    },
+    "postgres-mcp": {
+      "command": "cmd.exe",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-postgres",
+        "postgresql://postgres:YOUR_POSTGRES_PASSWORD@127.0.0.1:5432/your_database"
+      ],
+      "env": {
+        "READ_ONLY": "true"
+      }
+    },
+    "mysql-mcp": {
+      "command": "cmd.exe",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@benborla29/mcp-server-mysql"
+      ],
+      "env": {
+        "MYSQL_HOST": "127.0.0.1",
+        "MYSQL_PORT": "3306",
+        "MYSQL_USER": "root",
+        "MYSQL_PASSWORD": "YOUR_MYSQL_PASSWORD",
+        "MYSQL_DATABASE": "your_database",
+        "READ_ONLY": "true"
+      }
+    }
+  }
+}

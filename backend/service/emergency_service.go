@@ -109,7 +109,7 @@ func (s *EmergencyService) SubmitPatientFeedback(patientID uint64, eventNo, feed
 
 	event.PatientFeedback = feedback
 	if comment != "" {
-		event.Description = fmt.Sprintf("%s | [患者反馈: %s]", event.Description, comment)
+		event.PatientComment = comment
 	}
 	event.UpdatedAt = time.Now()
 	if err := repository.DB.Save(&event).Error; err != nil {
