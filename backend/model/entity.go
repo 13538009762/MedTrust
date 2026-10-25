@@ -254,11 +254,14 @@ type EmergencyAccessEvent struct {
 	UpdatedAt        time.Time `json:"updated_at"`
 
 	// 辅助展示
-	DoctorName         string `gorm:"-" json:"doctor_name,omitempty"`
-	PatientName        string `gorm:"-" json:"patient_name,omitempty"`
-	RecordNo           string `gorm:"-" json:"record_no,omitempty"`
-	SourceHospitalName string `gorm:"-" json:"source_hospital_name,omitempty"`
-	TargetHospitalName string `gorm:"-" json:"target_hospital_name,omitempty"`
+	DoctorName             string `gorm:"-" json:"doctor_name,omitempty"`
+	PatientName            string `gorm:"-" json:"patient_name,omitempty"`
+	RecordNo               string `gorm:"-" json:"record_no,omitempty"`
+	SourceHospitalName     string `gorm:"-" json:"source_hospital_name,omitempty"`
+	TargetHospitalName     string `gorm:"-" json:"target_hospital_name,omitempty"`
+	RulePreScreen          string `gorm:"-" json:"rule_pre_screen,omitempty"`
+	RulePreScreenDesc      string `gorm:"-" json:"rule_pre_screen_desc,omitempty"`
+	AuditComparisonSummary string `gorm:"-" json:"audit_comparison_summary,omitempty"`
 }
 
 func (EmergencyAccessEvent) TableName() string {

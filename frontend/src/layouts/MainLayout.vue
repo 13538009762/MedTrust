@@ -5,7 +5,7 @@
         <img src="/emblem.png" class="brand-logo" alt="MedTrust 3D Emblem" />
         <div v-if="!isCollapse" class="brand-info">
           <span class="brand-title">MedTrust</span>
-          <span class="brand-badge">可信共享 2.0</span>
+          <span class="brand-badge">医联体可信共享 2.0</span>
         </div>
       </div>
 
@@ -134,14 +134,14 @@
         </div>
 
         <div class="header-right">
-          <!-- 答辩演示向导快捷入口 -->
+          <!-- 业务演练向导快捷入口 -->
           <el-button
             type="primary"
             size="small"
             class="defense-guide-launch-btn"
             @click="defenseModalVisible = true"
           >
-            答辩演示向导
+            业务演练向导
           </el-button>
 
           <!-- 联盟链与 IPFS 底层实时双状态指示灯 -->
@@ -223,7 +223,7 @@
       <!-- 全局受控 AI 助手悬浮窗 -->
       <AiAssistantDialog />
 
-      <!-- 毕业答辩演示向导大弹窗 -->
+      <!-- 业务场景演练向导大弹窗 -->
       <DefenseDemoGuideModal v-model="defenseModalVisible" />
     </el-container>
   </el-container>
@@ -535,8 +535,7 @@ async function onLogout() {
 }
 .medtrust-header {
   height: 64px;
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(12px);
+  background: #ffffff;
   border-bottom: 1px solid rgba(226, 232, 240, 0.8);
   display: flex;
   align-items: center;

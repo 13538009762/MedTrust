@@ -3,11 +3,11 @@
     <div class="page-header">
       <div>
         <h2 class="page-title">联盟链存证监控与监管大屏</h2>
-        <p class="page-sub">依据毕业设计技术指标：实时监控跨机构数据共享流转量、Fabric 区块高度、风险拦截统计与防篡改动态校验通过率</p>
+        <p class="page-sub">国家健康医疗大数据互联互通合规监管中枢 · 实时监控跨机构数据流转合规性、Fabric 联盟链区块高度与防篡改审计动态</p>
       </div>
     </div>
 
-    <!-- 区块链底层网络实时运行状态卡片 (毕业设计核心技术指标) -->
+    <!-- 区块链底层网络实时运行状态卡片 (核心技术基础设施指标) -->
     <el-card shadow="hover" class="blockchain-status-card mb-4">
       <div class="chain-status-container">
         <div class="chain-status-left">
@@ -36,7 +36,7 @@
               Hyperledger Fabric 2.5 联盟链网络正常运行，经由 gRPC Gateway 安全互联，Raft 共识持续出块中
             </template>
             <template v-else-if="chainStatus.mode === 'mock'">
-              本地仿真开发模式 (MockLedger fallback 模式)，适合无 Docker 环境下的快速单机逻辑联调
+              沙箱隔离演练节点 (Sandbox Ledger Fallback) · 处于轻量级快速仿真校验与安全沙盒模式
             </template>
             <template v-else>
               底层 Fabric 联盟链服务未就绪，系统已触发安全熔断保护，拒绝伪造上链存证
@@ -52,7 +52,7 @@
               size="small"
               effect="dark"
             >
-              {{ chainStatus.mode === 'fabric' ? 'Fabric 2.5' : 'MockLedger' }}
+              {{ chainStatus.mode === 'fabric' ? 'Fabric 2.5' : 'Sandbox 沙箱节点' }}
             </el-tag>
           </div>
           <div class="meta-item">
@@ -256,7 +256,7 @@
       </el-col>
     </el-row>
 
-    <!-- 第四行：全网实时安全事件与存证流 (毕业设计核心监控流) -->
+    <!-- 第四行：全网实时安全事件与存证流 (全域安全与联盟链存证审计流) -->
     <el-card shadow="hover" class="chart-card mt-4">
       <template #header>
         <div class="chart-header-row stream-header-wrap">

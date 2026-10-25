@@ -23,7 +23,7 @@
           查看区块链原始存证 (Raw Asset)
         </el-button>
         <el-button type="danger" :loading="tampering" @click="simulateTamper">
-          模拟真实数据库恶意篡改 (答辩攻击演练)
+          模拟底层数据库恶意篡改 (越权攻击对抗演练)
         </el-button>
         <el-button v-if="hasTampered" type="success" :loading="restoring" @click="restoreTamper">
           一键恢复原始数据 (撤销篡改)
@@ -46,7 +46,7 @@
         </div>
       </div>
 
-      <!-- 三阶段核验细分卡片 (答辩演示核心亮点) -->
+      <!-- 三阶段核验细分卡片 (密码学分层核验核心机制) -->
       <div class="stages-breakdown mb-4">
         <h4 class="stages-title">三阶段防篡改递进式密码学核验明细</h4>
         <div class="stages-grid">

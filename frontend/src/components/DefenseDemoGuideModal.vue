@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     v-model="visible"
-    title="MedTrust 毕业设计答辩演示向导 (8 大核心场景演练指南)"
+    title="MedTrust 业务演练与场景导航 (8 大核心医疗协同场景)"
     width="920px"
     top="4vh"
     class="defense-guide-modal"
@@ -9,9 +9,9 @@
   >
     <div class="guide-intro-banner">
       <div class="gib-left">
-        <h4>基于区块链的跨机构医疗数据可信共享平台 · 答辩全流程推演导航</h4>
+        <h4>基于区块链的跨机构医疗数据可信共享平台 · 全场景业务流演练指南</h4>
         <p>
-          本向导严格按照毕业设计任务书指标编排。涵盖 Fabric 2.5 真实联盟链底座、密文 IPFS 托管、规范 SOAP 接诊、医技协同、零信任规则风控网关、Break-Glass 破窗急救、黑客篡改攻击演示与规范 PDF 1.4 凭证验真。
+          本向导严格依照医疗数据跨机构协同安全规范与技术指标编排。涵盖 Fabric 2.5 真实联盟链底座、密文 IPFS 托管、规范 SOAP 临床接诊、医技协同、零信任规则风控网关、Break-Glass 破窗急救、防篡改对抗实战与合规数据凭证验真。
         </p>
       </div>
       <div class="gib-right">
@@ -39,7 +39,7 @@
 
         <p class="sc-desc"><strong>【业务背景】</strong>{{ s.desc }}</p>
         <div class="sc-points">
-          <strong>【答辩考核要点】</strong>
+          <strong>【技术与合规要点】</strong>
           <ul>
             <li v-for="(p, pi) in s.points" :key="pi">{{ p }}</li>
           </ul>
@@ -47,8 +47,8 @@
 
         <div class="sc-speech-box">
           <div class="speech-header">
-            <span>答辩讲解词提示 (推荐表述):</span>
-            <el-button link type="primary" size="small" @click="copySpeech(s.speech)">复制讲解词</el-button>
+            <span>场景推演要点解说:</span>
+            <el-button link type="primary" size="small" @click="copySpeech(s.speech)">复制解说词</el-button>
           </div>
           <p class="speech-content">{{ s.speech }}</p>
         </div>
@@ -115,7 +115,7 @@ const scenarios = [
       '实时展示区块高度、联盟链交易总数、动态验真率及全网流转大屏',
       '监管大屏底部配备【实时全网安全事件与存证流】'
     ],
-    speech: '尊敬的各位答辩老师，系统底层采用 Hyperledger Fabric 2.5 联盟链与 IPFS 分布式文件系统双轨架构。屏幕上方绿标展示 medchannel 通道与 Org1/Org2 节点正常出块，全网每一笔调阅与验真事件均不可篡改地记录于监管事件流。'
+    speech: '系统底层采用 Hyperledger Fabric 2.5 联盟链与 IPFS 分布式文件系统双轨架构。屏幕上方绿标展示 medchannel 通道与 Org1/Org2 节点正常出块，全网每一笔调阅与验真事件均不可篡改地记录于监管事件流。'
   },
   {
     id: 2,
@@ -212,7 +212,7 @@ const scenarios = [
       '阶段三：联盟链身份与智能合约背书核验 (TxID & BlockHeight)',
       '配备【查看区块链原始存证】弹窗，展示链上真实 JSON'
     ],
-    speech: '这是整个答辩最精彩的攻防演练：我们模拟黑客攻击后台数据库篡改处方。在安全验真工作台发起动态核验，系统解密重算哈希，与 Fabric 链上原始存证比对，瞬间亮起高危红标！点击【查看区块链原始存证】可查验真实的链上不可篡改凭证。'
+    speech: '本环节演示安全攻防与完整性校验：系统模拟外部攻击或未经授权的数据篡改。在安全验真工作台发起动态核验，系统解密重算哈希，与 Fabric 链上原始存证比对，瞬间亮起高危红标！点击【查看区块链原始存证】可查验真实的链上不可篡改凭证。'
   },
   {
     id: 8,

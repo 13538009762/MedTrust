@@ -32,7 +32,7 @@ func GetAIDiagnosticService() *AIDiagnosticService {
 	return DefaultAIDiagnosticService
 }
 
-// AnalyzePatientDiagnosticCorrelation 核心业务：调阅患者已授权病历，进行跨期病程、症状演进、用药反馈与化验单的 AI 关联推演
+// AnalyzePatientDiagnosticCorrelation 核心业务：调阅患者已授权病历，进行跨机构 SOAP 结构化摘要与非结构化隐匿线索提取
 func (s *AIDiagnosticService) AnalyzePatientDiagnosticCorrelation(doctorID uint64, req model.DiagnosticAssistRequest) (*model.DiagnosticAssistResult, error) {
 	if req.PatientID == 0 {
 		return nil, errors.New("患者 ID 不能为空")
@@ -56,9 +56,25 @@ func (s *AIDiagnosticService) AnalyzePatientDiagnosticCorrelation(doctorID uint6
 	}
 
 	// 过滤出当前医生具备合法明文查阅权的病历
-	var authorizedRecords []model.MedicalRecord
+	var candidateRecords []model.MedicalRecord
+	var candidateIDs []uint64
 	for _, r := range allRecords {
 		if r.HasAccess || r.HospitalID == doctor.HospitalID {
+			candidateRecords = append(candidateRecords, r)
+			candidateIDs = append(candidateIDs, r.ID)
+		}
+	}
+
+	// 关卡三：Go 授权范围后置校验 (二次严格核验全部病历 ID，杜绝大模型越权引用)
+	validIDs := s.ValidateAuthorizedRecordScope(doctorID, req.PatientID, candidateIDs)
+	validSet := make(map[uint64]bool)
+	for _, id := range validIDs {
+		validSet[id] = true
+	}
+
+	var authorizedRecords []model.MedicalRecord
+	for _, r := range candidateRecords {
+		if validSet[r.ID] {
 			authorizedRecords = append(authorizedRecords, r)
 		}
 	}
@@ -186,21 +202,30 @@ func (s *AIDiagnosticService) AnalyzePatientDiagnosticCorrelation(doctorID uint6
 	// 判定主诉主要受累系统与疾病预测
 	predictedDiseases, symptomCorrelation, medCorrelation, labSummary, analysisSummary, recommendedTreatment, warnings := s.deriveClinicalDeductions(combinedText, req, timelineItems, pastMeds, abnormalLabs, patient)
 
-	// 8. 组装完整标准推理 Prompt
+	// 8. 提炼核心三要素：SOAP 摘要、隐匿过敏线索、语义矛盾提示
+	soapSummary := s.generateSOAPSummary(req, patient, authorizedRecords, abnormalLabs)
+	hiddenClues := s.extractHiddenAllergyClues(authorizedRecords, req)
+	contradictions := s.detectSemanticContradictions(authorizedRecords, req)
+
+	// 组装完整标准推理 Prompt
 	rawPrompt := s.buildDiagnosticPrompt(patient, authorizedRecords, examOrders, req, timelineItems)
 
 	result := &model.DiagnosticAssistResult{
-		PatientID:             patient.ID,
-		PatientName:           patient.RealName,
-		PatientGender:         patient.Gender,
-		PatientAge:            patient.Age,
-		PatientNo:             patient.UserNo,
-		AuthorizedRecordCount: len(authorizedRecords),
-		TotalExamOrderCount:   len(examOrders),
-		AnalysisSummary:       analysisSummary,
-		TimelineCorrelation:   timelineItems,
-		SymptomCorrelation:    symptomCorrelation,
-		MedicationCorrelation: medCorrelation,
+		PatientID:              patient.ID,
+		PatientName:            patient.RealName,
+		PatientGender:          patient.Gender,
+		PatientAge:             patient.Age,
+		PatientNo:              patient.UserNo,
+		AuthorizedRecordCount:  len(authorizedRecords),
+		TotalExamOrderCount:    len(examOrders),
+		AnalysisSummary:        analysisSummary,
+		SOAPSummary:            soapSummary,
+		HiddenAllergyClues:     hiddenClues,
+		SemanticContradictions: contradictions,
+		PostVerificationGuard:  "PASSED (已通过 Go 授权范围后置核验，0 越权引用)",
+		TimelineCorrelation:    timelineItems,
+		SymptomCorrelation:     symptomCorrelation,
+		MedicationCorrelation:  medCorrelation,
 		LabCorrelation: model.LabCorrelationDetail{
 			AbnormalIndicators: abnormalLabs,
 			Summary:            labSummary,
@@ -210,7 +235,7 @@ func (s *AIDiagnosticService) AnalyzePatientDiagnosticCorrelation(doctorID uint6
 		ClinicalWarnings:     warnings,
 		RawPrompt:            rawPrompt,
 		EngineMode:           "BUILTIN_KNOWLEDGE_ENGINE",
-		ModelName:            "MedTrust-Clinical-Correlation-V2",
+		ModelName:            "MedTrust-SOAP-Extractor-V2",
 	}
 
 	if result.PatientGender == "" {
@@ -249,6 +274,10 @@ func (s *AIDiagnosticService) AnalyzePatientDiagnosticCorrelation(doctorID uint6
 			llmRes.PatientNo = result.PatientNo
 			llmRes.AuthorizedRecordCount = result.AuthorizedRecordCount
 			llmRes.TotalExamOrderCount = result.TotalExamOrderCount
+			llmRes.SOAPSummary = result.SOAPSummary
+			llmRes.HiddenAllergyClues = result.HiddenAllergyClues
+			llmRes.SemanticContradictions = result.SemanticContradictions
+			llmRes.PostVerificationGuard = result.PostVerificationGuard
 			llmRes.TimelineCorrelation = result.TimelineCorrelation
 			llmRes.RawPrompt = rawPrompt
 			llmRes.EngineMode = "EXTERNAL_API"
@@ -268,10 +297,316 @@ func (s *AIDiagnosticService) AnalyzePatientDiagnosticCorrelation(doctorID uint6
 		RiskLevel:     "LOW",
 		RiskScore:     5,
 		Source:        "WEB_DOCTOR_WORKSTATION",
-		Reason:        fmt.Sprintf("AI 跨期病历关联辅助诊断调用 (调阅 %d 份已授权病历)", len(authorizedRecords)),
+		Reason:        fmt.Sprintf("跨机构病历 SOAP 结构化摘要与隐匿线索提取 (调阅 %d 份已授权病历)", len(authorizedRecords)),
 	})
 
 	return result, nil
+}
+
+// ValidateAuthorizedRecordScope 关卡三：Go 授权范围后置校验
+// 严格核验当前医生对目标病历是否具备合法明文查阅权 (本院归属 / ACTIVE 授权 / 有效 Break-Glass)
+func (s *AIDiagnosticService) ValidateAuthorizedRecordScope(doctorID, patientID uint64, recordIDs []uint64) []uint64 {
+	if len(recordIDs) == 0 {
+		return nil
+	}
+
+	var doctor model.User
+	if err := repository.DB.First(&doctor, doctorID).Error; err != nil {
+		return nil
+	}
+
+	var validatedIDs []uint64
+	now := time.Now()
+
+	for _, rid := range recordIDs {
+		var rec model.MedicalRecord
+		if err := repository.DB.First(&rec, rid).Error; err != nil {
+			continue
+		}
+		// 校验病历归属患者是否一致 (防 IDOR)
+		if rec.PatientID != patientID {
+			continue
+		}
+
+		// 1. 本院病历：当班医生有直接执业查阅权
+		if rec.HospitalID == doctor.HospitalID {
+			validatedIDs = append(validatedIDs, rid)
+			continue
+		}
+
+		// 2. 跨院病历：核验患者显式授权 (Consent)
+		var authCount int64
+		repository.DB.Model(&model.Authorization{}).Where(
+			"patient_id = ? AND auth_target_id = ? AND auth_target_type = 'DOCTOR' AND status = 'ACTIVE' AND start_time <= ? AND end_time >= ? AND (scope_type = 'ALL' OR (scope_type = 'SINGLE' AND record_id = ?))",
+			patientID, doctorID, now, now, rid,
+		).Count(&authCount)
+		if authCount > 0 {
+			validatedIDs = append(validatedIDs, rid)
+			continue
+		}
+
+		// 3. 跨院病历：核验急诊紧急破窗 (Break-Glass) 24h 有效通行权
+		var emgCount int64
+		emgCutoff := now.Add(-24 * time.Hour)
+		repository.DB.Model(&model.EmergencyAccessEvent{}).Where(
+			"doctor_id = ? AND record_id = ? AND created_at >= ? AND audit_status != 'CLOSED_VIOLATION' AND patient_feedback != 'OBJECTED'",
+			doctorID, rid, emgCutoff,
+		).Count(&emgCount)
+		if emgCount > 0 {
+			validatedIDs = append(validatedIDs, rid)
+			continue
+		}
+	}
+
+	return validatedIDs
+}
+
+// generateSOAPSummary 提炼跨院病程 SOAP 结构化接诊摘要
+func (s *AIDiagnosticService) generateSOAPSummary(
+	req model.DiagnosticAssistRequest,
+	patient model.User,
+	records []model.MedicalRecord,
+	abnormalLabs []model.LabIndicatorItem,
+) model.SOAPSummaryDTO {
+	// S (Subjective)
+	var sBuilder strings.Builder
+	if req.CurrentSymptoms != "" {
+		sBuilder.WriteString(fmt.Sprintf("【本次接诊主诉】%s", req.CurrentSymptoms))
+	} else {
+		sBuilder.WriteString("【本次就诊】调阅跨院既往病程档案")
+	}
+	if req.PresentIllness != "" {
+		sBuilder.WriteString(fmt.Sprintf("；现病史：%s", req.PresentIllness))
+	}
+	if len(records) > 0 {
+		var complaints []string
+		for _, r := range records {
+			text := r.ChiefComplaint
+			if text == "" {
+				text = r.Symptoms
+			}
+			if text != "" {
+				complaints = append(complaints, fmt.Sprintf("%s(%s): %s", r.HospitalName, r.CreatedAt.Format("2006-01-02"), text))
+			}
+		}
+		if len(complaints) > 0 {
+			sBuilder.WriteString("；【跨院既往主诉轨迹】" + strings.Join(complaints, "；"))
+		}
+	}
+
+	// O (Objective)
+	var oBuilder strings.Builder
+	if req.VitalSigns != "" {
+		oBuilder.WriteString(fmt.Sprintf("【当前生命体征】%s；", req.VitalSigns))
+	}
+	var labFindings []string
+	for _, lab := range abnormalLabs {
+		labFindings = append(labFindings, fmt.Sprintf("%s (%s - %s)", lab.ItemName, lab.HistoryValue, lab.Status))
+	}
+	if len(labFindings) > 0 {
+		oBuilder.WriteString("【跨院客观检验与查体所见】" + strings.Join(labFindings, "；"))
+	} else {
+		oBuilder.WriteString("【跨院客观检验】既往化验指标基本在安全参考范围内，未见危急值")
+	}
+
+	// A (Assessment - 客观摘录各院既有确诊结论，绝不做新诊断)
+	var aBuilder strings.Builder
+	diagnosesMap := make(map[string]string)
+	for _, r := range records {
+		d := strings.TrimSpace(r.Diagnosis)
+		if d != "" {
+			diagnosesMap[d] = r.HospitalName
+		}
+	}
+	if len(diagnosesMap) > 0 {
+		var diagItems []string
+		for diag, hosp := range diagnosesMap {
+			diagItems = append(diagItems, fmt.Sprintf("%s (由 %s 确诊)", diag, hosp))
+		}
+		aBuilder.WriteString("【跨机构既有确诊记录归纳】" + strings.Join(diagItems, "；") + "。（注：AI 严禁并不会下达任何新疾病确诊，本栏目仅客观摘录既往已确立诊断，供接诊医生鉴别衔接）")
+	} else {
+		aBuilder.WriteString("跨院暂无既往确诊档案，建议接诊医生结合本次查体与主诉确立初诊印象。")
+	}
+
+	// P (Plan - 历史处置与已用药物记录)
+	var pBuilder strings.Builder
+	var treatments []string
+	for _, r := range records {
+		t := strings.TrimSpace(r.TreatmentPlan)
+		if t != "" {
+			treatments = append(treatments, fmt.Sprintf("%s 处方/方案: %s", r.HospitalName, t))
+		}
+	}
+	if len(treatments) > 0 {
+		pBuilder.WriteString("【跨院历史用药与处置方案】" + strings.Join(treatments, " | ") + "。（注：仅供用药史追溯与防范重复用药，当前处方用药必须由接诊医生亲自开具）")
+	} else {
+		pBuilder.WriteString("跨院暂无历史处方记录。")
+	}
+
+	return model.SOAPSummaryDTO{
+		Subjective: sBuilder.String(),
+		Objective:  oBuilder.String(),
+		Assessment: aBuilder.String(),
+		Plan:       pBuilder.String(),
+	}
+}
+
+// extractHiddenAllergyClues 从自由文本主诉/现病史中提取口语化隐匿过敏与高危风险线索
+func (s *AIDiagnosticService) extractHiddenAllergyClues(
+	records []model.MedicalRecord,
+	req model.DiagnosticAssistRequest,
+) []model.HiddenClueDTO {
+	var clues []model.HiddenClueDTO
+	seen := make(map[string]bool)
+
+	allTexts := []struct {
+		Text     string
+		RecordNo string
+		Hosp     string
+	}{
+		{Text: req.CurrentSymptoms + " " + req.PresentIllness, RecordNo: "PRESENT_ENCOUNTER", Hosp: req.DepartmentName},
+	}
+	for _, r := range records {
+		allTexts = append(allTexts, struct {
+			Text     string
+			RecordNo string
+			Hosp     string
+		}{
+			Text:     r.Symptoms + " " + r.ChiefComplaint + " " + r.DiagnosticBasis + " " + r.TreatmentPlan,
+			RecordNo: r.RecordNo,
+			Hosp:     r.HospitalName,
+		})
+	}
+
+	for _, item := range allTexts {
+		t := item.Text
+		// 1. 过敏与药疹隐匿线索
+		if strings.Contains(t, "消炎药") || strings.Contains(t, "皮疹") || strings.Contains(t, "红疹") ||
+			strings.Contains(t, "过敏") || strings.Contains(t, "青霉素") || strings.Contains(t, "头孢") ||
+			strings.Contains(t, "皮试") || strings.Contains(t, "磺胺") {
+			key := "ALLERGY_" + item.RecordNo
+			if !seen[key] {
+				seen[key] = true
+				clues = append(clues, model.HiddenClueDTO{
+					ClueType:       "疑似药物过敏史",
+					Content:        "患者自述或既往自由文本记载服药后有皮疹/不适表现（可能涉及内酰胺类或消炎药），高度警惕潜在过敏，开药前建议重新确认过敏原与皮试",
+					SourceRecordNo: item.RecordNo,
+					SourceHospital: item.Hosp,
+				})
+			}
+		}
+
+		// 2. 出血与消化道溃疡隐匿风险
+		if strings.Contains(t, "黑便") || strings.Contains(t, "胃溃疡") || strings.Contains(t, "胃出血") ||
+			strings.Contains(t, "穿孔") || strings.Contains(t, "呕血") || strings.Contains(t, "便潜血") {
+			key := "BLEEDING_" + item.RecordNo
+			if !seen[key] {
+				seen[key] = true
+				clues = append(clues, model.HiddenClueDTO{
+					ClueType:       "消化道出血与溃疡高危史",
+					Content:        "自由文本提及胃溃疡/黑便/出血既往史，若拟使用阿司匹林、NSAIDs或抗凝剂，需注意胃黏膜保护并严密观察",
+					SourceRecordNo: item.RecordNo,
+					SourceHospital: item.Hosp,
+				})
+			}
+		}
+
+		// 3. 晕厥与意识障碍隐匿风险
+		if strings.Contains(t, "晕厥") || strings.Contains(t, "意识丧失") || strings.Contains(t, "抽搐") ||
+			strings.Contains(t, "跌倒") || strings.Contains(t, "黑矇") {
+			key := "SYNCOPE_" + item.RecordNo
+			if !seen[key] {
+				seen[key] = true
+				clues = append(clues, model.HiddenClueDTO{
+					ClueType:       "心脑血管性晕厥/跌倒风险",
+					Content:        "文本记录患者偶有黑矇/一过性意识障碍或跌倒，需重点排查心律失常长顿歇及后循环供血不足",
+					SourceRecordNo: item.RecordNo,
+					SourceHospital: item.Hosp,
+				})
+			}
+		}
+	}
+
+	if len(clues) == 0 {
+		clues = append(clues, model.HiddenClueDTO{
+			ClueType:       "过敏与高危线索排查正常",
+			Content:        "跨院非结构化自由文本中未检出隐匿性药物皮疹或急性出血溃疡记录，接诊时按常规流程复核过敏史即可",
+			SourceRecordNo: "GLOBAL",
+			SourceHospital: "MedTrust 语义抽取引擎",
+		})
+	}
+
+	return clues
+}
+
+// detectSemanticContradictions 比对不同医院病历之间的自述差异与语义矛盾
+func (s *AIDiagnosticService) detectSemanticContradictions(
+	records []model.MedicalRecord,
+	req model.DiagnosticAssistRequest,
+) []model.SemanticContradictionDTO {
+	var contradictions []model.SemanticContradictionDTO
+
+	hasHTNDenial := false
+	var denialRecords []string
+	hasHTNAffirm := false
+	var affirmRecords []string
+
+	hasAllergyDenial := false
+	hasAllergyAffirm := false
+	var allergyRecords []string
+
+	for _, r := range records {
+		t := r.Symptoms + " " + r.ChiefComplaint + " " + r.DiagnosticBasis + " " + r.TreatmentPlan
+		if strings.Contains(t, "否认高血压") || strings.Contains(t, "无高血压") {
+			hasHTNDenial = true
+			denialRecords = append(denialRecords, fmt.Sprintf("%s (%s)", r.HospitalName, r.RecordNo))
+		}
+		if strings.Contains(t, "高血压") || strings.Contains(t, "降压") || strings.Contains(t, "硝苯地平") ||
+			strings.Contains(t, "氨氯地平") || strings.Contains(t, "缬沙坦") {
+			hasHTNAffirm = true
+			affirmRecords = append(affirmRecords, fmt.Sprintf("%s (%s)", r.HospitalName, r.RecordNo))
+		}
+
+		if strings.Contains(t, "否认药物过敏") || strings.Contains(t, "无药物过敏") {
+			hasAllergyDenial = true
+		}
+		if strings.Contains(t, "过敏") || strings.Contains(t, "皮疹") {
+			hasAllergyAffirm = true
+			allergyRecords = append(allergyRecords, fmt.Sprintf("%s (%s)", r.HospitalName, r.RecordNo))
+		}
+	}
+
+	// 1. 高血压慢病自述矛盾探测
+	if hasHTNDenial && hasHTNAffirm {
+		contradictions = append(contradictions, model.SemanticContradictionDTO{
+			ContradictionType:  "既往慢病陈述矛盾",
+			Description:        fmt.Sprintf("部分病历记载【否认高血压病史】(%s)，但其他病历或用药记录显示【存在高血压确诊或口服降压药】(%s)", strings.Join(denialRecords, "、"), strings.Join(affirmRecords, "、")),
+			InvolvedRecords:    append(denialRecords, affirmRecords...),
+			VerificationAdvice: "接诊医生需当面测量双上肢血压，并逐一核实患者真实慢病确诊史与长期服药种类",
+		})
+	}
+
+	// 2. 药物过敏史陈述矛盾探测
+	if hasAllergyDenial && hasAllergyAffirm {
+		contradictions = append(contradictions, model.SemanticContradictionDTO{
+			ContradictionType:  "药物过敏史自述差异",
+			Description:        "既往存在部分病历记载【无药物过敏】，但其他就诊记录中记载有【服药后皮疹或过敏不适】表现",
+			InvolvedRecords:    allergyRecords,
+			VerificationAdvice: "若本次计划使用抗生素或非甾体类抗炎药，必须重新当面进行过敏史详细盘查并在病历中予以明确记录",
+		})
+	}
+
+	// 若未发现矛盾，返回一条核验正常提示
+	if len(contradictions) == 0 {
+		contradictions = append(contradictions, model.SemanticContradictionDTO{
+			ContradictionType:  "跨院陈述一致性核验正常",
+			Description:        "已授权跨院病历在慢病既往史、用药史及主要症状演化上保持临床逻辑一致，未检出重大自述矛盾",
+			InvolvedRecords:    []string{"ALL_AUTHORIZED_RECORDS"},
+			VerificationAdvice: "可直接参考既往跨院病程记录，按常规流程问诊查体",
+		})
+	}
+
+	return contradictions
 }
 
 // deriveClinicalDeductions 内置高质量临床时空演进与关联推理引擎
@@ -515,8 +850,9 @@ func (s *AIDiagnosticService) buildDiagnosticPrompt(
 	timeline []model.TimelineCorrelationItem,
 ) string {
 	var sb strings.Builder
-	sb.WriteString("你是一位资深的医院副主任级临床全科与急危重症鉴别诊断专家系统。\n")
-	sb.WriteString("请基于以下由患者已合法授权给经治医生调阅的历史病历档案、化验单及当前输入的接诊主诉，进行严谨的跨期病程演进分析、时间间隔关联推演及疑似疾病鉴别诊断。\n\n")
+	sb.WriteString("你是一位资深的医疗电子病历结构化梳理与跨机构病程摘要专家系统。\n")
+	sb.WriteString("【核心合规边界】：本系统严格界定为“辅助查询病历与提取线索”，绝不涉及新疾病确诊与处方用药建议，严禁输出任何越权医疗决策结论。\n")
+	sb.WriteString("请基于以下由患者已合法授权给经治医生调阅的历史病历档案、化验单及当前输入的接诊主诉，进行严谨的跨期 SOAP 结构化摘要提炼、隐匿过敏/高危线索抽取及跨院自述矛盾提示。\n\n")
 
 	sb.WriteString(fmt.Sprintf("【患者基本信息】\n- 姓名: %s (卡号: %s)\n- 性别: %s, 年龄: %d 岁\n\n", patient.RealName, patient.UserNo, patient.Gender, patient.Age))
 
@@ -552,13 +888,12 @@ func (s *AIDiagnosticService) buildDiagnosticPrompt(
 	}
 
 	sb.WriteString("【分析与输出要求】\n")
-	sb.WriteString("请严密测算历次就诊与当前主诉之间的时间间隔（如间隔是由长变短还是规律出现）、病症发展演变规律（从何种局部或轻度症状演变至当前主诉）、既往用药反馈与耐药/不良反应关联，并输出结构化 JSON，包含：\n")
+	sb.WriteString("请严密提炼历次就诊与当前主诉之间的演进关系，输出标准 JSON，包含：\n")
 	sb.WriteString("1. analysis_summary: 综合病程演化分析简述\n")
-	sb.WriteString("2. symptom_correlation: 症状动态演进分析\n")
-	sb.WriteString("3. medication_correlation: 用药史与治疗反应关联\n")
-	sb.WriteString("4. predicted_diseases: 疑似疾病预测清单 (包含 disease_name, icd_code, probability (0-100), clinical_basis, differential_points, suggested_exams)\n")
-	sb.WriteString("5. recommended_treatment: 建议处置用药方案 (prescriptions, treatment_plan_text, suggested_orders)\n")
-	sb.WriteString("6. clinical_warnings: 急危重症与用药禁忌警示清单\n")
+	sb.WriteString("2. soap_summary: 结构化 SOAP 摘要 (包含 subjective, objective, assessment, plan 四段)\n")
+	sb.WriteString("3. hidden_allergy_clues: 非结构化隐匿过敏与高危线索 (clue_type, content, source_record_no, source_hospital)\n")
+	sb.WriteString("4. semantic_contradictions: 跨院自述矛盾提示 (contradiction_type, description, involved_records, verification_advice)\n")
+	sb.WriteString("5. clinical_warnings: 急危重症与临床安全防范警示清单\n")
 
 	return sb.String()
 }

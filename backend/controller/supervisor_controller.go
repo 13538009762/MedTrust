@@ -150,6 +150,16 @@ func (ctrl *SupervisorController) ListEmergencyEvents(c *gin.Context) {
 		if err := repository.DB.First(&h2, list[i].TargetHospitalID).Error; err == nil {
 			list[i].TargetHospitalName = h2.Name
 		}
+
+		// 第一道关卡：Go 纯代码客观合理性初筛
+		code, desc := service.DefaultEmergencyService.EvaluateRulePreScreen(&list[i])
+		list[i].RulePreScreen = code
+		list[i].RulePreScreenDesc = desc
+
+		// 第二道关卡：当触发异议或存疑时，生成 AI 医患陈述争议对比摘要
+		if list[i].PatientFeedback == "OBJECTED" || code == "RULE_WARN_SUSPICIOUS" {
+			list[i].AuditComparisonSummary = service.DefaultEmergencyService.GenerateAuditComparisonSummary(&list[i])
+		}
 	}
 
 	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "查询成功", Data: list})

@@ -92,13 +92,37 @@ type DashboardStatsDTO struct {
 
 // ── AI 跨期病历关联辅助诊断 DTO ───────────────────────────────────
 
-// DiagnosticAssistRequest 医生发起 AI 辅助诊断请求入参
+// DiagnosticAssistRequest 医生发起跨院病历 SOAP 汇总与隐匿线索提取入参
 type DiagnosticAssistRequest struct {
 	PatientID       uint64 `json:"patient_id" binding:"required"`
 	CurrentSymptoms string `json:"current_symptoms"`
 	PresentIllness  string `json:"present_illness"`
 	VitalSigns      string `json:"vital_signs"`
 	DepartmentName  string `json:"department_name"`
+}
+
+// SOAPSummaryDTO 跨院病程 SOAP 结构化接诊摘要
+type SOAPSummaryDTO struct {
+	Subjective string `json:"subjective"` // S (患者主诉与既往病史汇总)
+	Objective  string `json:"objective"`  // O (跨院客观检查与生命体征摘要)
+	Assessment string `json:"assessment"` // A (各院既有临床诊断客观汇总，严禁做新诊断)
+	Plan       string `json:"plan"`       // P (历史处置与已用药物记录)
+}
+
+// HiddenClueDTO 非结构化隐匿过敏与高危线索
+type HiddenClueDTO struct {
+	ClueType       string `json:"clue_type"`        // "疑似药物过敏史", "既往高危合并症", "特殊用药风险"
+	Content        string `json:"content"`          // 详细提炼内容
+	SourceRecordNo string `json:"source_record_no"` // 来源病历单号
+	SourceHospital string `json:"source_hospital"`  // 来源机构
+}
+
+// SemanticContradictionDTO 跨院记录语义矛盾提示
+type SemanticContradictionDTO struct {
+	ContradictionType  string   `json:"contradiction_type"`  // "既往病史陈述矛盾", "用药依从性矛盾", "过敏史自述差异"
+	Description        string   `json:"description"`          // 矛盾具体描述
+	InvolvedRecords    []string `json:"involved_records"`     // 涉及的病历单号或机构
+	VerificationAdvice string   `json:"verification_advice"`  // 建议接诊医生当面核实要点
 }
 
 // TimelineCorrelationItem 跨期时序演变与时间间隔分析项
@@ -173,24 +197,28 @@ type RecommendedTreatmentPlan struct {
 	SuggestedOrders   []string                     `json:"suggested_orders"`
 }
 
-// DiagnosticAssistResult AI 跨期病历关联辅助诊断综合输出
+// DiagnosticAssistResult 跨机构病历 SOAP 结构化摘要与隐匿线索提取综合输出
 type DiagnosticAssistResult struct {
-	PatientID             uint64                      `json:"patient_id"`
-	PatientName           string                      `json:"patient_name"`
-	PatientGender         string                      `json:"patient_gender"`
-	PatientAge            int                         `json:"patient_age"`
-	PatientNo             string                      `json:"patient_no"`
-	AuthorizedRecordCount int                         `json:"authorized_record_count"`
-	TotalExamOrderCount   int                         `json:"total_exam_order_count"`
-	AnalysisSummary       string                      `json:"analysis_summary"`
-	TimelineCorrelation   []TimelineCorrelationItem   `json:"timeline_correlation"`
-	SymptomCorrelation    SymptomCorrelationDetail    `json:"symptom_correlation"`
-	MedicationCorrelation MedicationCorrelationDetail  `json:"medication_correlation"`
-	LabCorrelation        LabCorrelationDetail        `json:"lab_correlation"`
-	PredictedDiseases     []PredictedDiseaseItem      `json:"predicted_diseases"`
-	RecommendedTreatment  RecommendedTreatmentPlan    `json:"recommended_treatment"`
-	ClinicalWarnings      []string                    `json:"clinical_warnings"`
-	RawPrompt             string                      `json:"raw_prompt"`
-	EngineMode            string                      `json:"engine_mode"` // "EXTERNAL_API" or "BUILTIN_KNOWLEDGE_ENGINE"
-	ModelName             string                      `json:"model_name"`
+	PatientID              uint64                      `json:"patient_id"`
+	PatientName            string                      `json:"patient_name"`
+	PatientGender          string                      `json:"patient_gender"`
+	PatientAge             int                         `json:"patient_age"`
+	PatientNo              string                      `json:"patient_no"`
+	AuthorizedRecordCount  int                         `json:"authorized_record_count"`
+	TotalExamOrderCount    int                         `json:"total_exam_order_count"`
+	AnalysisSummary        string                      `json:"analysis_summary"`
+	SOAPSummary            SOAPSummaryDTO              `json:"soap_summary"`
+	HiddenAllergyClues     []HiddenClueDTO             `json:"hidden_allergy_clues"`
+	SemanticContradictions []SemanticContradictionDTO  `json:"semantic_contradictions"`
+	PostVerificationGuard  string                      `json:"post_verification_guard"`
+	TimelineCorrelation    []TimelineCorrelationItem   `json:"timeline_correlation"`
+	SymptomCorrelation     SymptomCorrelationDetail    `json:"symptom_correlation"`
+	MedicationCorrelation  MedicationCorrelationDetail `json:"medication_correlation"`
+	LabCorrelation         LabCorrelationDetail        `json:"lab_correlation"`
+	PredictedDiseases      []PredictedDiseaseItem      `json:"predicted_diseases"`
+	RecommendedTreatment   RecommendedTreatmentPlan    `json:"recommended_treatment"`
+	ClinicalWarnings       []string                    `json:"clinical_warnings"`
+	RawPrompt              string                      `json:"raw_prompt"`
+	EngineMode             string                      `json:"engine_mode"` // "EXTERNAL_API" or "BUILTIN_KNOWLEDGE_ENGINE"
+	ModelName              string                      `json:"model_name"`
 }

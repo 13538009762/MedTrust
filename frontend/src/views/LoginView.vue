@@ -46,7 +46,7 @@
             <div class="intro-card-left">
               <h3>医疗数据可信共享平台 2.0</h3>
               <p>
-                模拟医院A、医院B、医院C三方参与的联盟网络。通过 AES-256-GCM 本地加密与 IPFS 结合，有效规避账本膨胀；以统一安全网关收口权限校验，提供合规可溯源的急救访问闭环。
+                面向广州第一人民医院（总院）、深圳第二人民医院（跨域互认中心）、北京朝阳医院（远程协作分部）等多方参与的医联体协作网络。通过 AES-256-GCM 客户端加密与 IPFS 结合，有效规避账本膨胀；以统一安全网关收口权限校验，提供合规可溯源的急救访问闭环。
               </p>
             </div>
             <img src="/emblem.png" class="intro-card-emblem" alt="MedTrust 3D Shield" />
@@ -68,11 +68,11 @@
                 <p>基于数字身份的医疗可信访问网关</p>
               </div>
 
-              <!-- 答辩演示快捷登录 (6 大标准内置账号，一键自动填入并切换，密码统一为: 123456) -->
+              <!-- 医联体跨机构协作通道 · 一键免密快捷登入 -->
               <div class="demo-account-bar">
                 <div class="demo-title-row">
                   <span class="demo-pulse-dot"></span>
-                  <span class="demo-title">答辩演示快捷登录 (初始密码统一: 123456)</span>
+                  <span class="demo-title">医联体跨机构协作通道 · 一键免密快捷登入 (Quick Access)</span>
                 </div>
 
                 <!-- 6 大核心标准内置账号快速卡片网格 -->
@@ -97,7 +97,7 @@
                 <!-- 可折叠展开更多辅助测试账号 -->
                 <div class="extra-accounts-wrapper">
                   <div class="extra-toggle" @click="showExtraAccounts = !showExtraAccounts">
-                    <span>{{ showExtraAccounts ? '收起更多辅助账号' : '展开其他院区与医技账号 (辅助测试)' }}</span>
+                    <span>{{ showExtraAccounts ? '收起协作医疗机构与医技账号' : '切换更多协作医疗机构与医技检查中心账号' }}</span>
                     <el-icon class="extra-arrow" :class="{ 'is-open': showExtraAccounts }"><ArrowDown /></el-icon>
                   </div>
                   <div v-show="showExtraAccounts" class="extra-accounts-content">
@@ -365,32 +365,32 @@ const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
 
-// 毕业论文与答辩演示 6 个核心标准内置账号
+// 医联体跨机构协作通道内置核心账号
 const defenseAccounts = [
-  { username: 'doc_li', name: '李建国主任', roleLabel: '医院A', tagType: 'primary', hospital: '广州第一附属医院', dept: '心内科' },
-  { username: 'doc_wang', name: '王明德医生', roleLabel: '医院B', tagType: 'primary', hospital: '深圳中心医院', dept: '心内科' },
-  { username: 'doc_chen', name: '陈建明医生', roleLabel: '医院B急诊', tagType: 'warning', hospital: '深圳中心医院', dept: '急诊科' },
-  { username: 'pat_zhang', name: '患者张三/张伟', roleLabel: '患者端', tagType: 'success', hospital: '患者个人中心', dept: '档案主权' },
-  { username: 'sup_zhao', name: '监管赵主任', roleLabel: '监管端', tagType: 'danger', hospital: '国家卫健委', dept: '审计中心' },
-  { username: 'admin', name: '系统管理员', roleLabel: '运维端', tagType: 'info', hospital: 'MedTrust 平台', dept: '技术主管' },
+  { username: 'doc_li', name: '李建国主任', roleLabel: '总院区 (Org1)', tagType: 'primary', hospital: '广州第一附属医院', dept: '心内科' },
+  { username: 'doc_wang', name: '王明德医生', roleLabel: '分院区 (Org2)', tagType: 'primary', hospital: '深圳中心医院', dept: '心内科' },
+  { username: 'doc_chen', name: '陈建明医生', roleLabel: '深圳急诊 (Org2)', tagType: 'warning', hospital: '深圳中心医院', dept: '急诊科' },
+  { username: 'pat_zhang', name: '患者张三/张伟', roleLabel: '患者主权端', tagType: 'success', hospital: '患者个人中心', dept: '档案主权' },
+  { username: 'sup_zhao', name: '监管赵主任', roleLabel: '合规监管端', tagType: 'danger', hospital: '国家卫健委', dept: '审计中心' },
+  { username: 'admin', name: '系统管理员', roleLabel: '平台运维端', tagType: 'info', hospital: 'MedTrust 平台', dept: '技术主管' },
 ]
 
 const accountDescMap: Record<string, string> = {
-  'doc_li': '广州第一附属医院 (医院A) · 李建国医生 (心内科主任医师)',
-  'doc_wang': '深圳中心医院 (医院B) · 王明德医生 (心内科主治医师)',
-  'doc_chen': '深圳中心医院 (医院B) · 陈建明医生 (急诊科主治医师)',
-  'pat_zhang': '就诊患者 · 张三/张伟 (健康档案持有者)',
-  'sup_zhao': '国家卫生健康委 · 赵主任 (医疗监管审计主任)',
-  'admin': 'MedTrust 平台 · 系统管理员 (技术主管)',
-  'doc_a': '第一人民医院 · 李建国医生 (心内科主任医师)',
-  'tech_lab_a': '第一人民医院 · 李主管 (医学检验科主管技师)',
-  'tech_pacs_a': '第一人民医院 · 王医生 (放射影像中心主治医师)',
-  'doc_b': '省立中心医院 · 王明德医生 (骨创伤科主治医师)',
-  'tech_lab_b': '省立中心医院 · 刘主管 (医学检验科主管技师)',
-  'tech_pacs_b': '省立中心医院 · 赵医生 (放射影像中心副主任技师)',
-  'doc_c': '协和医学中心 · 陈晓华医生 (神经内科副主任医师)',
-  'tech_lab_c': '协和医学中心 · 孙主管 (医学检验科主管技师)',
-  'tech_pacs_c': '协和医学中心 · 钱医生 (放射影像中心主治医师)',
+  'doc_li': '广州第一附属医院 (Org1 节点) · 李建国主任 (心内科主任医师)',
+  'doc_wang': '深圳中心医院 (Org2 节点) · 王明德医生 (心内科主治医师)',
+  'doc_chen': '深圳中心医院 (Org2 节点) · 陈建明医生 (急诊科主治医师)',
+  'pat_zhang': '就诊患者 · 张三/张伟 (健康档案主权持有者)',
+  'sup_zhao': '国家卫生健康委 · 赵主任 (医疗监管与防篡改审计专员)',
+  'admin': 'MedTrust 平台 · 系统管理员 (平台技术主管)',
+  'doc_a': '第一人民医院 (Org1) · 李建国医生 (心内科主任医师)',
+  'tech_lab_a': '第一人民医院 (Org1) · 李主管 (医学检验科主管技师)',
+  'tech_pacs_a': '第一人民医院 (Org1) · 王医生 (放射影像中心主治医师)',
+  'doc_b': '省立中心医院 (Org2) · 王明德医生 (骨创伤科主治医师)',
+  'tech_lab_b': '省立中心医院 (Org2) · 刘主管 (医学检验科主管技师)',
+  'tech_pacs_b': '省立中心医院 (Org2) · 赵医生 (放射影像中心副主任技师)',
+  'doc_c': '协和医学中心 (Org3) · 陈晓华医生 (神经内科副主任医师)',
+  'tech_lab_c': '协和医学中心 (Org3) · 孙主管 (医学检验科主管技师)',
+  'tech_pacs_c': '协和医学中心 (Org3) · 钱医生 (放射影像中心主治医师)',
   'pat_qian': '患者钱小芳 (就诊档案持有者)',
   'supervisor': '卫健监管专员 (医疗合规全链路督察)'
 }

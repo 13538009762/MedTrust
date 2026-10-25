@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	"medtrust-backend/model"
@@ -177,5 +178,89 @@ func (s *EmergencyService) LiftDoctorRestriction(supervisorID, doctorID uint64, 
 
 	DefaultAuditService.Log(supervisorID, "UNRESTRICT_DOCTOR", "USER", fmt.Sprintf("%d", doctorID), doc.HospitalID, "SUCCESS", "LOW", ip)
 	return nil
+}
+
+// EvaluateRulePreScreen 关卡一：Go 纯代码客观合理性初筛 (0 Token 消耗，毫秒级判定)
+func (s *EmergencyService) EvaluateRulePreScreen(event *model.EmergencyAccessEvent) (string, string) {
+	reasonUpper := strings.ToUpper(strings.TrimSpace(event.EmergencyReason))
+	descUpper := strings.ToUpper(strings.TrimSpace(event.Description))
+
+	// 判断是否为明确的危急重症指征 (COMA, SHOCK, CARDIAC_ARREST, RESCUE, CRITICAL, 昏迷, 休克, 骤停)
+	isCritical := strings.Contains(reasonUpper, "COMA") || strings.Contains(reasonUpper, "SHOCK") ||
+		strings.Contains(reasonUpper, "CARDIAC") || strings.Contains(reasonUpper, "ARREST") ||
+		strings.Contains(reasonUpper, "RESCUE") || strings.Contains(reasonUpper, "CRITICAL") ||
+		strings.Contains(reasonUpper, "昏迷") || strings.Contains(reasonUpper, "休克") ||
+		strings.Contains(reasonUpper, "呼吸衰竭") || strings.Contains(reasonUpper, "心跳骤停") ||
+		strings.Contains(descUpper, "抢救") || strings.Contains(descUpper, "意识丧失") ||
+		strings.Contains(descUpper, "心室颤动") || strings.Contains(descUpper, "大出血")
+
+	// 检查是否在短期内跨多名患者频繁发起破窗 (防滥用刷单)
+	var recentBursts int64
+	if repository.DB != nil {
+		oneHourAgo := event.CreatedAt.Add(-1 * time.Hour)
+		repository.DB.Model(&model.EmergencyAccessEvent{}).
+			Where("doctor_id = ? AND created_at >= ? AND created_at <= ?", event.DoctorID, oneHourAgo, event.CreatedAt).
+			Count(&recentBursts)
+	}
+
+	// 若理由过于笼统 (如 OTHER, 其它, 调阅) 或 1小时内超过 8 次破窗，或患者已提出异议
+	isSuspicious := strings.Contains(reasonUpper, "OTHER") || strings.Contains(reasonUpper, "其它") ||
+		strings.Contains(reasonUpper, "其他") || strings.EqualFold(reasonUpper, "NORMAL") ||
+		recentBursts > 8 || event.PatientFeedback == "OBJECTED"
+
+	if isCritical && !isSuspicious {
+		return "RULE_PASS_CRITICAL", "[规则初筛：符合急诊危急重症指征 (抢救指征明确，客观体征吻合)]"
+	}
+
+	if isSuspicious {
+		if event.PatientFeedback == "OBJECTED" {
+			return "RULE_WARN_SUSPICIOUS", "[规则初筛：患者已提出正式异议投诉，存在医患陈述重大分歧，建议重点复核]"
+		}
+		if recentBursts > 8 {
+			return "RULE_WARN_SUSPICIOUS", fmt.Sprintf("[规则初筛：触发短时高频破窗预警 (1小时内发起 %d 次)，建议核实抢救真实性]", recentBursts)
+		}
+		return "RULE_WARN_SUSPICIOUS", "[规则初筛：体征/场景不典型或破窗原因笼统，建议重点复核临床记录]"
+	}
+
+	return "RULE_PASS_CRITICAL", "[规则初筛：符合临床紧急调阅常规避险指征]"
+}
+
+// GenerateAuditComparisonSummary 关卡二：AI 医患陈述争议对比辅助摘要 (仅客观列举争议焦点，裁决权保留在监管专员手中)
+func (s *EmergencyService) GenerateAuditComparisonSummary(event *model.EmergencyAccessEvent) string {
+	if event == nil {
+		return ""
+	}
+
+	docClaim := event.Description
+	if docClaim == "" {
+		docClaim = fmt.Sprintf("紧急破窗原因登记为：%s，执行紧急调阅抢救。", event.EmergencyReason)
+	}
+
+	patientClaim := event.PatientComment
+	if patientClaim == "" {
+		if event.PatientFeedback == "OBJECTED" {
+			patientClaim = "患者对本次紧急破窗调阅提出异议，声明就诊时段自身意识清醒未授权或未在该院急诊接受抢救。"
+		} else {
+			patientClaim = "患者暂未补充文字陈述（状态：等待知情核验）。"
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString("【AI 医患陈述争议焦点客观对比】\n")
+	sb.WriteString(fmt.Sprintf("• 【医生抢救陈述】：%s\n", docClaim))
+	sb.WriteString(fmt.Sprintf("• 【患者异议申诉】：%s\n", patientClaim))
+	sb.WriteString("• 【核心合规争议焦点】：\n")
+
+	if strings.Contains(patientClaim, "未就诊") || strings.Contains(patientClaim, "未去") || strings.Contains(patientClaim, "没去") {
+		sb.WriteString("  1. 就诊真实性分歧：医生主张急诊抢救调阅，患者声称当日并未前往调阅方医院，存在账号冒用或借道查阅嫌疑；\n")
+	} else if strings.Contains(patientClaim, "清醒") || strings.Contains(patientClaim, "未告知") || strings.Contains(patientClaim, "不知情") {
+		sb.WriteString("  1. 破窗程序合规分歧：患者主张当时神志清楚具备自主授权能力，医生未先行申请知情同意直接破窗；\n")
+	} else {
+		sb.WriteString("  1. 调阅必要性争议：患者对病历调阅的急迫性与范围提出异议，需复核当时生命体征；\n")
+	}
+	sb.WriteString("  2. 临床证据链要求：请监管人员核验当日急诊抢救流水号、急查心电图/生化检验开立时间戳与病程签名；\n")
+	sb.WriteString("• 【监管裁决提示】：AI 严禁自动实施封号惩戒。请依据真实抢救证据，人工裁定【合规结案】或【确认违规并执行 RESTRICTED 权限降级】。")
+
+	return sb.String()
 }
 

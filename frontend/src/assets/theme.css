@@ -1,392 +1,258 @@
 /* src/assets/theme.css */
+/* ==========================================================================
+   MedTrust 企业级可信医疗协作平台 · 核心设计规范与主题体系
+   遵循现代企业级医疗 SaaS 设计准则：极简克制、高信息密度、强对比度、无视觉噪点
+   ========================================================================== */
 
-/* 全局动画过渡，确保切号时背景颜色平滑呼吸渐变 */
-/* �?只给这几个核心大容器�?transition，绝对不要用 * 号，防止 DOM 渲染阻塞 */
-body, #app, .edms-layout-wrapper, .edms-sidebar, .edms-content-card, .el-card {
-  transition: background-color 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease;
+/* 全局容器平滑过渡 */
+body, #app, .medtrust-layout-wrapper, .medtrust-sidebar, .medtrust-content-card, .el-card {
+  transition: background-color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
 }
 
-/* ==========================================
-   1. 普通员�?(Standard) - 护眼薄荷�?/ 清新生�?========================================== */
 :root {
-  /* 主色调：翡翠�?(Emerald) - 极其清新且充满活力的按钮颜色 */
-  --el-color-primary: #10b981; 
-  --el-color-primary-light-3: #6ee7b7;
-  --el-color-primary-dark-2: #059669;
-  
-  /*  核心修改：极其清爽、低饱和度的护眼浅绿底色 */
-  --edms-body-bg: #f0fdf4; 
-  
-  --edms-card-bg: #ffffff; /* 卡片依然保持纯白，保证文字阅读的高对比度 */
-  --edms-sidebar-bg: #ffffff;
-  --edms-sidebar-text: #1f2937;
-  
-  /* 侧边栏选中时的背景色，也改成微弱的浅绿色呼�?*/
-  --edms-sidebar-active-bg: #dcfce7; 
-  --edms-sidebar-active-text: var(--el-color-primary); /* 浅色背景下，保持原样即可 */
-  --edms-header-bg: rgba(255, 255, 255, 0.85);
-  
-  /*  环境光同步升级：左右双光源交织，带来极光般的呼吸�?*/
-  --edms-ambient-glow: 
-    radial-gradient(circle at 20% 0%, rgba(16, 185, 129, 0.2) 0%, transparent 60%),
-    radial-gradient(circle at 80% 0%, rgba(59, 130, 246, 0.15) 0%, transparent 60%);
-  --edms-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.05);
-  --edms-border: 1px solid rgba(16, 185, 129, 0.05); /* 边框也带上一丝丝极淡的绿�?*/
+  /* ------------------------------------------------------------------------
+     1. 核心色彩体系 (Enterprise Medical Palette)
+     ------------------------------------------------------------------------ */
+  /* 主色调：克制深邃的临床专业蓝 (Clinical Sky/Blue) */
+  --el-color-primary: #0284c7;
+  --el-color-primary-light-3: #7dd3fc;
+  --el-color-primary-light-5: #bae6fd;
+  --el-color-primary-light-7: #e0f2fe;
+  --el-color-primary-light-9: #f0f9ff;
+  --el-color-primary-dark-2: #0369a1;
+
+  /* 辅助功能色：严格遵循医疗语义规范 */
+  --el-color-success: #10b981; /* 临床检验合格、存证上链成功 (Emerald) */
+  --el-color-warning: #f59e0b; /* 异常提示、待审核、待检验 (Amber) */
+  --el-color-danger: #dc2626;  /* 临床危急值、Break-Glass急救破窗 (Red-600) */
+  --el-color-info: #64748b;    /* 辅助元数据、审计编号 (Slate-500) */
+
+  /* ------------------------------------------------------------------------
+     2. 现代中性底色与表面 (Neutral Canvas & Surface)
+     去除去除浮夸大光晕，回归纯净高对比度医疗白与极浅冷灰底色
+     ------------------------------------------------------------------------ */
+  --medtrust-body-bg: #f8fafc;        /* Slate-50: 沉稳低饱和画布底色 */
+  --medtrust-card-bg: #ffffff;        /* 纯白实体卡片，保证最高阅读清晰度 */
+  --medtrust-card-header-bg: #fafbfc; /* 表头/卡片顶栏微对比度背景 */
+  --medtrust-sidebar-bg: #ffffff;     /* 侧边栏纯白 */
+  --medtrust-sidebar-text: #334155;   /* Slate-700 菜单正文 */
+  --medtrust-sidebar-active-bg: #f0f9ff; /* 浅蓝微对比激活态 */
+  --medtrust-sidebar-active-text: #0284c7;
+  --medtrust-header-bg: #ffffff;      /* 顶栏纯白底色 */
+
+  /* 边框与阴影：微立体克制投影 */
+  --medtrust-border: 1px solid #e2e8f0;      /* Slate-200 结构实线 */
+  --medtrust-border-subtle: 1px solid #f1f5f9; /* Slate-100 次级分隔 */
+  --medtrust-shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.04);
+  --medtrust-shadow-card: 0 1px 3px 0 rgba(15, 23, 42, 0.05), 0 1px 2px -1px rgba(15, 23, 42, 0.03);
+  --medtrust-shadow-elevated: 0 4px 6px -1px rgba(15, 23, 42, 0.07), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
+
+  /* ------------------------------------------------------------------------
+     3. 历史兼容别名 (Backward-compatible Aliases)
+     ------------------------------------------------------------------------ */
+  --edms-body-bg: var(--medtrust-body-bg);
+  --edms-card-bg: var(--medtrust-card-bg);
+  --edms-sidebar-bg: var(--medtrust-sidebar-bg);
+  --edms-sidebar-text: var(--medtrust-sidebar-text);
+  --edms-sidebar-active-bg: var(--medtrust-sidebar-active-bg);
+  --edms-sidebar-active-text: var(--medtrust-sidebar-active-text);
+  --edms-header-bg: var(--medtrust-header-bg);
+  --edms-shadow: var(--medtrust-shadow-card);
+  --edms-border: var(--medtrust-border);
+  --edms-ambient-glow: none; /* 彻底移除破坏严肃感的彩光弥散光晕 */
 }
 
-/* ==========================================
-   2. 部门经理 (Manager) - 香槟�?/ 商务暗灰
-========================================== */
-html[data-theme='manager'] {
-  --el-color-primary: #d97706;
-  --el-color-primary-light-3: #fcd34d;
-  --el-color-primary-dark-2: #b45309;
-  
-  --edms-body-bg: #fcfaf8;
-  --edms-card-bg: #ffffff;
-  --edms-sidebar-bg: #0f172a; /* 侧边栏变�?*/
-  --edms-sidebar-text: #f8fafc;
-  --edms-sidebar-active-bg: #1e293b;
-  --edms-sidebar-active-text: var(--el-color-primary);
-  --edms-header-bg: rgba(255, 255, 255, 0.9);
-  
-  /*  左右双光源金色极�?*/
-  --edms-ambient-glow: 
-    radial-gradient(circle at 20% 0%, rgba(217, 119, 6, 0.2) 0%, transparent 60%),
-    radial-gradient(circle at 80% 0%, rgba(107, 114, 128, 0.15) 0%, transparent 60%);
-  --edms-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.05);
-  --edms-border: 1px solid rgba(0, 0, 0, 0.05);
+/* ==========================================================================
+   全局排版与基础样式
+   ========================================================================== */
+body {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
+  color: #1e293b;
+  background-color: var(--medtrust-body-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* ==========================================
-   3. 管理�?(Admin) - 极客深藏�?/ 安全审计中心 (修正�?
-========================================== */
-html[data-theme='admin'] {
-  /*  主色调：深邃且极具信任感的深海蓝 */
-  --el-color-primary: #2563eb; 
-  --el-color-primary-light-3: #60a5fa;
-  --el-color-primary-dark-2: #1d4ed8;
-  
-  /*  底色：一种极其冷静的极光灰蓝，为毛玻璃提供优质底�?*/
-  --edms-body-bg: #f1f5f9; 
-  
-  /*  侧边栏：极暗的夜空蓝，稳住整个页面的左侧重心 */
-  --edms-sidebar-bg: #0f172a;
-  --edms-sidebar-text: #94a3b8;
-  --edms-sidebar-active-bg: rgba(37, 99, 235, 0.15); 
-  --edms-sidebar-active-text: #60a5fa; 
-  
-  /*  顶栏保持清透的毛玻璃白，与卡片呼应 */
-  --edms-header-bg: rgba(255, 255, 255, 0.9);
-
-  /*  双色环境光：左上角冰蓝，右上角深海蓝，交织的高级冷光 */
-  --edms-ambient-glow: 
-    radial-gradient(circle at 20% -10%, rgba(59, 130, 246, 0.22) 0%, transparent 65%),
-    radial-gradient(circle at 80% -10%, rgba(29, 78, 216, 0.18) 0%, transparent 65%);
-    
-  /*  阴影和边框：带上一丝极其微弱的冷蓝色调 */
-  --edms-shadow: 0 8px 32px 0 rgba(15, 23, 42, 0.05);
-  --edms-border: 1px solid rgba(59, 130, 246, 0.12);
-
-  /* 文字颜色恢复 */
-  --el-text-color-primary: #303133;
-  --el-text-color-regular: #606266;
-  --el-bg-color-overlay: #ffffff; 
-}
-
-/* ==========================================
-   全局通用布局�?========================================== */
+/* 全局容器类 */
 .page-wrapper {
   padding: 24px;
-  max-width: 1400px; 
+  max-width: 1560px;
   margin: 0 auto;
 }
 
-.edms-content-card {
-  /* 1. �?100% 的纯白，改成 85% 透明度的�?*/
-  background-color: rgba(255, 255, 255, 0.85); 
-  
-  /* 2.  开启毛玻璃滤镜：光线穿过卡片时会被柔和地模糊掉 */
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  
-  /* 3. 增强边缘的高光反射，让卡片看起来像一块悬浮的玻璃�?*/
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  box-shadow: var(--edms-shadow);
-  
-  border-radius: 12px;
-  padding: 24px;
+/* ==========================================================================
+   企业级实体卡片 (Solid Professional Card)
+   坚决剔除透底毛玻璃，还原真实、扎实、高对比度的企业级卡片质感
+   ========================================================================== */
+.medtrust-content-card,
+.edms-content-card,
+.el-card {
+  background-color: var(--medtrust-card-bg) !important;
+  border: var(--medtrust-border) !important;
+  border-radius: 8px !important;
+  box-shadow: var(--medtrust-shadow-card) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 
-/* ==========================================
-   页面顶栏标准规范 (企业医疗级规范布局)
-========================================== */
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
-  position: relative;
-  gap: 16px;
+.el-card__header {
+  border-bottom: 1px solid #f1f5f9 !important;
+  padding: 14px 20px !important;
+  background-color: #fafbfc;
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
 }
 
-.page-header .page-title,
-.page-header h2 {
-  font-size: 24px;
-  font-weight: 800;
-  color: #0f172a;
-  letter-spacing: -0.02em;
-  margin: 0;
-  line-height: 1.3;
+.el-card__body {
+  padding: 20px !important;
 }
 
-.page-header .page-sub,
-.page-header .subtitle {
-  font-size: 13px;
-  color: #64748b;
-  margin-top: 4px;
-  line-height: 1.5;
+/* ==========================================================================
+   企业级表格规范 (Enterprise Data Table)
+   严禁透明度！提供清晰的表头、利落的行高和微弱的悬停对比
+   ========================================================================== */
+.el-table {
+  background-color: #ffffff !important;
+  color: #334155 !important;
+  border-radius: 6px;
+  overflow: hidden;
 }
 
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
-/* ==========================================
-   全局滚动条与字体优化
-========================================== */
-h1, h2, h3, h4, h5, h6 {
-  font-family: var(--app-font-title, 'Inter', sans-serif);
-}
-
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.1);
-  border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.2);
-}
-
-/* ==========================================
-   强制接管 Element Plus 菜单渲染�?(解决状态残留Bug)
-========================================== */
-
-/* 1. 强行渲染侧边栏底�?*/
-.edms-sidebar {
-  background-color: var(--edms-sidebar-bg) !important;
-}
-
-/* 2. 把菜单背景掏空，直接透出侧边栏底�?*/
-.edms-menu, 
-.edms-menu .el-menu {
-  background-color: transparent !important;
-  border-right: none !important;
-}
-
-/* 3. 强行接管文字颜色 */
-.edms-menu .el-menu-item,
-.edms-menu .el-sub-menu__title {
-  color: var(--edms-sidebar-text) !important;
-}
-
-/* 4. 强行接管悬浮效果 */
-.edms-menu .el-menu-item:hover,
-.edms-menu .el-sub-menu__title:hover {
-  background-color: var(--edms-sidebar-active-bg) !important;
-  color: var(--edms-sidebar-active-text) !important;
-}
-
-/* 强行接管激活状�?(封神细节：加一个右侧高亮条) */
-.edms-menu .el-menu-item.is-active {
-  color: var(--edms-sidebar-active-text) !important;
-  background-color: var(--edms-sidebar-active-bg) !important;
+/* 表头：微冷灰背景，加粗稳固 */
+.el-table th.el-table__cell {
+  background-color: #f8fafc !important;
+  color: #475569 !important;
   font-weight: 600 !important;
-  border-right: 3px solid var(--el-color-primary) !important;
+  font-size: 13px !important;
+  height: 44px !important;
+  border-bottom: 1px solid #e2e8f0 !important;
 }
 
-/* ==========================================
-   侧边栏字体与排版层级优化
-========================================== */
-
-/* 1. 放大二级菜单（比�?Library 下面的具体内容）的字�?*/
-.edms-menu .el-sub-menu .el-menu-item {
-  font-size: 15px !important; /* Element 默认�?14px，调大到 15px */
-  letter-spacing: 0.5px !important; /* 增加一点字间距，提升阅读舒适度 */
-  padding-left: 50px !important; /* 稍微往右缩进一点，拉开与一级菜单的层级�?*/
+/* 单元格与分割线 */
+.el-table td.el-table__cell {
+  border-bottom: 1px solid #f1f5f9 !important;
+  padding: 10px 0 !important;
+  font-size: 13px !important;
+  color: #1e293b;
 }
 
-/* 2. 顺手强化一级菜单（比如 仪表盘、文档库 这几个大标题）的层级�?*/
-.edms-menu > .el-menu-item,
-.edms-menu > .el-sub-menu > .el-sub-menu__title {
-  font-size: 15px !important;
-  font-weight: 500 !important; /* 一级菜单稍微加粗一点点 */
+/* 悬浮行：极其克制的高级微亮灰，绝不闪烁花哨 */
+.el-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell {
+  background-color: #f8fafc !important;
 }
 
-/* ==========================================
-   全局动态背景引�?(修复版：伪元素分离渲�?
-========================================== */
-
-/* 1. 根节点只负责底色，绝对不加动�?*/
-body, #app {
-  min-height: 100vh;
-  background-color: var(--edms-body-bg);
-  transition: background-color 0.4s ease; 
-  margin: 0;
-  position: relative; 
-  z-index: 0; 
-}
-
-/* 2. 创建一个绝对独立的底层“光晕层�?*/
-#app::before {
-  content: "";
-  position: fixed; /* 固定在视口，不随滚动条滚�?*/
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  background-image: var(--edms-ambient-glow); 
-  background-repeat: no-repeat;
-  background-position: center top;
-  
-  /*  核心：把它压到所�?UI 组件的下面，且不阻挡鼠标点击 */
-  z-index: -1; 
-  pointer-events: none; 
-  
-  /* 动画只作用于这个独立�?*/
-  animation: ambientBreathe 8s ease-in-out infinite; 
-}
-
-/* 3. 只通过透明度控制呼吸深度，不缩放以免产生滚动条 */
-@keyframes ambientBreathe {
-  0%   { opacity: 0.3; }  /* 收缩到最�?*/
-  50%  { opacity: 1; }    /* 释放到最�?*/
-  100% { opacity: 0.3; }
-}
-
-/* ==========================================
-   Admin 专属高级质感：打破单色沉�?========================================= */
-
-/* 1. 核心按钮：深蓝色系的“液态渐变”与悬浮发光 (排除链接形式和朴素形式的按钮) */
-html[data-theme='admin'] .el-button--primary:not(.is-link):not(.is-plain):not(.login-btn) {
-  background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%) !important;
-  border: none !important;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25) !important;
-  transition: all 0.3s ease !important;
-}
-
-html[data-theme='admin'] .el-button--primary:not(.is-link):not(.is-plain):not(.login-btn):hover {
-  background: linear-gradient(135deg, #2563eb 0%, #60a5fa 100%) !important;
-  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4) !important;
-  transform: translateY(-2px) !important;
-}
-
-/* 2. 侧边栏高亮：深海蓝的“流星拖尾”渐�?*/
-html[data-theme='admin'] .edms-menu .el-menu-item.is-active {
-  background: linear-gradient(90deg, rgba(37, 99, 235, 0.15) 0%, transparent 100%) !important;
-  color: #60a5fa !important; 
-  font-weight: 600 !important;
-  border-right: 3px solid #2563eb !important;
-}
-
-/* ==========================================
-   Admin 专用补丁：保护顶栏文字对比度
-========================================== */
-html[data-theme='admin'] .edms-header .el-tag {
-  background-color: rgba(37, 99, 235, 0.1) !important;
-  color: #2563eb !important;
-  border: 1px solid rgba(37, 99, 235, 0.2) !important;
-}
-
-html[data-theme='admin'] .edms-header .user-info, 
-html[data-theme='admin'] .edms-header .el-dropdown-link {
-  color: #1e293b !important; 
-}
-
-/* ==========================================
-   深度玻璃化化：砸�?Element Table 的实心底�?========================================== */
-/* 1. 确保外层卡片是真正的毛玻�?*/
-.edms-content-card {
-  background-color: rgba(255, 255, 255, 0.65) !important; /* 透明度降�?65% */
-  backdrop-filter: blur(20px) !important;
-  -webkit-backdrop-filter: blur(20px) !important;
-  border: 1px solid rgba(255, 255, 255, 0.8) !important;
-  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.05) !important;
-}
-
-/* 2.  强制剥夺表格组件内部的所有白底色�?*/
+/* 修复历史遗留的透明表格样式污染 */
 .edms-content-card .el-table,
 .edms-content-card .el-table__expanded-cell,
 .edms-content-card .el-table th,
 .edms-content-card .el-table tr,
 .edms-content-card .el-table td {
-  background-color: transparent !important; 
-  background: transparent !important;
+  background-color: #ffffff !important;
 }
 
-/* 3. 修复表格 hover 时颜色太深的问题 */
-.edms-content-card .el-table tbody tr:hover>td {
-  background-color: rgba(255, 255, 255, 0.4) !important; /* 鼠标悬浮时只加一层淡淡的白纱 */
+.edms-content-card .el-table th {
+  background-color: #f8fafc !important;
 }
 
-/* 4. 隐藏表格默认的边�?*/
-.edms-content-card .el-table::before,
-.edms-content-card .el-table--border::after,
-.edms-content-card .el-table--group::after,
-.edms-content-card .el-table__inner-fixed::before {
-  display: none !important;
+.edms-content-card .el-table tbody tr:hover > td {
+  background-color: #f8fafc !important;
 }
 
-/* ========================================== 
-   ǿ�ƻ��� AI ���ֵİ�ǽ 
-========================================== */ 
- 
-/* 1. ����ȫ�� AI ҳ��Ĵ�׿� */ 
-.ai-page-container { 
-  background-color: rgba(255, 255, 255, 0.65) !important; 
-  backdrop-filter: blur(24px) !important; 
-  -webkit-backdrop-filter: blur(24px) !important; 
-  border: 1px solid rgba(255, 255, 255, 0.8) !important; 
-  box-shadow: 0 16px 40px rgba(31, 38, 135, 0.08) !important; 
-} 
- 
-/* 2. ����� AI ����ͬ��ǿ�Ʋ����� */ 
-.ai-sidebar-container:not(.collapsed) { 
-  background-color: rgba(255, 255, 255, 0.65) !important; 
-  backdrop-filter: blur(24px) !important; 
-  -webkit-backdrop-filter: blur(24px) !important; 
-} 
- 
-/* 3. �м���������С��Ƭ���ܽ��ĵ�������������ǿ��ͨ͸ */ 
-.suggestion-card { 
-  background-color: rgba(255, 255, 255, 0.5) !important; 
-  border: 1px solid rgba(255, 255, 255, 0.7) !important; 
-  transition: all 0.3s ease !important; 
-} 
-.suggestion-card:hover { 
-  background-color: rgba(255, 255, 255, 0.8) !important; 
-  transform: translateY(-2px) !important; 
-} 
- 
-/* 4. �ײ������������ǿ��ͨ͸ */ 
-.input-wrapper, .chat-input-area { 
-  background-color: rgba(255, 255, 255, 0.4) !important; 
-  border: 1px solid rgba(255, 255, 255, 0.5) !important; 
-  border-radius: 12px !important; 
+/* ==========================================================================
+   页面顶栏与标题层级规范
+   ========================================================================== */
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 4px;
 }
 
-/* ========================================== 
-   商业级医疗 SaaS: 等宽数字与防篡改凭证排版规范 
-========================================== */
+.page-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.3px;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.page-sub {
+  font-size: 13px;
+  color: #64748b;
+  margin: 6px 0 0 0;
+  line-height: 1.5;
+}
+
+/* ==========================================================================
+   统计看板指标卡片 (Enterprise Stat Metrics)
+   ========================================================================== */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.stat-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 18px 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  box-shadow: var(--medtrust-shadow-card);
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--medtrust-shadow-elevated);
+}
+
+.stat-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.stat-card.blue .stat-icon { background: #e0f2fe; color: #0284c7; }
+.stat-card.yellow .stat-icon { background: #fef3c7; color: #d97706; }
+.stat-card.cyan .stat-icon { background: #ccfbf1; color: #0d9488; }
+.stat-card.green .stat-icon { background: #dcfce7; color: #059669; }
+.stat-card.red .stat-icon { background: #fee2e2; color: #dc2626; }
+
+.stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.1;
+  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+}
+
+.stat-label {
+  font-size: 13px;
+  color: #64748b;
+  margin-top: 4px;
+  font-weight: 500;
+}
+
+/* ==========================================================================
+   商业级医疗 SaaS: 等宽数字与区块链凭证排版规范
+   ========================================================================== */
 .font-mono,
 .mono,
 .tabular-nums,
@@ -402,7 +268,51 @@ html[data-theme='admin'] .edms-header .el-dropdown-link {
   font-variant-numeric: tabular-nums !important;
 }
 
-/* 全局隐藏多余意外产生的滚动条滑块（保持功能可滚，隐藏粗糙系统滑条） */
+/* 交互型哈希凭证胶囊 (Hash Capsule Badge) */
+.hash-capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: #334155;
+  transition: all 0.2s ease;
+}
+
+.hash-capsule:hover {
+  background: #e2e8f0;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+/* 统一定义左侧 Accent 色条 */
+.accent-card-blue { border-left: 4px solid #0284c7 !important; }
+.accent-card-amber { border-left: 4px solid #f59e0b !important; }
+.accent-card-emerald { border-left: 4px solid #10b981 !important; }
+.accent-card-red { border-left: 4px solid #dc2626 !important; }
+
+/* 按钮微立体质感 */
+.el-button--primary:not(.is-link):not(.is-plain):not(.login-btn):not(.btn-trigger-ai-inline):not(.ai-diagnose-capsule-btn):not(.btn-cross-ai-diagnose):not(.btn-primary-gradient):not(.btn-ai-gradient):not([class*="gradient"]) {
+  background-color: #0284c7 !important;
+  border-color: #0284c7 !important;
+  color: #ffffff !important;
+  font-weight: 500;
+  border-radius: 6px;
+  box-shadow: 0 1px 2px 0 rgba(2, 132, 199, 0.2);
+}
+
+.el-button--primary:not(.is-link):not(.is-plain):not(.login-btn):not(.btn-trigger-ai-inline):not(.ai-diagnose-capsule-btn):not(.btn-cross-ai-diagnose):not(.btn-primary-gradient):not(.btn-ai-gradient):not([class*="gradient"]):hover {
+  background-color: #0369a1 !important;
+  border-color: #0369a1 !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 6px 0 rgba(2, 132, 199, 0.35);
+}
+
+/* 全局隐藏多余意外产生的粗糙滚动条滑块 */
 .no-scrollbar {
   scrollbar-width: none !important;
   -ms-overflow-style: none !important;
@@ -412,16 +322,3 @@ html[data-theme='admin'] .edms-header .el-dropdown-link {
   width: 0 !important;
   height: 0 !important;
 }
-
-/* 统一的高级感 Accent Bar 语义色条 */
-.accent-card-blue {
-  border-left: 4px solid #3b82f6 !important;
-}
-.accent-card-amber {
-  border-left: 4px solid #f59e0b !important;
-}
-.accent-card-emerald {
-  border-left: 4px solid #10b981 !important;
-}
-
-

@@ -282,7 +282,6 @@
           <div class="deck-action-buttons">
             <!-- 1. 一键申请全量权限 -->
             <el-button
-              type="primary"
               class="deck-btn btn-primary-gradient"
               :icon="Key"
               @click="openAllConsentDialog"
@@ -336,13 +335,13 @@
               【急救绿色通道】紧急破窗
             </el-button>
 
-            <!-- 5. AI 跨期全景分析 -->
+            <!-- 5. 跨院既往病史 SOAP 简明汇总与隐匿线索 -->
             <el-button
               class="deck-btn btn-ai-gradient"
               @click="aiDiagnosticVisible = true"
             >
               <el-icon class="mr-1"><MagicStick /></el-icon>
-              <span>✨ AI 跨期全景分析</span>
+              <span>📋 跨院病历 SOAP 汇总与线索</span>
             </el-button>
           </div>
         </div>

@@ -23,6 +23,17 @@
             <el-tag size="small" type="danger">{{ row.emergency_reason }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column prop="rule_pre_screen" label="规则初筛结论" width="160">
+          <template #default="{ row }">
+            <el-tag
+              size="small"
+              :type="row.rule_pre_screen === 'RULE_WARN_SUSPICIOUS' ? 'warning' : 'success'"
+              :effect="row.rule_pre_screen === 'RULE_WARN_SUSPICIOUS' ? 'dark' : 'light'"
+            >
+              {{ row.rule_pre_screen === 'RULE_WARN_SUSPICIOUS' ? '⚠️ 非典型破窗需复核' : '✅ 符合危急重症指征' }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="patient_feedback" label="患者知情确认" width="145">
           <template #default="{ row }">
             <el-tag v-if="row.patient_feedback === 'CONFIRMED'" type="success" size="small" effect="plain">正常抢救 (无异议)</el-tag>
@@ -72,11 +83,30 @@
         <p><strong>调阅医生：</strong>{{ currentEvent.doctor_name }} ({{ currentEvent.source_hospital_name }})</p>
         <p><strong>就诊患者：</strong>{{ currentEvent.patient_name }}</p>
         <p><strong>医生抢救说明：</strong>{{ getCleanDoctorDesc(currentEvent.description) }}</p>
+        <p><strong>第一道关卡 (规则初筛)：</strong>
+          <el-tag
+            size="small"
+            :type="currentEvent.rule_pre_screen === 'RULE_WARN_SUSPICIOUS' ? 'warning' : 'success'"
+            :effect="currentEvent.rule_pre_screen === 'RULE_WARN_SUSPICIOUS' ? 'dark' : 'plain'"
+          >
+            {{ currentEvent.rule_pre_screen_desc || (currentEvent.rule_pre_screen === 'RULE_WARN_SUSPICIOUS' ? '[规则初筛：体征/场景不典型，建议重点复核]' : '[规则初筛：符合急诊危急重症指征]') }}
+          </el-tag>
+        </p>
         <p><strong>患者反馈结论：</strong>
           <el-tag size="small" :type="currentEvent.patient_feedback === 'OBJECTED' ? 'danger' : 'success'">
             {{ currentEvent.patient_feedback === 'OBJECTED' ? '⚠️ 已提出异议申诉' : (currentEvent.patient_feedback === 'CONFIRMED' ? '已确认无异议 (正常抢救)' : '等待患者核验') }}
           </el-tag>
         </p>
+
+        <!-- 第二道关卡：当存在异议或存疑时展示 AI 医患陈述争议焦点对比卡 -->
+        <div v-if="currentEvent.audit_comparison_summary" class="ai-dispute-box mt-3 mb-3">
+          <div class="ai-dispute-header">
+            <el-icon color="#7c3aed"><MagicStick /></el-icon>
+            <span class="font-bold text-purple-900 ml-1">AI 医患陈述争议焦点对比卡 (辅助审查参考)</span>
+          </div>
+          <pre class="ai-dispute-content font-mono">{{ currentEvent.audit_comparison_summary }}</pre>
+        </div>
+
         <el-alert
           v-if="currentEvent.patient_feedback === 'OBJECTED' || (currentEvent.description && currentEvent.description.includes('|'))"
           type="error"
@@ -164,6 +194,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { MagicStick } from '@element-plus/icons-vue'
 import api from '../../api/client'
 
 const events = ref([])
@@ -357,5 +388,30 @@ function tableRowClassName({ row }: { row: any }) {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.ai-dispute-box {
+  background: #fdf4ff;
+  border: 1px solid #e9d5ff;
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.ai-dispute-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.ai-dispute-content {
+  background: #ffffff;
+  border: 1px solid #f3e8ff;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #334155;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
 }
 </style>

@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     v-model="visible"
-    title="AI 跨期病历关联辅助诊断工作台"
+    title="📋 跨院既往病史 SOAP 结构化提炼与临床决策支持 (Doctor-in-the-Loop)"
     width="980px"
     class="ai-diagnostic-dialog"
     :close-on-click-modal="false"
@@ -38,10 +38,10 @@
       <div class="engine-badge-box">
         <div class="engine-tag" :class="diagnosticResult?.engine_mode === 'EXTERNAL_API' ? 'llm' : 'knowledge'">
           <el-icon><Cpu /></el-icon>
-          <span>{{ diagnosticResult?.engine_mode === 'EXTERNAL_API' ? '外部大模型 API' : 'MedTrust 临床时空关联推理引擎' }}</span>
+          <span>{{ diagnosticResult?.engine_mode === 'EXTERNAL_API' ? '外部大模型 API' : 'MedTrust 跨院病历语义提炼引擎' }}</span>
         </div>
         <div class="model-caption font-mono">
-          {{ diagnosticResult?.model_name || 'MedTrust-Clinical-Correlation-V2' }}
+          {{ diagnosticResult?.model_name || 'MedTrust-SOAP-Extractor-V2' }}
         </div>
       </div>
     </div>
@@ -49,9 +49,9 @@
     <!-- 正在推理中的动态流水线动画 -->
     <div v-if="loading" class="ai-loading-pipeline">
       <div class="pipeline-spinner-ring">
-        <el-icon class="is-loading" :size="48" color="#8b5cf6"><Loading /></el-icon>
+        <el-icon class="is-loading" :size="48" color="#0284c7"><Loading /></el-icon>
       </div>
-      <div class="pipeline-title">正在执行多维跨期病程演化与关联推演...</div>
+      <div class="pipeline-title">正在执行跨机构病历授权核验、SOAP 摘要生成与隐匿线索抽取...</div>
       <div class="pipeline-steps-row">
         <div class="step-node" :class="{ done: pipelineStep >= 1, active: pipelineStep === 1 }">
           <div class="step-dot">1</div>
@@ -65,12 +65,12 @@
         <div class="step-line" :class="{ filled: pipelineStep >= 3 }"></div>
         <div class="step-node" :class="{ done: pipelineStep >= 3, active: pipelineStep === 3 }">
           <div class="step-dot">3</div>
-          <span class="step-text">比对既往用药史、症状群聚与耐药机制</span>
+          <span class="step-text">比对既往用药史、抽取隐匿过敏线索</span>
         </div>
         <div class="step-line" :class="{ filled: pipelineStep >= 4 }"></div>
         <div class="step-node" :class="{ done: pipelineStep >= 4, active: pipelineStep === 4 }">
           <div class="step-dot">4</div>
-          <span class="step-text">生成鉴别诊断排序与处方指导</span>
+          <span class="step-text">Go授权范围后置校验与提炼SOAP摘要</span>
         </div>
       </div>
     </div>
@@ -80,10 +80,10 @@
       <!-- 1. 综合诊断简述卡片 -->
       <div class="summary-hero-card">
         <div class="shc-header">
-          <el-icon :size="20" color="#7c3aed"><MagicStick /></el-icon>
-          <span class="shc-title">多维病程演进与时空关联分析结论</span>
-          <el-tag size="small" type="success" effect="light" class="ml-auto">
-            跨期数据已校验
+          <el-icon :size="20" color="#0284c7"><MagicStick /></el-icon>
+          <span class="shc-title">跨院病历多维演进分析与 SOAP 结构化提炼</span>
+          <el-tag size="small" type="success" effect="dark" class="ml-auto">
+            {{ diagnosticResult.post_verification_guard || '🛡️ 已通过 Go 授权范围后置核验 (仅聚合已授权病历)' }}
           </el-tag>
         </div>
         <div class="shc-body">
@@ -93,73 +93,112 @@
 
       <!-- 选项卡导航切换各维度分析 -->
       <el-tabs v-model="activeTab" class="diagnostic-tabs">
-        <!-- 维度 1: 疑似疾病鉴别诊断与预测排序 (重点核心) -->
-        <el-tab-pane label="疑似疾病预测与鉴别诊断" name="diseases">
+        <!-- 维度 1: SOAP 接诊结构化汇总 (核心主视图) -->
+        <el-tab-pane label="📋 SOAP 接诊结构化汇总" name="soap">
           <div class="tab-pane-box">
-            <div class="pane-tip-row">
-              <span>根据患者当前就诊主诉与既往 {{ diagnosticResult.authorized_record_count }} 份病历的关联计算，AI 给出以下疑似疾病概率分布：</span>
+            <div class="pane-tip-row flex-between mb-3">
+              <span>由医疗专业智能引擎对跨院已授权病程记录进行四段式客观提炼（严格遵循 Doctor-in-the-Loop 辅助诊疗与临床决策合规准则）：</span>
+              <el-button type="primary" size="small" :icon="DocumentCopy" @click="adoptSOAP(diagnosticResult.soap_summary)">
+                一键复制 SOAP 至病历草稿
+              </el-button>
             </div>
 
-            <div class="predicted-diseases-grid">
+            <div class="soap-grid-layout">
+              <div class="soap-box s-box">
+                <div class="soap-box-header">
+                  <span class="soap-letter">S</span>
+                  <span class="soap-title">患者主诉与既往病史 (Subjective)</span>
+                </div>
+                <div class="soap-box-body">
+                  {{ diagnosticResult.soap_summary?.subjective || '暂无既往主诉' }}
+                </div>
+              </div>
+
+              <div class="soap-box o-box">
+                <div class="soap-box-header">
+                  <span class="soap-letter">O</span>
+                  <span class="soap-title">跨院客观检查与生命体征 (Objective)</span>
+                </div>
+                <div class="soap-box-body">
+                  {{ diagnosticResult.soap_summary?.objective || '化验基本正常' }}
+                </div>
+              </div>
+
+              <div class="soap-box a-box">
+                <div class="soap-box-header">
+                  <span class="soap-letter">A</span>
+                  <span class="soap-title">各院既有临床确诊客观汇总 (Assessment)</span>
+                </div>
+                <div class="soap-box-body">
+                  {{ diagnosticResult.soap_summary?.assessment || '暂无跨院确诊记录' }}
+                </div>
+                <div class="soap-box-tip text-muted">
+                  ⚠️ 客观摘录各院既有病历确诊结论，AI 不做任何新疾病确诊，供接诊医生鉴别衔接。
+                </div>
+              </div>
+
+              <div class="soap-box p-box">
+                <div class="soap-box-header">
+                  <span class="soap-letter">P</span>
+                  <span class="soap-title">历史处置与已用药物记录 (Plan)</span>
+                </div>
+                <div class="soap-box-body">
+                  {{ diagnosticResult.soap_summary?.plan || '暂无历史处方' }}
+                </div>
+                <div class="soap-box-tip text-muted">
+                  ⚠️ 仅供用药史追溯与防范重复用药，当前处方用药由接诊医生亲自开具。
+                </div>
+              </div>
+            </div>
+          </div>
+        </el-tab-pane>
+
+        <!-- 维度 2: 隐匿过敏与高危线索 -->
+        <el-tab-pane label="⚠️ 隐匿过敏与高危线索" name="clues">
+          <div class="tab-pane-box">
+            <div class="pane-tip-row mb-3">
+              <span>从跨院已授权自由文本主诉、病程与现病史中自动抽取的口语化隐匿风险线索：</span>
+            </div>
+            <div class="clues-grid">
               <div
-                v-for="(item, idx) in diagnosticResult.predicted_diseases"
-                :key="idx"
-                class="disease-card"
-                :class="'risk-' + (item.risk_level?.toLowerCase() || 'medium')"
+                v-for="(clue, cIdx) in (diagnosticResult.hidden_allergy_clues || [])"
+                :key="cIdx"
+                class="clue-item-card"
+                :class="clue.clue_type.includes('过敏') ? 'clue-danger' : (clue.clue_type.includes('正常') ? 'clue-success' : 'clue-warning')"
               >
-                <div class="dc-header">
-                  <div class="dc-rank-badge">Top {{ idx + 1 }}</div>
-                  <div class="dc-title-box">
-                    <span class="disease-name">{{ item.disease_name }}</span>
-                    <span v-if="item.icd_code" class="icd-code font-mono">ICD: {{ item.icd_code }}</span>
-                  </div>
-                  <div class="dc-prob-box">
-                    <div class="prob-num font-mono">{{ item.probability }}%</div>
-                    <el-tag size="small" :type="getRiskTagType(item.risk_level)" effect="dark">
-                      {{ item.confidence_level || '疑似' }}
-                    </el-tag>
-                  </div>
+                <div class="clue-top-row">
+                  <span class="clue-badge">{{ clue.clue_type }}</span>
+                  <span class="clue-source font-mono text-muted text-xs">来源: {{ clue.source_hospital }} ({{ clue.source_record_no }})</span>
                 </div>
+                <div class="clue-text">{{ clue.content }}</div>
+              </div>
+            </div>
+          </div>
+        </el-tab-pane>
 
-                <div class="dc-progress-bar">
-                  <el-progress
-                    :percentage="item.probability"
-                    :color="getProbColor(item.probability)"
-                    :show-text="false"
-                    :stroke-width="6"
-                  />
+        <!-- 维度 3: 跨院记录语义矛盾提示 -->
+        <el-tab-pane label="🔍 跨院记录语义矛盾提示" name="contradictions">
+          <div class="tab-pane-box">
+            <div class="pane-tip-row mb-3">
+              <span>通过跨机构病历交叉比对，识别不同医院之间关于慢病、过敏或用药依从性的自述差异：</span>
+            </div>
+            <div class="contradictions-grid">
+              <div
+                v-for="(ct, ctIdx) in (diagnosticResult.semantic_contradictions || [])"
+                :key="ctIdx"
+                class="ct-card"
+                :class="ct.contradiction_type.includes('正常') ? 'ct-success' : 'ct-warning'"
+              >
+                <div class="ct-top-row">
+                  <span class="ct-tag font-bold">{{ ct.contradiction_type }}</span>
+                  <el-tag size="small" :type="ct.contradiction_type.includes('正常') ? 'success' : 'warning'">
+                    {{ ct.contradiction_type.includes('正常') ? '比对一致' : '需当面核实' }}
+                  </el-tag>
                 </div>
-
-                <div class="dc-content">
-                  <div class="content-row">
-                    <span class="row-label">临床支持依据:</span>
-                    <span class="row-val">{{ item.clinical_basis }}</span>
-                  </div>
-
-                  <div class="content-row">
-                    <span class="row-label">鉴别排除要点:</span>
-                    <span class="row-val text-muted">{{ item.differential_points }}</span>
-                  </div>
-
-                  <div v-if="item.suggested_exams?.length" class="content-row mt-2">
-                    <span class="row-label">建议查证项目:</span>
-                    <div class="exam-chips-box">
-                      <span v-for="exam in item.suggested_exams" :key="exam" class="exam-chip">
-                        🔬 {{ exam }}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="dc-footer-action">
-                  <el-button
-                    type="primary"
-                    size="small"
-                    :icon="Check"
-                    @click="adoptDiagnosis(item)"
-                  >
-                    采纳该诊断回填至病历表单
-                  </el-button>
+                <div class="ct-desc mt-2">{{ ct.description }}</div>
+                <div class="ct-advice-row mt-2" v-if="ct.verification_advice">
+                  <span class="advice-label font-bold">🩺 接诊核查建议：</span>
+                  <span class="advice-text">{{ ct.verification_advice }}</span>
                 </div>
               </div>
             </div>
@@ -416,11 +455,11 @@ ai:
         </el-tab-pane>
       </el-tabs>
 
-      <!-- 底部安全与红线警示卡片 -->
+      <!-- 底部临床安全防范与决策支持准则卡片 -->
       <div v-if="diagnosticResult.clinical_warnings?.length" class="clinical-warnings-box mt-3">
         <div class="cwb-header">
           <el-icon color="#ef4444"><WarningFilled /></el-icon>
-          <span class="font-bold text-danger">经治医生临床安全防范与合规警示</span>
+          <span class="font-bold text-danger">经治医生临床安全防范与合规审方准则</span>
         </div>
         <ul class="cwb-list">
           <li v-for="(w, idx) in diagnosticResult.clinical_warnings" :key="idx">
@@ -435,17 +474,26 @@ ai:
       <div class="ai-dialog-footer">
         <span class="footer-hint text-muted">
           <el-icon><InfoFilled /></el-icon>
-          AI 辅助诊断仅供经治医师参考，最终诊断与用药处方权依法归属执业医师
+          AI 辅助诊断仅供经治医师参考，最终诊断与用药处方权依法归属执业医师 (Doctor-in-the-Loop)
         </span>
         <div class="footer-btn-group">
           <el-button @click="visible = false">关 闭</el-button>
           <el-button
             type="primary"
+            plain
             :icon="Refresh"
             :loading="loading"
             @click="runDiagnosticAnalysis"
           >
             重新推理分析
+          </el-button>
+          <el-button
+            type="success"
+            :icon="DocumentCopy"
+            :disabled="!diagnosticResult?.soap_summary"
+            @click="adoptAllToRecord"
+          >
+            一键采纳 SOAP 与临床线索至病历草稿
           </el-button>
         </div>
       </div>
@@ -457,8 +505,8 @@ ai:
 import { ref, watch, computed } from 'vue'
 import {
   MagicStick, CircleCheckFilled, Document, Cpu, Loading,
-  Check, Timer, FolderChecked, Collection, InfoFilled,
-  Select, CopyDocument, WarningFilled, Refresh
+  Timer, FolderChecked, Collection, InfoFilled,
+  Select, CopyDocument, WarningFilled, Refresh, DocumentCopy
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import api from '../api/client'
@@ -476,6 +524,7 @@ const emit = defineEmits<{
   (e: 'update:modelValue', val: boolean): void
   (e: 'adopt-diagnosis', item: any): void
   (e: 'adopt-treatment', plan: any): void
+  (e: 'adopt-soap', soap: any): void
 }>()
 
 const visible = computed({
@@ -485,7 +534,7 @@ const visible = computed({
 
 const loading = ref(false)
 const pipelineStep = ref(1)
-const activeTab = ref('diseases')
+const activeTab = ref('soap')
 const diagnosticResult = ref<any>(null)
 const authCount = ref(4)
 const examCount = ref(2)
@@ -496,7 +545,7 @@ watch(
   () => props.modelValue,
   (val) => {
     if (val) {
-      activeTab.value = 'diseases'
+      activeTab.value = 'soap'
       runDiagnosticAnalysis()
     }
   }
@@ -545,9 +594,13 @@ async function runDiagnosticAnalysis() {
   }
 }
 
-function adoptDiagnosis(item: any) {
-  emit('adopt-diagnosis', item)
-  ElMessage.success(`已采纳诊断【${item.disease_name}】`)
+function adoptSOAP(soap: any) {
+  emit('adopt-soap', soap)
+  if (navigator.clipboard && soap) {
+    const text = `【S 主诉与既往病史】\n${soap.subjective || ''}\n\n【O 客观检查体征】\n${soap.objective || ''}\n\n【A 各院确诊归纳】\n${soap.assessment || ''}\n\n【P 历史处方用药】\n${soap.plan || ''}`
+    navigator.clipboard.writeText(text).catch(() => {})
+  }
+  ElMessage.success('已采纳跨院 SOAP 摘要至病历草稿并复制到剪贴板')
 }
 
 function adoptTreatment(treatment: any) {
@@ -555,24 +608,24 @@ function adoptTreatment(treatment: any) {
   ElMessage.success('已载入推荐处方方案')
 }
 
+function adoptAllToRecord() {
+  if (!diagnosticResult.value?.soap_summary) {
+    ElMessage.warning('暂无有效的 SOAP 摘要可采纳')
+    return
+  }
+  emit('adopt-soap', diagnosticResult.value.soap_summary)
+  if (diagnosticResult.value.treatment_recommendations?.length) {
+    emit('adopt-treatment', diagnosticResult.value.treatment_recommendations[0])
+  }
+  ElMessage.success('已采纳跨院 SOAP 结构化摘要与用药线索至当前就诊病历草稿')
+  visible.value = false
+}
+
 function copyPrompt() {
   if (!diagnosticResult.value?.raw_prompt) return
   navigator.clipboard.writeText(diagnosticResult.value.raw_prompt).then(() => {
     ElMessage.success('已复制 AI 临床推理完整提示词到剪贴板')
   })
-}
-
-function getProbColor(prob: number) {
-  if (prob >= 80) return '#ef4444'
-  if (prob >= 60) return '#f59e0b'
-  return '#10b981'
-}
-
-function getRiskTagType(risk?: string) {
-  if (risk === 'CRITICAL') return 'danger'
-  if (risk === 'HIGH') return 'warning'
-  if (risk === 'MEDIUM') return 'primary'
-  return 'info'
 }
 
 function getEvolutionTagType(status?: string) {
@@ -609,17 +662,17 @@ function getEvolutionTagType(status?: string) {
 }
 
 .patient-avatar-circle {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: #0284c7;
   color: #ffffff;
-  font-weight: 800;
-  font-size: 20px;
+  font-weight: 700;
+  font-size: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.25);
 }
 
 .patient-text-meta {
@@ -683,9 +736,9 @@ function getEvolutionTagType(status?: string) {
 }
 
 .engine-tag.knowledge {
-  background: #f5f3ff;
-  color: #7c3aed;
-  border: 1px solid #ddd6fe;
+  background: #f0f9ff;
+  color: #0369a1;
+  border: 1px solid #bae6fd;
 }
 
 .engine-tag.llm {
@@ -751,13 +804,13 @@ function getEvolutionTagType(status?: string) {
 }
 
 .step-node.active .step-dot {
-  background: #8b5cf6;
+  background: #0284c7;
   color: #ffffff;
-  box-shadow: 0 0 0 4px #ede9fe;
+  box-shadow: 0 0 0 4px #e0f2fe;
 }
 
 .step-node.done .step-dot {
-  background: #10b981;
+  background: #0d9488;
   color: #ffffff;
 }
 
@@ -778,14 +831,15 @@ function getEvolutionTagType(status?: string) {
 }
 
 .step-line.filled {
-  background: #10b981;
+  background: #0d9488;
 }
 
 /* 结论横幅 */
 .summary-hero-card {
-  background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);
-  border: 1px solid #ddd6fe;
-  border-radius: 10px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-left: 4px solid #0284c7;
+  border-radius: 8px;
   padding: 14px 18px;
   margin-bottom: 14px;
 }
@@ -800,7 +854,7 @@ function getEvolutionTagType(status?: string) {
 .shc-title {
   font-size: 14px;
   font-weight: 700;
-  color: #5b21b6;
+  color: #0369a1;
 }
 
 .shc-body {
@@ -1200,5 +1254,181 @@ function getEvolutionTagType(status?: string) {
 .footer-btn-group {
   display: flex;
   gap: 10px;
+}
+
+/* ── SOAP 结构化网格与线索样式 ── */
+.soap-grid-layout {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.soap-box {
+  background: #ffffff;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  padding: 16px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+}
+
+.soap-box.s-box {
+  border-left: 4px solid #6366f1;
+}
+
+.soap-box.o-box {
+  border-left: 4px solid #0284c7;
+}
+
+.soap-box.a-box {
+  border-left: 4px solid #059669;
+}
+
+.soap-box.p-box {
+  border-left: 4px solid #7c3aed;
+}
+
+.soap-box-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.soap-letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: #f1f5f9;
+  font-weight: 800;
+  font-size: 14px;
+  color: #1e293b;
+}
+
+.s-box .soap-letter { background: #ede9fe; color: #6366f1; }
+.o-box .soap-letter { background: #e0f2fe; color: #0284c7; }
+.a-box .soap-letter { background: #d1fae5; color: #059669; }
+.p-box .soap-letter { background: #f3e8ff; color: #7c3aed; }
+
+.soap-title {
+  font-weight: 700;
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.soap-box-body {
+  font-size: 13px;
+  color: #334155;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.soap-box-tip {
+  font-size: 11px;
+  margin-top: 8px;
+}
+
+/* 隐匿线索网格 */
+.clues-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.clue-item-card {
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+}
+
+.clue-item-card.clue-danger {
+  border-left: 4px solid #ef4444;
+  background: #fffafa;
+}
+
+.clue-item-card.clue-warning {
+  border-left: 4px solid #f59e0b;
+  background: #fffdfa;
+}
+
+.clue-item-card.clue-success {
+  border-left: 4px solid #10b981;
+}
+
+.clue-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.clue-badge {
+  font-weight: 700;
+  font-size: 13px;
+  color: #1e293b;
+}
+
+.clue-text {
+  font-size: 13px;
+  color: #475569;
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
+/* 语义矛盾网格 */
+.contradictions-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ct-card {
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+}
+
+.ct-card.ct-warning {
+  border-left: 4px solid #f59e0b;
+  background: #fffdfa;
+}
+
+.ct-card.ct-success {
+  border-left: 4px solid #10b981;
+}
+
+.ct-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ct-tag {
+  font-size: 14px;
+  color: #1e293b;
+}
+
+.ct-desc {
+  font-size: 13px;
+  color: #334155;
+  line-height: 1.5;
+}
+
+.ct-advice-row {
+  background: #f8fafc;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.advice-label {
+  color: #0369a1;
+}
+
+.advice-text {
+  color: #0f172a;
 }
 </style>

@@ -537,19 +537,18 @@
                 <span class="step-badge">4</span>
                 <span>初诊信息采集 (S + O 初步)</span>
                 <el-button
-                  type="primary"
                   size="small"
                   class="ml-auto ai-diagnose-capsule-btn"
                   @click="openAIDiagnosticAssist"
                 >
                   <el-icon class="ai-spark-icon"><MagicStick /></el-icon>
-                  <span>AI 跨期病历关联辅助诊断</span>
+                  <span>📋 跨院既往病史 SOAP 汇总与隐匿线索</span>
                 </el-button>
               </div>
 
               <div class="symptom-input-header-row">
                 <span class="symptom-req-label">患者主诉 (Chief Complaint) <span class="text-danger">*</span></span>
-                <span class="symptom-ai-tip text-muted">输入患者主要症状后，可点击右侧按钮调用已授权跨期病历进行综合推演</span>
+                <span class="symptom-ai-tip text-muted">输入患者主要症状后，可点击右侧按钮调阅已授权跨期病历提取 SOAP 摘要与隐匿线索</span>
               </div>
 
               <div class="symptom-input-with-action mb-3">
@@ -559,13 +558,12 @@
                   class="symptom-flex-input"
                 />
                 <el-button
-                  type="primary"
                   class="btn-trigger-ai-inline"
                   @click="openAIDiagnosticAssist"
-                  title="调阅已授权跨期病历及化验单，分析发病间隔与疑似疾病"
+                  title="调阅已授权跨期病历提取 SOAP 摘要、用药史与隐匿线索"
                 >
                   <el-icon><MagicStick /></el-icon>
-                  <span>AI 辅助诊断</span>
+                  <span>SOAP汇总与线索</span>
                 </el-button>
               </div>
 
@@ -792,8 +790,7 @@
       </el-form>
 
       <!-- 底部提交操作栏 -->
-      <!-- 底部吸底提交操作栏 (Sticky Footer Bar) -->
-      <div class="ws-page-footer-card sticky-footer">
+      <div class="ws-page-footer-card mt-4">
         <div class="ws-footer-bar">
           <div class="ws-footer-left">
             <span class="ws-footer-crypto-badge">
@@ -1173,7 +1170,7 @@
               </div>
             </div>
 
-            <!-- 卡片 2：区块链存证与信封加密数字证书 (毕业设计核心存证成果) -->
+            <!-- 卡片 2：区块链存证与信封加密数字证书 (联盟链共识确权凭据) -->
             <div class="bento-card crypto-card digital-cert-card">
               <div class="crypto-header">
                 <div class="crypto-title">
@@ -1790,7 +1787,7 @@
       </template>
     </el-dialog>
 
-    <!-- 链上完整性防篡改核验弹窗 (答辩核心亮点) -->
+    <!-- 链上完整性防篡改核验弹窗 (密码学链上背书核验) -->
     <el-dialog
       v-model="integrityDialogVisible"
       title="Hyperledger Fabric 联盟链数据完整性核验报告"
@@ -1862,7 +1859,7 @@
       </template>
     </el-dialog>
 
-    <!-- AI 跨期病历关联辅助诊断与鉴别推演工作台弹窗 -->
+    <!-- 跨院既往病史 SOAP 简明汇总与隐匿线索提取弹窗 -->
     <AIDiagnosticModal
       v-model="aiDiagnosticVisible"
       :patient="selectedPatientInfo"
@@ -1872,6 +1869,7 @@
       :department-name="initForm.department_name"
       @adopt-diagnosis="handleAdoptDiagnosisFromAI"
       @adopt-treatment="handleAdoptTreatmentFromAI"
+      @adopt-soap="handleAdoptSOAPFromAI"
     />
   </div>
 </template>
@@ -1880,7 +1878,7 @@
 // 当前主工作区视图: LIST-就诊记录列表, CREATE-接诊初诊工作台, FINAL-确诊存证工作台, DETAIL-全景病历详情工作台
 const currentView = ref<'LIST' | 'CREATE' | 'FINAL' | 'DETAIL'>('LIST')
 
-// ── AI 跨期病历关联辅助诊断状态与交互逻辑 ──────────────────────
+// ── 跨院既往病史 SOAP 汇总与隐匿线索状态与交互逻辑 ──────────────────────
 const aiDiagnosticVisible = ref(false)
 
 function openAIDiagnosticAssist() {
@@ -1889,6 +1887,36 @@ function openAIDiagnosticAssist() {
     return
   }
   aiDiagnosticVisible.value = true
+}
+
+function handleAdoptSOAPFromAI(soap: any) {
+  if (!soap) return
+  const s = soap.subjective || soap.s || ''
+  const o = soap.objective || soap.o || ''
+  const a = soap.assessment || soap.a || ''
+  const p = soap.plan || soap.p || ''
+
+  if (s) {
+    initForm.value.chief_complaint = s
+  }
+  if (o) {
+    initForm.value.diagnostic_basis = o
+  }
+
+  if (encounterMode.value === 'DIRECT') {
+    if (a) {
+      directForm.value.diagnosis = a
+    }
+    if (p) {
+      directForm.value.treatment_plan = p
+    }
+    generateDirectSOAP()
+  } else {
+    if (a) {
+      initForm.value.initial_diagnosis = a
+    }
+  }
+  ElMessage.success('已采纳跨院 SOAP 摘要结构化信息回填至接诊记录')
 }
 
 function handleAdoptDiagnosisFromAI(item: any) {
@@ -3131,7 +3159,7 @@ onUnmounted(() => {
 
 <style scoped>
 .doctor-records-container {
-  padding: 20px 20px 100px;
+  padding: 0 0 60px 0;
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -4134,11 +4162,9 @@ onUnmounted(() => {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* 顶部粘性工作台导航卡片 (纤细轻量条 48px - 杜绝换行膨胀) */
-.ws-page-header-card.sticky-header {
-  position: sticky;
-  top: 0;
-  margin-bottom: 16px;
+/* 顶部工作台导航卡片 (纤细轻量条 48px - 纯白实色杜绝重影透光) */
+.ws-page-header-card {
+  position: relative;
   z-index: 40;
   height: 48px;
   min-height: 48px;
@@ -4146,14 +4172,26 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: rgba(255, 255, 255, 0.96);
-  backdrop-filter: blur(14px);
+  background: #ffffff !important;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   padding: 0 16px;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
   white-space: nowrap !important;
   box-sizing: border-box;
+  margin-bottom: 16px;
+}
+
+.ws-page-header-card.sticky-header {
+  position: sticky;
+  top: -24px;
+  z-index: 40;
+  background: #ffffff !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  opacity: 1 !important;
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
 }
 
 .ws-header-left {
@@ -4855,7 +4893,9 @@ onUnmounted(() => {
 }
 
 .ws-page-footer-card {
-  background: #ffffff;
+  background: #ffffff !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
   padding: 14px 20px;
@@ -4866,15 +4906,15 @@ onUnmounted(() => {
   position: sticky;
   bottom: 0px;
   z-index: 35;
-  background: rgba(255, 255, 255, 0.94);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(226, 232, 240, 0.9);
-  border-radius: 12px;
+  background: #ffffff !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: 1px solid #cbd5e1 !important;
+  border-radius: 10px;
   padding: 12px 20px;
-  box-shadow: 0 -4px 18px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.08) !important;
   margin-top: 20px;
-  margin-bottom: 8px;
+  margin-bottom: 0px;
 }
 
 .ws-footer-left {
@@ -5954,21 +5994,28 @@ onUnmounted(() => {
 }
 
 .btn-trigger-ai-inline {
-  background: #ede9fe !important;
-  color: #7c3aed !important;
-  border: 1px solid #c4b5fd !important;
-  font-weight: 700 !important;
-  display: flex;
+  background: linear-gradient(135deg, #7c3aed 0%, #6366f1 100%) !important;
+  color: #ffffff !important;
+  border: none !important;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   flex-shrink: 0;
   height: 38px;
-  padding: 0 14px;
+  padding: 0 16px;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.28);
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
 
 .btn-trigger-ai-inline:hover {
-  background: #ddd6fe !important;
-  color: #6d28d9 !important;
+  background: linear-gradient(135deg, #6d28d9 0%, #4f46e5 100%) !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.4);
+  transform: translateY(-1px);
 }
 
 </style>

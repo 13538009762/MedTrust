@@ -766,7 +766,7 @@
       </template>
     </el-dialog>
 
-    <!-- 链上完整性防篡改核验弹窗 (答辩核心亮点) -->
+    <!-- 链上完整性防篡改核验弹窗 (密码学链上背书核验) -->
     <el-dialog
       v-model="integrityDialogVisible"
       title="Hyperledger Fabric 联盟链数据完整性核验报告"

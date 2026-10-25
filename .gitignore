@@ -62,7 +62,11 @@ task_content.txt
 # Hyperledger Fabric generated crypto materials
 backend/fabric_crypto/
 deploy/fabric/crypto-config/
-deploy/fabric/medchannel.block
+deploy/fabric/*.block
+*.block
+*.pptx
+*.docx
+*.xlsx
 *.key
 priv_sk
 vendor/

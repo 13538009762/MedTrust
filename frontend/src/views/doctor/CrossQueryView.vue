@@ -61,12 +61,11 @@
           <div class="alert-btn-group" style="display: flex; gap: 8px; align-items: center; flex-shrink: 0; margin-left: 16px;">
             <el-button
               size="small"
-              type="primary"
               class="btn-cross-ai-diagnose"
               :icon="MagicStick"
               @click="openCrossAIDiagnostic"
             >
-              ✨ AI 跨期全景关联分析
+              📋 跨院病历 SOAP 汇总与线索
             </el-button>
             <el-button
               v-if="isFromEncounter || hasEncounterDraft"
@@ -1022,7 +1021,7 @@
               </div>
             </div>
 
-            <!-- 卡片 2：区块链存证与信封加密数字证书 (毕业设计核心存证成果) -->
+            <!-- 卡片 2：区块链存证与信封加密数字证书 (联盟链共识确权凭据) -->
             <div class="bento-card crypto-card digital-cert-card">
               <div class="crypto-header">
                 <div class="crypto-title">
@@ -1959,7 +1958,7 @@
       </template>
     </el-dialog>
 
-    <!-- 链上完整性防篡改核验弹窗 (答辩核心亮点) -->
+    <!-- 链上完整性防篡改核验弹窗 (密码学链上背书核验) -->
     <el-dialog
       v-model="integrityDialogVisible"
       title="Hyperledger Fabric 联盟链数据完整性核验报告"
@@ -5083,9 +5082,8 @@ async function submitBreakGlass() {
 }
 
 /* 顶部粘性工作台导航卡片 (纤细轻量条 48px - 杜绝换行膨胀) */
-.ws-page-header-card.sticky-header {
-  position: sticky;
-  top: -24px;
+.ws-page-header-card {
+  position: relative;
   z-index: 40;
   height: 48px;
   min-height: 48px;
@@ -5093,14 +5091,26 @@ async function submitBreakGlass() {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: rgba(255, 255, 255, 0.96);
-  backdrop-filter: blur(14px);
+  background: #ffffff !important;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   padding: 0 16px;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
   white-space: nowrap !important;
   box-sizing: border-box;
+  margin-bottom: 16px;
+}
+
+.ws-page-header-card.sticky-header {
+  position: sticky;
+  top: -24px;
+  z-index: 40;
+  background: #ffffff !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  opacity: 1 !important;
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
 }
 
 .ws-header-left {
@@ -6006,7 +6016,9 @@ async function submitBreakGlass() {
 }
 
 .ws-page-footer-card {
-  background: #ffffff;
+  background: #ffffff !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
   padding: 14px 20px;
