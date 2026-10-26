@@ -66,7 +66,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import api from '../../api/client'
+import { listAuditLogsApi } from '../../api'
 
 const logs = ref([])
 const loading = ref(false)
@@ -80,11 +80,9 @@ onMounted(() => {
 async function loadLogs() {
   loading.value = true
   try {
-    const res: any = await api.get('/audit-logs', {
-      params: {
-        operation_type: filterOp.value,
-        risk_level: filterRisk.value,
-      }
+    const res: any = await listAuditLogsApi({
+      operation_type: filterOp.value,
+      risk_level: filterRisk.value,
     })
     if (res.code === 200) {
       logs.value = res.data

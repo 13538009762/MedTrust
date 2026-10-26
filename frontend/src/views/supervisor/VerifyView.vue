@@ -137,7 +137,12 @@ import { ref, computed, onMounted } from 'vue'
 import { CircleCheck, CircleClose } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import TrustedFlowTimeline from '../../components/TrustedFlowTimeline.vue'
-import api from '../../api/client'
+import {
+  listRecordsApi,
+  verifyRecordApi,
+  simulateTamperRecordApi,
+  restoreRecordApi
+} from '../../api'
 
 const records = ref<any[]>([])
 const selectedRecordId = ref<number | null>(null)
@@ -227,7 +232,7 @@ function copyRawJSON() {
 
 onMounted(async () => {
   try {
-    const res: any = await api.get('/medical-records')
+    const res: any = await listRecordsApi()
     if (res.code === 200 && res.data.length) {
       records.value = res.data
       selectedRecordId.value = res.data[0].id
@@ -241,7 +246,7 @@ async function triggerVerify() {
   if (!selectedRecordId.value) return
   verifying.value = true
   try {
-    const res: any = await api.post(`/verification/${selectedRecordId.value}`)
+    const res: any = await verifyRecordApi(selectedRecordId.value)
     if (res.code === 200) {
       verifyResult.value = res.data
       hasTampered.value = !res.data.verified
@@ -265,7 +270,7 @@ async function simulateTamper() {
   }
   tampering.value = true
   try {
-    const res: any = await api.post(`/verification/simulate-tamper/${selectedRecordId.value}`)
+    const res: any = await simulateTamperRecordApi(selectedRecordId.value)
     if (res.code === 200) {
       verifyResult.value = res.data
       hasTampered.value = true
@@ -282,7 +287,7 @@ async function restoreTamper() {
   if (!selectedRecordId.value) return
   restoring.value = true
   try {
-    const res: any = await api.post(`/verification/restore/${selectedRecordId.value}`)
+    const res: any = await restoreRecordApi(selectedRecordId.value)
     if (res.code === 200) {
       verifyResult.value = res.data
       hasTampered.value = false

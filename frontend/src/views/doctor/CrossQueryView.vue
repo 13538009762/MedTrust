@@ -2087,7 +2087,18 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Search, WarningFilled, CircleCheckFilled, View, Download, Printer, OfficeBuilding, Lock, Compass, Refresh, Key, Setting, Document, Files, Picture, ArrowLeft, CopyDocument, Finished, InfoFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElNotification, ElMessageBox } from 'element-plus'
-import api from '../../api/client'
+import {
+  getRecordDetailApi,
+  getPatientInfectionRisksApi,
+  downloadRecordApi,
+  verifyRecordApi,
+  listRecordsApi,
+  createAccessRequestApi,
+  getCaptchaApi,
+  unlockByKeyApi,
+  applyConsentRequestApi,
+  breakGlassAccessApi
+} from '../../api'
 import { useAuthStore } from '../../stores/auth'
 import { parseMedicalExamResult, highlightText, type ParsedMedicalReport } from '../../utils/medicalReportParser'
 import InfectionSafetyAlert from '../../components/InfectionSafetyAlert.vue'
@@ -2606,7 +2617,7 @@ async function enterDetailFromAllowed() {
   if (!currentTarget.value) return
   breakGlassVisible.value = false
   try {
-    const recRes: any = await api.get(`/medical-records/${currentTarget.value.id}`)
+    const recRes: any = await getRecordDetailApi(currentTarget.value.id)
     if (recRes.code === 200) {
       releasedRecord.value = recRes.data
       currentView.value = 'DETAIL'
@@ -2668,7 +2679,7 @@ async function openPdfPreview(rec: any) {
   previewingRecord.value = rec
   if (!previewingRecord.value.infection_alert && previewingRecord.value.patient_id) {
     try {
-      const riskRes: any = await api.get(`/patients/${previewingRecord.value.patient_id}/infection-risks`)
+      const riskRes: any = await getPatientInfectionRisksApi(previewingRecord.value.patient_id)
       if (riskRes.code === 200 && riskRes.data?.has_risk) {
         previewingRecord.value.infection_alert = riskRes.data
       }
@@ -2682,9 +2693,8 @@ function printPdfSheet() {
 }
 
 function downloadRecordFile(recordId: number) {
-  const baseUrl = api.defaults.baseURL || '/api/v1'
-  const url = `${baseUrl}/medical-records/${recordId}/download`
-  api.get(`/medical-records/${recordId}/download`, { responseType: 'blob' })
+  const downloadUrl = `/api/v1/medical-records/${recordId}/download`
+  downloadRecordApi(recordId)
     .then((res: any) => {
       const blob = new Blob([res], { type: 'application/pdf;charset=utf-8' })
       const link = document.createElement('a')
@@ -2698,7 +2708,7 @@ function downloadRecordFile(recordId: number) {
       ElMessage.success('已成功下载解密归档凭据！')
     })
     .catch(() => {
-      window.open(url, '_blank')
+      window.open(downloadUrl, '_blank')
     })
 }
 
@@ -2744,7 +2754,7 @@ async function verifyRecordIntegrity(recordId: number) {
   integrityResult.value = null
   integrityDialogVisible.value = true
   try {
-    const res: any = await api.post(`/verification/${recordId}`)
+    const res: any = await verifyRecordApi(recordId)
     if (res.code === 200 && res.data) {
       integrityResult.value = res.data
     } else {
@@ -2856,7 +2866,7 @@ async function fetchStatsSummary() {
   try {
     const currentHospId = auth.user?.hospital_id || 1
     const currentDocId = auth.user?.id || 0
-    const res: any = await api.get('/medical-records')
+    const res: any = await listRecordsApi()
     if (res.code === 200 && res.data) {
       const allList = res.data || []
       statsCount.value.all = allList.length
@@ -2891,7 +2901,7 @@ async function searchCrossRecords() {
       params.hospital_id = selectedHospital.value
     }
 
-    const res: any = await api.get('/medical-records', { params })
+    const res: any = await listRecordsApi(params)
     if (res.code === 200) {
       let data = res.data || []
       if (scope === 'authorized') {
@@ -3018,7 +3028,7 @@ async function handleAccess(row: any) {
   // 1. 若当前已具备调阅权（本人责任病历、同院、跨院已授权或24小时破窗有效期内），优先直接放行展示
   if (row.has_access || isSelf || isSameHosp) {
     try {
-      const recRes: any = await api.get(`/medical-records/${row.id}`)
+      const recRes: any = await getRecordDetailApi(row.id)
       if (recRes.code === 200) {
         releasedRecord.value = recRes.data
         isBreakGlassRelease.value = (row.access_type === 'BREAK_GLASS')
@@ -3041,7 +3051,7 @@ async function handleAccess(row: any) {
   interceptRiskEval.value = null
 
   try {
-    const res: any = await api.post('/access/requests', {
+    const res: any = await createAccessRequestApi({
       patient_id: row.patient_id,
       record_id: row.id,
       purpose: accessPurpose
@@ -3053,7 +3063,7 @@ async function handleAccess(row: any) {
         riskDecisionState.value = 'ALLOWED'
         riskDecisionReason.value = d.reason || '【零信任风控核准直接放行】规则评估分值合格，已自动授权并存证上链'
         ElMessage.success(riskDecisionReason.value)
-        const recRes: any = await api.get(`/medical-records/${row.id}`)
+        const recRes: any = await getRecordDetailApi(row.id)
         releasedRecord.value = recRes.data
         isBreakGlassRelease.value = (d.is_emergency || row.access_type === 'BREAK_GLASS')
         currentView.value = 'DETAIL'
@@ -3139,7 +3149,7 @@ const unlockCaptchaAnswer = ref('')
 
 async function fetchUnlockCaptcha() {
   try {
-    const res: any = await api.get('/auth/captcha')
+    const res: any = await getCaptchaApi()
     if (res.code === 200 && res.data) {
       unlockCaptchaImg.value = res.data.captcha_img
       unlockCaptchaToken.value = res.data.captcha_token
@@ -3170,7 +3180,7 @@ async function handleUnlockByKey() {
 
   unlockingByKey.value = true
   try {
-    const res: any = await api.post('/access/requests/unlock-by-key', {
+    const res: any = await unlockByKeyApi({
       record_id: currentTarget.value.id,
       medical_key: key,
       captcha_answer: unlockCaptchaAnswer.value.trim(),
@@ -3211,7 +3221,7 @@ async function submitConsentRequest() {
   submittingConsent.value = true
 
   try {
-    const res: any = await api.post('/access/requests/apply-consent', {
+    const res: any = await applyConsentRequestApi({
       record_id: currentTarget.value.id,
       purpose: consentForm.value.purpose,
       scope_type: consentForm.value.scope_type,
@@ -3240,7 +3250,7 @@ async function submitBreakGlass() {
   submittingBG.value = true
 
   try {
-    const res: any = await api.post('/access/break-glass', {
+    const res: any = await breakGlassAccessApi({
       record_id: currentTarget.value.id,
       emergency_reason: bgForm.value.emergency_reason,
       description: bgForm.value.description,

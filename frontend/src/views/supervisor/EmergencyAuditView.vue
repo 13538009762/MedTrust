@@ -195,7 +195,12 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { MagicStick } from '@element-plus/icons-vue'
-import api from '../../api/client'
+import {
+  listEmergencyEventsApi,
+  auditEmergencyEventApi,
+  listDoctorsApi,
+  liftDoctorRestrictionApi
+} from '../../api'
 
 const events = ref([])
 const loading = ref(false)
@@ -216,7 +221,7 @@ onMounted(() => {
 async function loadEvents() {
   loading.value = true
   try {
-    const res: any = await api.get('/supervisor/emergency-events')
+    const res: any = await listEmergencyEventsApi()
     if (res.code === 200) {
       events.value = res.data
     }
@@ -257,7 +262,7 @@ async function submitAudit() {
   if (!currentEvent.value) return
   submitting.value = true
   try {
-    const res: any = await api.post(`/supervisor/emergency-events/${currentEvent.value.event_no}/audit`, {
+    const res: any = await auditEmergencyEventApi(currentEvent.value.event_no, {
       audit_status: form.value.audit_status,
       audit_comment: form.value.audit_comment,
       punishment: form.value.audit_status === 'CLOSED_VIOLATION' ? form.value.punishment : 'NORMAL',
@@ -287,7 +292,7 @@ const liftForm = ref({
 
 async function loadDoctorList() {
   try {
-    const res: any = await api.get('/system/doctors')
+    const res: any = await listDoctorsApi()
     if (res.code === 200) {
       doctorList.value = res.data || []
     }
@@ -324,8 +329,8 @@ async function submitLiftRestriction() {
   }
   lifting.value = true
   try {
-    const res: any = await api.post('/supervisor/lift-doctor-restriction', {
-      doctor_id: liftForm.value.doctor_id,
+    const res: any = await liftDoctorRestrictionApi({
+      doctor_id: liftForm.value.doctor_id!,
       comment: liftForm.value.comment || '经监管部门审查准予解除惩戒限制。'
     })
     if (res.code === 200) {

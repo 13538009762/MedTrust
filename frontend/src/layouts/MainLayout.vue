@@ -236,7 +236,7 @@ import { Expand, Fold, SwitchButton } from '@element-plus/icons-vue'
 import { useAuthStore } from '../stores/auth'
 import AiAssistantDialog from '../components/AiAssistantDialog.vue'
 import DefenseDemoGuideDialog from '../components/DefenseDemoGuideDialog.vue'
-import api from '../api/client'
+import { getBlockchainStatusApi, listPendingAccessRequestsApi } from '../api'
 import { useSSE } from '../composables/useSSE'
 
 const defenseModalVisible = ref(false)
@@ -280,7 +280,7 @@ const isChannelOnline = computed(() => {
 
 async function fetchChainStatus() {
   try {
-    const res: any = await api.get('/system/blockchain/status')
+    const res: any = await getBlockchainStatusApi()
     const st = (res && res.data !== undefined) ? res.data : res
     if (st && st.mode) {
       chainStatus.value = st
@@ -335,7 +335,7 @@ const activeMenu = computed(() => {
 async function checkPendingConsent() {
   if (auth.user?.role === 'patient') {
     try {
-      const res: any = await api.get('/access/requests/pending')
+      const res: any = await listPendingAccessRequestsApi()
       if (res.code === 200) {
         pendingCount.value = res.data.length
       }

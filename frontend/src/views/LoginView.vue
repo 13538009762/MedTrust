@@ -329,7 +329,7 @@ import {
   CreditCard, Iphone, Edit, ArrowDown, Finished, Loading, Refresh
 } from '@element-plus/icons-vue'
 import { ElMessage, ElNotification } from 'element-plus'
-import api from '../api/client'
+import { getCaptchaApi, loginApi, registerApi } from '../api'
 import { useAuthStore } from '../stores/auth'
 
 const mode = ref<'login' | 'register'>('login')
@@ -345,7 +345,7 @@ async function fetchCaptcha() {
   if (captchaLoading.value) return
   captchaLoading.value = true
   try {
-    const res: any = await api.get('/auth/captcha')
+    const res: any = await getCaptchaApi()
     if (res.code === 200 && res.data) {
       captchaImg.value = res.data.captcha_img
       captchaToken.value = res.data.captcha_token
@@ -495,7 +495,7 @@ async function handleLogin() {
 
   loading.value = true
   try {
-    const res: any = await api.post('/auth/login', {
+    const res: any = await loginApi({
       username: username.value,
       password: password.value,
       captcha_answer: captchaAnswer.value.trim(),
@@ -559,7 +559,7 @@ async function handleRegister() {
 
   regLoading.value = true
   try {
-    const res: any = await api.post('/auth/register', {
+    const res: any = await registerApi({
       real_name: regForm.value.real_name,
       username: regForm.value.username,
       id_card: regForm.value.id_card,

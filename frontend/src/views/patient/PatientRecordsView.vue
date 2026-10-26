@@ -721,7 +721,14 @@ import {
   ArrowRight
 } from '@element-plus/icons-vue'
 import { ElMessage, ElNotification } from 'element-plus'
-import api from '../../api/client'
+import {
+  listHospitalsApi,
+  listDoctorsApi,
+  listRecordsApi,
+  getRecordDetailApi,
+  setRecordAccessPolicyApi,
+  setBatchAccessPolicyApi
+} from '../../api'
 
 const records = ref<any[]>([])
 const detailVisible = ref(false)
@@ -778,7 +785,7 @@ const batchSubmitting = ref(false)
 
 async function loadHospitals() {
   try {
-    const res: any = await api.get('/system/hospitals')
+    const res: any = await listHospitalsApi()
     if (res.code === 200) {
       hospitalsList.value = Array.isArray(res.data) ? res.data : []
     }
@@ -789,7 +796,7 @@ async function loadHospitals() {
 
 async function loadDoctors() {
   try {
-    const res: any = await api.get('/system/doctors')
+    const res: any = await listDoctorsApi()
     if (res.code === 200) {
       doctorsList.value = Array.isArray(res.data) ? res.data : []
     }
@@ -870,7 +877,7 @@ function getIcdCode(diag?: string): string {
 
 async function fetchRecords() {
   try {
-    const res: any = await api.get('/medical-records')
+    const res: any = await listRecordsApi()
     if (res.code === 200) {
       const rawList = Array.isArray(res.data) ? res.data : (res.data?.list || [])
       // 差异化临床数据清洗：消除时间轴上因测试历史造成的重复内容，增强真实医疗演示
@@ -909,7 +916,7 @@ onMounted(() => {
 
 async function viewFullDetail(rec: any) {
   try {
-    const res: any = await api.get(`/medical-records/${rec.id}`)
+    const res: any = await getRecordDetailApi(rec.id)
     if (res.code === 200) {
       selectedRec.value = res.data
     } else {
@@ -982,7 +989,7 @@ async function submitAccessPolicy() {
 
   policySubmitting.value = true
   try {
-    const res: any = await api.post(`/medical-records/${policyTargetRec.value.id}/access-policy`, {
+    const res: any = await setRecordAccessPolicyApi(policyTargetRec.value.id, {
       policy_type: policyForm.value.policy_type,
       auth_target_id: authTargetId,
       days: policyForm.value.days,
@@ -1036,7 +1043,7 @@ async function submitBatchPolicy() {
 
   batchSubmitting.value = true
   try {
-    const res: any = await api.post('/medical-records/batch-access-policy', {
+    const res: any = await setBatchAccessPolicyApi({
       policy_type: batchForm.value.policy_type,
       auth_target_id: authTargetId,
       days: batchForm.value.days,

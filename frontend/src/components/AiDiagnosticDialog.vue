@@ -510,7 +510,7 @@ import {
   Select, CopyDocument, WarningFilled, Refresh, DocumentCopy
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import api from '../api/client'
+import { diagnosticAssistApi } from '../api'
 
 const props = defineProps<{
   modelValue: boolean
@@ -570,7 +570,7 @@ async function runDiagnosticAnalysis() {
   }, 350)
 
   try {
-    const res: any = await api.post('/ai/diagnostic-assist', {
+    const res: any = await diagnosticAssistApi({
       patient_id: props.patient.id,
       current_symptoms: props.currentSymptoms || '',
       present_illness: props.presentIllness || '',

@@ -542,7 +542,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { Plus, User, Search, Refresh, View, FirstAidKit, UserFilled, Management } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import api from '../../api/client'
+import { listUsersApi, updateUserStatusApi, createUserApi } from '../../api'
 import { useAuthStore } from '../../stores/auth'
 
 const auth = useAuthStore()
@@ -601,7 +601,7 @@ onMounted(() => {
 async function loadUsers() {
   loading.value = true
   try {
-    const res: any = await api.get('/system/users')
+    const res: any = await listUsersApi()
     if (res.code === 200) {
       users.value = res.data || []
     }
@@ -688,7 +688,7 @@ function getDialogAlertDesc(role: string) {
 
 async function changeStatus(id: number, status: string) {
   try {
-    const res: any = await api.put(`/system/users/${id}/status`, { status })
+    const res: any = await updateUserStatusApi(id, status)
     if (res.code === 200) {
       ElMessage.success('账号状态变更成功！')
       if (selectedUser.value && selectedUser.value.id === id) {
@@ -707,7 +707,7 @@ async function submitAddUser() {
     return
   }
   try {
-    const res: any = await api.post('/system/users', form.value)
+    const res: any = await createUserApi(form.value)
     if (res.code === 200) {
       ElMessage.success('用户创建成功，初始密码为 123456')
       dialogVisible.value = false

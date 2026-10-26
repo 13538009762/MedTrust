@@ -400,7 +400,15 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
-import api from '../../api/client'
+import {
+  getBlockchainStatusApi,
+  listAuditLogsApi,
+  listBlockchainTransactionsApi,
+  getSupervisorOverviewApi,
+  getAccessHeatmapApi,
+  getHospitalFlowApi,
+  getAuthFunnelApi
+} from '../../api'
 
 interface BlockchainStatus {
   mode: string
@@ -426,7 +434,7 @@ const refreshingStatus = ref(false)
 async function fetchBlockchainStatus() {
   refreshingStatus.value = true
   try {
-    const res: any = await api.get('/system/blockchain/status')
+    const res: any = await getBlockchainStatusApi()
     const st = (res && res.data !== undefined) ? res.data : res
     if (st && st.mode) {
       chainStatus.value = st
@@ -509,7 +517,7 @@ const demoSecurityStream = [
 async function fetchSecurityEvents() {
   loadingEvents.value = true
   try {
-    const res: any = await api.get('/audit-logs')
+    const res: any = await listAuditLogsApi()
     if (res.code === 200 && res.data) {
       const serverLogs = Array.isArray(res.data) ? res.data : []
       const hasNonLogin = serverLogs.some((e: any) => e.operation_type && e.operation_type !== 'LOGIN')
@@ -565,7 +573,7 @@ const loadingTx = ref(false)
 async function fetchBlockchainTransactions() {
   loadingTx.value = true
   try {
-    const res: any = await api.get('/blockchain/transactions?page=1&page_size=30')
+    const res: any = await listBlockchainTransactionsApi(1, 30)
     if (res.code === 200 && res.data) {
       blockchainTransactions.value = Array.isArray(res.data) ? res.data : (res.data.items || res.data.list || [])
     }
@@ -617,7 +625,7 @@ onMounted(async () => {
   }, 10000)
 
   try {
-    const res: any = await api.get('/supervisor/overview')
+    const res: any = await getSupervisorOverviewApi()
     if (res.code === 200) {
       stats.value = res.data
       if (chainStatus.value.latest_block > 0) {
@@ -797,9 +805,9 @@ function renderCharts(data: any) {
 async function loadAdvancedCharts() {
   try {
     const [heatRes, flowRes, funnelRes]: any = await Promise.all([
-      api.get('/supervisor/access-heatmap').catch(() => ({ code: 200, data: [] })),
-      api.get('/supervisor/hospital-flow').catch(() => ({ code: 200, data: [] })),
-      api.get('/supervisor/auth-funnel').catch(() => ({ code: 200, data: null })),
+      getAccessHeatmapApi().catch(() => ({ code: 200, data: [] as any })),
+      getHospitalFlowApi().catch(() => ({ code: 200, data: [] as any })),
+      getAuthFunnelApi().catch(() => ({ code: 200, data: null as any })),
     ])
 
     await nextTick()

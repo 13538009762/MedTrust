@@ -488,7 +488,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { Tickets, Refresh, Search, Download, Timer, CircleCheckFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import api from '../../api/client'
+import { listExamOrdersApi, completeExamOrderApi } from '../../api'
 import { useAuthStore } from '../../stores/auth'
 
 const windowWidth = ref(window.innerWidth)
@@ -587,7 +587,7 @@ function formatDoctorDisplay(docName?: string): string {
 async function fetchOrders() {
   loading.value = true
   try {
-    const res: any = await api.get('/exam-orders')
+    const res: any = await listExamOrdersApi()
     if (res.code === 200) {
       const list = res.data || []
       list.forEach((o: any) => {
@@ -856,9 +856,7 @@ async function submitReport() {
       formData.append('file_title', reportForm.value.file_title || '')
     }
 
-    const res: any = await api.post(`/exam-orders/${currentOrder.value.id}/complete`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    })
+    const res: any = await completeExamOrderApi(currentOrder.value.id, formData)
     if (res.code === 200) {
       ElMessage.success('报告出具成功！已自动回传至接诊医生工作台')
       processDialogVisible.value = false

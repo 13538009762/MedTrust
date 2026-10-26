@@ -845,7 +845,21 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Plus, View, Download, Printer, WarningFilled, CircleCheckFilled, Key, Hide } from '@element-plus/icons-vue'
 import { ElMessage, ElNotification } from 'element-plus'
-import api from '../../api/client'
+import {
+  updateMedicalKeyApi,
+  listHospitalsApi,
+  listDoctorsApi,
+  listRecordsApi,
+  getRecordDetailApi,
+  downloadRecordApi,
+  listAuthorizationsApi,
+  createAuthorizationApi,
+  revokeAuthorizationApi,
+  listPendingAccessRequestsApi,
+  approveAccessRequestApi,
+  rejectAccessRequestApi,
+  verifyRecordApi
+} from '../../api'
 import { useAuthStore } from '../../stores/auth'
 import { useSSE } from '../../composables/useSSE'
 
@@ -901,7 +915,7 @@ async function handleSaveMedicalKey() {
 
   savingMedicalKey.value = true
   try {
-    const res: any = await api.put('/auth/medical-key', {
+    const res: any = await updateMedicalKeyApi({
       old_key: medicalKeyForm.value.old_key,
       new_key: medicalKeyForm.value.new_key,
     })
@@ -1002,7 +1016,7 @@ async function initDialogData() {
 
 async function loadHospitals() {
   try {
-    const res: any = await api.get('/system/hospitals')
+    const res: any = await listHospitalsApi()
     if (res.code === 200) {
       hospitalsList.value = res.data || []
       if (!selectedHospitalId.value && hospitalsList.value.length > 0) {
@@ -1020,7 +1034,7 @@ async function loadHospitals() {
 async function loadDoctors() {
   loadingDoctors.value = true
   try {
-    const res: any = await api.get('/system/doctors')
+    const res: any = await listDoctorsApi()
     if (res.code === 200) {
       allDoctorsList.value = res.data || []
       if (!form.value.auth_target_id && filteredDoctors.value.length > 0) {
@@ -1037,7 +1051,7 @@ async function loadDoctors() {
 async function loadMyRecords() {
   loadingMyRecords.value = true
   try {
-    const res: any = await api.get('/medical-records')
+    const res: any = await listRecordsApi()
     if (res.code === 200) {
       myRecordsList.value = res.data || []
       if (form.value.scope_type === 'SINGLE' && !form.value.record_id && myRecordsList.value.length > 0) {
@@ -1082,7 +1096,7 @@ onUnmounted(() => {
 
 async function loadPending() {
   try {
-    const res: any = await api.get('/access/requests/pending')
+    const res: any = await listPendingAccessRequestsApi()
     if (res.code === 200) {
       pendingRequests.value = res.data
     }
@@ -1094,7 +1108,7 @@ async function loadPending() {
 async function loadAuths() {
   loading.value = true
   try {
-    const res: any = await api.get('/authorizations')
+    const res: any = await listAuthorizationsApi()
     if (res.code === 200) {
       authorizations.value = res.data
     }
@@ -1106,7 +1120,7 @@ async function loadAuths() {
 async function approveConsent(id: number) {
   processingId.value = id
   try {
-    const res: any = await api.post(`/access/requests/${id}/approve`)
+    const res: any = await approveAccessRequestApi(id)
     if (res.code === 200) {
       ElNotification({
         title: '授权核准成功',
@@ -1127,7 +1141,7 @@ async function approveConsent(id: number) {
 async function rejectConsent(id: number) {
   processingId.value = id
   try {
-    const res: any = await api.post(`/access/requests/${id}/reject`)
+    const res: any = await rejectAccessRequestApi(id)
     if (res.code === 200) {
       ElMessage.info('已驳回该跨院调阅申请')
       loadPending()
@@ -1176,7 +1190,7 @@ async function submitCreate() {
       payload.record_id = form.value.record_id
     }
 
-    const res: any = await api.post('/authorizations', payload)
+    const res: any = await createAuthorizationApi(payload)
     if (res.code === 200) {
       const targetText = form.value.auth_target_type === 'ALL_DOCTORS'
         ? '全联盟全体执业医生 (全网公开)'
@@ -1199,7 +1213,7 @@ async function submitCreate() {
 
 async function revokeAuth(id: number) {
   try {
-    const res: any = await api.delete(`/authorizations/${id}`)
+    const res: any = await revokeAuthorizationApi(id)
     if (res.code === 200) {
       ElMessage.success('授权已成功撤销')
       loadAuths()
@@ -1218,7 +1232,7 @@ async function viewRecordDetail(item: any) {
   try {
     const recordId = item.record_id
     if (recordId) {
-      const res: any = await api.get(`/medical-records/${recordId}`)
+      const res: any = await getRecordDetailApi(recordId)
       if (res.code === 200) {
         viewingRecord.value = res.data
         if (viewingRecord.value?.is_tampered) {
@@ -1271,9 +1285,8 @@ function printPdfSheet() {
 }
 
 function downloadRecordFile(recordId: number) {
-  const baseUrl = api.defaults.baseURL || '/api/v1'
-  const url = `${baseUrl}/medical-records/${recordId}/download`
-  api.get(`/medical-records/${recordId}/download`, { responseType: 'blob' })
+  const downloadUrl = `/api/v1/medical-records/${recordId}/download`
+  downloadRecordApi(recordId)
     .then((res: any) => {
       const blob = new Blob([res], { type: 'application/pdf;charset=utf-8' })
       const link = document.createElement('a')
@@ -1287,7 +1300,7 @@ function downloadRecordFile(recordId: number) {
       ElMessage.success('已成功下载解密归档凭据！')
     })
     .catch(() => {
-      window.open(url, '_blank')
+      window.open(downloadUrl, '_blank')
     })
 }
 
@@ -1321,7 +1334,7 @@ async function verifyRecordIntegrity(recordId: number) {
   integrityResult.value = null
   integrityDialogVisible.value = true
   try {
-    const res: any = await api.post(`/verification/${recordId}`)
+    const res: any = await verifyRecordApi(recordId)
     if (res.code === 200 && res.data) {
       integrityResult.value = res.data
     } else {

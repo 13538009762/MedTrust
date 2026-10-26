@@ -1009,7 +1009,15 @@ import {
   Compass,
   MagicStick,
 } from '@element-plus/icons-vue'
-import api from '../../api/client'
+import {
+  getCaptchaApi,
+  listPatientsApi,
+  listRecordsApi,
+  applyConsentRequestApi,
+  batchConsentRequestApi,
+  unlockPatientKeyApi,
+  breakGlassEmergencyBatchApi
+} from '../../api'
 import { useAuthStore } from '../../stores/auth'
 import AiDiagnosticDialog from '../../components/AiDiagnosticDialog.vue'
 
@@ -1086,7 +1094,7 @@ const keyUnlockForm = ref({
 
 async function fetchKeyUnlockCaptcha() {
   try {
-    const res: any = await api.get('/auth/captcha')
+    const res: any = await getCaptchaApi()
     if (res?.data) {
       keyUnlockCaptchaImg.value = res.data.captcha_img
       keyUnlockForm.value.captchaToken = res.data.captcha_token
@@ -1206,7 +1214,7 @@ function copyText(text: string, label: string) {
 // 检索所有候选患者
 async function fetchCandidatePatients() {
   try {
-    const res: any = await api.get('/patients?keyword=')
+    const res: any = await listPatientsApi({ keyword: '' })
     const list = res.data || []
     candidatePatients.value = list
     // 如果路由带有 query 参数如 id_card 或 patient_id，则自动选中
@@ -1234,7 +1242,7 @@ async function handleSearch() {
   }
   searching.value = true
   try {
-    const res: any = await api.get(`/patients?keyword=${encodeURIComponent(searchKeyword.value.trim())}`)
+    const res: any = await listPatientsApi({ keyword: searchKeyword.value.trim() })
     const list = res.data || []
     if (list.length > 0) {
       selectPatient(list[0])
@@ -1260,7 +1268,7 @@ async function selectPatient(patient: any) {
 async function fetchPatientRecords(patientId: number) {
   loadingRecords.value = true
   try {
-    const res: any = await api.get(`/medical-records?patient_id=${patientId}`)
+    const res: any = await listRecordsApi({ patient_id: patientId })
     patientRecords.value = res.data || []
   } catch (err) {
     ElMessage.error('获取患者病历清单失败')
@@ -1298,7 +1306,7 @@ async function submitAllConsent() {
   if (!selectedPatient.value) return
   submittingConsent.value = true
   try {
-    const res: any = await api.post('/access/requests/apply-consent', {
+    const res: any = await applyConsentRequestApi({
       patient_id: selectedPatient.value.id,
       purpose: allConsentForm.value.purpose || '急救抢救与综合会诊',
       days: allConsentForm.value.days || 7,
@@ -1329,7 +1337,7 @@ async function submitBatchConsent() {
   submittingConsent.value = true
   try {
     const recIds = selectedUnauthorizedRows.value.map(r => r.id)
-    const res: any = await api.post('/access/batch-consent', {
+    const res: any = await batchConsentRequestApi({
       patient_id: selectedPatient.value.id,
       record_ids: recIds,
       purpose: batchConsentForm.value.purpose || '跨院多学科联合会诊调阅',
@@ -1366,7 +1374,7 @@ async function submitKeyUnlock() {
   }
   submittingKey.value = true
   try {
-    const res: any = await api.post('/access/unlock-patient-key', {
+    const res: any = await unlockPatientKeyApi({
       patient_id: selectedPatient.value.id,
       medical_key: keyUnlockForm.value.medicalKey.trim(),
       captcha_answer: keyUnlockForm.value.captchaAnswer.trim(),
@@ -1401,7 +1409,7 @@ async function submitEmergencyAccess() {
   }
   submittingEmergency.value = true
   try {
-    const res: any = await api.post('/access/emergency-batch', {
+    const res: any = await breakGlassEmergencyBatchApi({
       patient_id: selectedPatient.value.id,
       emergency_reason: emergencyForm.value.emergencyReason,
       description: emergencyForm.value.description,

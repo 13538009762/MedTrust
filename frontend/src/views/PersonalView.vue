@@ -649,7 +649,7 @@ import {
   UploadFilled, RefreshRight, Refresh, Picture, Check, InfoFilled 
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import api from '../api/client'
+import { updateAvatarApi, updateProfileApi, updatePasswordApi, updateMedicalKeyApi } from '../api'
 import { useAuthStore } from '../stores/auth'
 
 const auth = useAuthStore()
@@ -899,7 +899,7 @@ async function handleSaveAvatar() {
       return
     }
 
-    const res: any = await api.put('/auth/avatar', { avatar: finalAvatarData })
+    const res: any = await updateAvatarApi(finalAvatarData)
     if (res.code === 200 && res.data) {
       auth.setUser(res.data)
       ElMessage.success('自定义头像更换成功，全系统已同步生效！')
@@ -927,7 +927,7 @@ async function handleSaveAvatar() {
 async function handleRestoreDefaultAvatar() {
   savingAvatar.value = true
   try {
-    const res: any = await api.put('/auth/avatar', { avatar: '' })
+    const res: any = await updateAvatarApi('')
     if (res.code === 200 && res.data) {
       auth.setUser(res.data)
     } else if (auth.user) {
@@ -993,7 +993,7 @@ async function handleSaveProfile() {
 
   savingProfile.value = true
   try {
-    const res: any = await api.put('/auth/profile', editForm.value)
+    const res: any = await updateProfileApi(editForm.value)
     if (res.code === 200) {
       ElMessage.success('个人档案信息更新成功！')
       // 同步更新 Pinia 状态及 LocalStorage
@@ -1041,7 +1041,7 @@ async function handleSavePassword() {
 
   savingPass.value = true
   try {
-    const res: any = await api.put('/auth/password', {
+    const res: any = await updatePasswordApi({
       old_password: passForm.value.old_password,
       new_password: passForm.value.new_password,
     })
@@ -1091,7 +1091,7 @@ async function handleSaveMedicalKey() {
 
   savingMedicalKey.value = true
   try {
-    const res: any = await api.put('/auth/medical-key', {
+    const res: any = await updateMedicalKeyApi({
       old_key: medicalKeyForm.value.old_key,
       new_key: medicalKeyForm.value.new_key,
     })

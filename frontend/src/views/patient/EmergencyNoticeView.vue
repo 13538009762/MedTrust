@@ -73,7 +73,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import api from '../../api/client'
+import { listEmergencyEventsApi, submitBreakGlassFeedbackApi } from '../../api'
 
 const events = ref<any[]>([])
 const dialogVisible = ref(false)
@@ -86,7 +86,7 @@ onMounted(() => {
 
 async function loadEvents() {
   try {
-    const res: any = await api.get('/supervisor/emergency-events')
+    const res: any = await listEmergencyEventsApi()
     if (res.code === 200) {
       events.value = res.data
     }
@@ -97,7 +97,7 @@ async function loadEvents() {
 
 async function handleFeedback(eventNo: string, feedback: string, cmt: string = '') {
   try {
-    const res: any = await api.post('/access/break-glass/patient-feedback', {
+    const res: any = await submitBreakGlassFeedbackApi({
       event_no: eventNo,
       feedback: feedback,
       comment: cmt,

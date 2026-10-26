@@ -1,24 +1,9 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import api from '../api/client'
+import { logoutApi } from '../api'
+import type { User } from '../types'
 
-export interface User {
-  id: number
-  user_no: string
-  username: string
-  real_name: string
-  role: 'doctor' | 'patient' | 'admin' | 'supervisor'
-  hospital_id: number
-  department_id: number
-  title: string
-  phone: string
-  id_card?: string
-  medical_key?: string
-  status: 'NORMAL' | 'RESTRICTED' | 'DISABLED'
-  hospital_name?: string
-  department_name?: string
-  avatar?: string
-}
+export type { User }
 
 // 清理历史遗留的全局 localStorage 登录信息，杜绝跨标签页账号冲突
 try {
@@ -68,7 +53,7 @@ export const useAuthStore = defineStore('auth', () => {
     const currentToken = token.value || sessionStorage.getItem('medtrust_token')
     if (currentToken) {
       try {
-        await api.post('/auth/logout')
+        await logoutApi()
       } catch (err) {
         console.warn('[Auth] Backend logout error or offline:', err)
       }

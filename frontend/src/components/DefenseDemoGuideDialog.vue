@@ -81,7 +81,7 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../stores/auth'
-import api from '../api/client'
+import { loginApi } from '../api'
 
 const props = defineProps<{
   modelValue: boolean
@@ -236,7 +236,7 @@ async function jumpToScenario(s: any) {
   switchingUser.value = s.username
   try {
     if (auth.user?.username !== s.username) {
-      const res: any = await api.post('/auth/login', {
+      const res: any = await loginApi({
         username: s.username,
         password: '123456'
       })

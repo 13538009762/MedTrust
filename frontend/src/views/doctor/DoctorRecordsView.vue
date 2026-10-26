@@ -1968,7 +1968,16 @@ const isWideScreen = computed(() => windowWidth.value >= 1200)
 
 import { Plus, Refresh, Search, View, Download, Printer, OfficeBuilding, Timer, Document, CircleCheckFilled, Picture, Files, ArrowLeft, CopyDocument, WarningFilled, InfoFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
-import api from '../../api/client'
+import {
+  verifyRecordApi,
+  listRecordsApi,
+  listPatientsApi,
+  getPatientInfectionRisksApi,
+  createInitialEncounterApi,
+  completeEncounterFinalApi,
+  getRecordDetailApi,
+  downloadRecordApi
+} from '../../api'
 import { useAuthStore } from '../../stores/auth'
 import TreatmentPlanEditor from '../../components/TreatmentPlanEditor.vue'
 import AiDiagnosticDialog from '../../components/AiDiagnosticDialog.vue'
@@ -1987,7 +1996,7 @@ async function verifyRecordIntegrity(recordId: number) {
   integrityResult.value = null
   integrityDialogVisible.value = true
   try {
-    const res: any = await api.post(`/verification/${recordId}`)
+    const res: any = await verifyRecordApi(recordId)
     if (res.code === 200 && res.data) {
       integrityResult.value = res.data
     } else {
@@ -2387,7 +2396,7 @@ function formatRecordStatus(st?: string): string {
 async function fetchRecords() {
   loading.value = true
   try {
-    const res: any = await api.get('/medical-records')
+    const res: any = await listRecordsApi()
     if (res.code === 200) {
       records.value = (res.data || []).map((r: any) => {
         if (!r.patient_name || r.patient_name === '患者' || r.patient_name.startsWith('患者#')) {
@@ -2411,7 +2420,7 @@ async function fetchRecords() {
 
 async function fetchPatients() {
   try {
-    const res: any = await api.get('/patients')
+    const res: any = await listPatientsApi()
     if (res.code === 200) {
       patientList.value = res.data || []
     }
@@ -2459,7 +2468,7 @@ async function onPatientSelect(pid: number) {
   // 2. 异步请求跨机构全景传染病风险评估
   if (pid) {
     try {
-      const res: any = await api.get(`/patients/${pid}/infection-risks`)
+      const res: any = await getPatientInfectionRisksApi(pid)
       if (res.code === 200 && res.data) {
         selectedPatientInfectionAlert.value = res.data
       }
@@ -2709,7 +2718,7 @@ async function submitDirectEncounter() {
       soap_content: directForm.value.soap_content
     }
 
-    const res: any = await api.post('/encounters/initial', payload)
+    const res: any = await createInitialEncounterApi(payload)
     if (res.code === 200) {
       ElMessageBox.alert(
         `<div style="line-height: 1.6; font-size: 14px;">
@@ -2763,7 +2772,7 @@ async function submitInitialEncounter() {
       exam_reason: initForm.value.exam_reason
     }
 
-    const res: any = await api.post('/encounters/initial', payload)
+    const res: any = await createInitialEncounterApi(payload)
     if (res.code === 200) {
       if (selectedExamList.value.length > 0) {
         ElMessageBox.alert(
@@ -2806,7 +2815,7 @@ async function openFinalDialog(row: any) {
   activeRecordForFinal.value = row
   if (!activeRecordForFinal.value.infection_alert && activeRecordForFinal.value.patient_id) {
     try {
-      const riskRes: any = await api.get(`/patients/${activeRecordForFinal.value.patient_id}/infection-risks`)
+      const riskRes: any = await getPatientInfectionRisksApi(activeRecordForFinal.value.patient_id)
       if (riskRes.code === 200 && riskRes.data?.has_risk) {
         activeRecordForFinal.value.infection_alert = riskRes.data
       }
@@ -2871,7 +2880,7 @@ async function submitFinalEncounter() {
       treatment_plan: finalForm.value.treatment_plan,
       soap_content: finalForm.value.soap_content
     }
-    const res: any = await api.post(`/encounters/${activeRecordForFinal.value.id}/complete`, p)
+    const res: any = await completeEncounterFinalApi(activeRecordForFinal.value.id, p)
     if (res.code === 200) {
       ElMessage.success('最终确诊已签署下达，全量临床 SOAP 病历已成功完成 Hyperledger Fabric 区块链存证！')
       currentView.value = 'LIST'
@@ -2947,7 +2956,7 @@ function promptTamperedRecordWarning(record: any) {
 
 async function openViewDetail(row: any) {
   try {
-    const res: any = await api.get(`/medical-records/${row.id}`)
+    const res: any = await getRecordDetailApi(row.id)
     if (res.code === 200) {
       detailRecord.value = res.data
       if (!detailRecord.value.patient_name || detailRecord.value.patient_name === '患者' || detailRecord.value.patient_name.startsWith('患者#')) {
@@ -2961,7 +2970,7 @@ async function openViewDetail(row: any) {
       }
       if (!detailRecord.value.infection_alert && detailRecord.value.patient_id) {
         try {
-          const riskRes: any = await api.get(`/patients/${detailRecord.value.patient_id}/infection-risks`)
+          const riskRes: any = await getPatientInfectionRisksApi(detailRecord.value.patient_id)
           if (riskRes.code === 200 && riskRes.data?.has_risk) {
             detailRecord.value.infection_alert = riskRes.data
           }
@@ -2994,7 +3003,7 @@ async function openPdfPreview(rec: any) {
   previewingRecord.value = rec
   if (!previewingRecord.value.infection_alert && previewingRecord.value.patient_id) {
     try {
-      const riskRes: any = await api.get(`/patients/${previewingRecord.value.patient_id}/infection-risks`)
+      const riskRes: any = await getPatientInfectionRisksApi(previewingRecord.value.patient_id)
       if (riskRes.code === 200 && riskRes.data?.has_risk) {
         previewingRecord.value.infection_alert = riskRes.data
       }
@@ -3008,9 +3017,8 @@ function printPdfSheet() {
 }
 
 function downloadRecordFile(recordId: number) {
-  const baseUrl = api.defaults.baseURL || '/api/v1'
-  const url = `${baseUrl}/medical-records/${recordId}/download`
-  api.get(`/medical-records/${recordId}/download`, { responseType: 'blob' })
+  const downloadUrl = `/api/v1/medical-records/${recordId}/download`
+  downloadRecordApi(recordId)
     .then((res: any) => {
       const blob = new Blob([res], { type: 'application/pdf;charset=utf-8' })
       const link = document.createElement('a')
@@ -3024,7 +3032,7 @@ function downloadRecordFile(recordId: number) {
       ElMessage.success('已成功下载解密归档凭据！')
     })
     .catch(() => {
-      window.open(url, '_blank')
+      window.open(downloadUrl, '_blank')
     })
 }
 

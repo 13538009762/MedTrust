@@ -278,7 +278,17 @@
 import { ref, computed, onMounted } from 'vue'
 import { Connection, Platform, Plus, InfoFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import api from '../../api/client'
+import {
+  getBlockchainStatusApi,
+  listHospitalsApi,
+  listDepartmentsApi,
+  updateHospitalApi,
+  createHospitalApi,
+  updateHospitalStatusApi,
+  updateDepartmentApi,
+  createDepartmentApi,
+  deleteDepartmentApi
+} from '../../api'
 
 interface Hospital {
   id: number
@@ -352,7 +362,7 @@ const blockchainStatus = ref<{
 
 async function fetchBlockchainStatus() {
   try {
-    const res: any = await api.get('/system/blockchain/status')
+    const res: any = await getBlockchainStatusApi()
     if (res.code === 200 && res.data) {
       blockchainStatus.value = res.data
     }
@@ -402,7 +412,7 @@ function getHospitalNameById(id: number): string {
 async function fetchHospitals() {
   hospitalsLoading.value = true
   try {
-    const res: any = await api.get('/system/hospitals')
+    const res: any = await listHospitalsApi()
     if (res.code === 200) {
       hospitals.value = res.data
     }
@@ -416,8 +426,7 @@ async function fetchHospitals() {
 async function fetchDepartments() {
   departmentsLoading.value = true
   try {
-    const url = selectedHospitalId.value ? `/system/departments?hospital_id=${selectedHospitalId.value}` : '/system/departments'
-    const res: any = await api.get(url)
+    const res: any = await listDepartmentsApi(selectedHospitalId.value || undefined)
     if (res.code === 200) {
       departments.value = res.data
     }
@@ -465,7 +474,7 @@ async function submitHospitalForm() {
   hospitalSubmitting.value = true
   try {
     if (isEditingHospital.value && currentHospitalId.value) {
-      const res: any = await api.put(`/system/hospitals/${currentHospitalId.value}`, {
+      const res: any = await updateHospitalApi(currentHospitalId.value!, {
         name: hospitalForm.value.name,
         level: hospitalForm.value.level,
         address: hospitalForm.value.address
@@ -476,7 +485,7 @@ async function submitHospitalForm() {
         await fetchHospitals()
       }
     } else {
-      const res: any = await api.post('/system/hospitals', hospitalForm.value)
+      const res: any = await createHospitalApi(hospitalForm.value)
       if (res.code === 200) {
         ElMessage.success('医疗机构接入成功')
         hospitalDialogVisible.value = false
@@ -494,9 +503,7 @@ async function toggleHospitalStatus(row: Hospital) {
   const targetStatus = row.status === 1 ? 0 : 1
   const actionText = targetStatus === 0 ? '暂停' : '恢复'
   try {
-    const res: any = await api.put(`/system/hospitals/${row.id}/status`, {
-      status: targetStatus
-    })
+    const res: any = await updateHospitalStatusApi(row.id, targetStatus)
     if (res.code === 200) {
       ElMessage.success(`机构已成功${actionText}接入服务`)
       row.status = targetStatus
@@ -547,7 +554,7 @@ async function submitDeptForm() {
   deptSubmitting.value = true
   try {
     if (isEditingDept.value && currentDeptId.value) {
-      const res: any = await api.put(`/system/departments/${currentDeptId.value}`, {
+      const res: any = await updateDepartmentApi(currentDeptId.value!, {
         name: deptForm.value.name,
         description: deptForm.value.description
       })
@@ -557,7 +564,7 @@ async function submitDeptForm() {
         await fetchDepartments()
       }
     } else {
-      const res: any = await api.post('/system/departments', deptForm.value)
+      const res: any = await createDepartmentApi(deptForm.value)
       if (res.code === 200) {
         ElMessage.success('科室字典创建成功')
         deptDialogVisible.value = false
@@ -573,7 +580,7 @@ async function submitDeptForm() {
 
 async function handleDeleteDepartment(row: Department) {
   try {
-    const res: any = await api.delete(`/system/departments/${row.id}`)
+    const res: any = await deleteDepartmentApi(row.id)
     if (res.code === 200) {
       ElMessage.success('科室删除成功')
       await fetchDepartments()
