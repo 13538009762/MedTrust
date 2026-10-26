@@ -395,9 +395,9 @@ func (ctrl *SupervisorController) AccessHeatmap(c *gin.Context) {
 		for hr := 0; hr < 24; hr++ {
 			baseVal := 1
 			if hr >= 8 && hr <= 11 { // 上午就诊高峰
-				baseVal = 12 + ((hr * 3 + wd * 2) % 7)
+				baseVal = 12 + ((hr*3 + wd*2) % 7)
 			} else if hr >= 14 && hr <= 17 { // 下午门诊高峰
-				baseVal = 9 + ((hr * 2 + wd * 3) % 6)
+				baseVal = 9 + ((hr*2 + wd*3) % 6)
 			} else if hr == 2 || hr == 3 { // 凌晨异常小波峰 (模拟攻防演练或突发急诊)
 				baseVal = 3 + (wd % 3)
 			}
@@ -534,5 +534,3 @@ func (ctrl *SupervisorController) ListBlockchainTransactions(c *gin.Context) {
 		},
 	})
 }
-
-

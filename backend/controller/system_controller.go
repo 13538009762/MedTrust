@@ -254,8 +254,6 @@ func (ctrl *SystemController) GetBlockchainStatus(c *gin.Context) {
 	})
 }
 
-
-
 type CreateHospitalDTO struct {
 	HospitalNo string `json:"hospital_no" binding:"required"`
 	Name       string `json:"name" binding:"required"`

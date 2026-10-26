@@ -23,14 +23,14 @@ import (
 
 // BenchmarkResultTable1 实验一数据结构：数据加密与链下分布式存证性能评测
 type BenchmarkResultTable1 struct {
-	SizeLabel      string
-	Bytes          int
-	SHA256Ms       float64
-	EncryptGCM_Ms  float64
-	IPFS_WriteMs   float64
-	IPFS_ReadMs    float64
-	DecryptGCM_Ms  float64
-	TotalTimeMs    float64
+	SizeLabel     string
+	Bytes         int
+	SHA256Ms      float64
+	EncryptGCM_Ms float64
+	IPFS_WriteMs  float64
+	IPFS_ReadMs   float64
+	DecryptGCM_Ms float64
+	TotalTimeMs   float64
 }
 
 // BenchmarkResultTable2 实验二数据结构：三级访问控制与风险引擎判定吞吐量评测

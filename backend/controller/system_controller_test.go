@@ -12,9 +12,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"medtrust-backend/config"
 	"medtrust-backend/model"
-	"strings"
 	"medtrust-backend/repository"
 	"medtrust-backend/service"
+	"strings"
 )
 
 func setupSystemTestRouter() *gin.Engine {
@@ -247,7 +247,6 @@ func TestDepartmentCRUD_AndCascadeSafety(t *testing.T) {
 	}
 }
 
-
 func TestHospitalDisabled_DecisionD1_AccessEngineRejection(t *testing.T) {
 	cfg, _ := config.LoadConfig("../config/config.yaml")
 	_, _ = repository.InitDB()
@@ -280,25 +279,25 @@ func TestHospitalDisabled_DecisionD1_AccessEngineRejection(t *testing.T) {
 
 	// 2. 创建归属于该机构的医生与病历
 	doc := model.User{
-		UserNo:       fmt.Sprintf("DOC_D1_%d", nanos),
-		Username:     fmt.Sprintf("doc_d1_%d", nanos),
-		Role:         "doctor",
-		HospitalID:   hospID,
-		Status:       "NORMAL",
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
+		UserNo:     fmt.Sprintf("DOC_D1_%d", nanos),
+		Username:   fmt.Sprintf("doc_d1_%d", nanos),
+		Role:       "doctor",
+		HospitalID: hospID,
+		Status:     "NORMAL",
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
 	}
 	repository.DB.Create(&doc)
 	defer repository.DB.Delete(&doc)
 
 	rec := model.MedicalRecord{
-		RecordNo:     fmt.Sprintf("REC_D1_%d", nanos),
-		PatientID:    1,
-		DoctorID:     doc.ID,
-		HospitalID:   hospID,
-		DataType:     "EMR",
-		Title:        "机构停用测试病历",
-		CreatedAt:    time.Now(),
+		RecordNo:   fmt.Sprintf("REC_D1_%d", nanos),
+		PatientID:  1,
+		DoctorID:   doc.ID,
+		HospitalID: hospID,
+		DataType:   "EMR",
+		Title:      "机构停用测试病历",
+		CreatedAt:  time.Now(),
 	}
 	repository.DB.Create(&rec)
 	defer repository.DB.Delete(&rec)

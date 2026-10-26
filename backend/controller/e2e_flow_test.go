@@ -262,7 +262,7 @@ func TestE2E_AcceptanceFlow(t *testing.T) {
 		}
 
 		var authResp struct {
-			Code int                `json:"code"`
+			Code int                 `json:"code"`
 			Data model.Authorization `json:"data"`
 		}
 		_ = json.Unmarshal(wAuth.Body.Bytes(), &authResp)
@@ -503,4 +503,3 @@ func TestE2E_AcceptanceFlow(t *testing.T) {
 		}
 	})
 }
-

@@ -318,5 +318,3 @@ func (ctrl *AuthController) Logout(c *gin.Context) {
 		Data:    nil,
 	})
 }
-
-

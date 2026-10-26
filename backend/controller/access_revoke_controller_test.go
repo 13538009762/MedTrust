@@ -616,7 +616,7 @@ func TestMedicalData_AccessEngineUnifiedCoverage(t *testing.T) {
 		t.Fatalf("监管员查阅病历详情预期 200，实际: %d", w.Code)
 	}
 	var supResp struct {
-		Code int                `json:"code"`
+		Code int                 `json:"code"`
 		Data model.MedicalRecord `json:"data"`
 	}
 	_ = json.Unmarshal(w.Body.Bytes(), &supResp)

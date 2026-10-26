@@ -202,4 +202,3 @@ func (ctrl *NotificationController) ListNotifications(c *gin.Context) {
 		Data:    list,
 	})
 }
-
