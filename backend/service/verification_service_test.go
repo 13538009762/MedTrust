@@ -42,16 +42,16 @@ func TestVerification_AuthenticRecordPasses(t *testing.T) {
 	}
 
 	rec := model.MedicalRecord{
-		RecordNo:       recordNo,
-		PatientID:      1001,
-		DoctorID:       2001,
-		HospitalID:     1,
-		DataType:       "门诊",
-		Symptoms:       "咳嗽发热",
-		Diagnosis:      "急性支气管炎",
-		TreatmentPlan:  "对症止咳化痰",
-		SyncStatus:     service.SyncStatusCompleted,
-		CreatedAt:      time.Now(),
+		RecordNo:      recordNo,
+		PatientID:     1001,
+		DoctorID:      2001,
+		HospitalID:    1,
+		DataType:      "门诊",
+		Symptoms:      "咳嗽发热",
+		Diagnosis:     "急性支气管炎",
+		TreatmentPlan: "对症止咳化痰",
+		SyncStatus:    service.SyncStatusCompleted,
+		CreatedAt:     time.Now(),
 	}
 	repository.DB.Create(&rec)
 	defer repository.DB.Delete(&rec)

@@ -27,7 +27,7 @@ type VerificationResult struct {
 	CID            string                  `json:"cid"`
 	FabricTxID     string                  `json:"fabric_tx_id"`
 	BlockHeight    uint64                  `json:"block_height"`
-	RawAsset       map[string]interface{} `json:"raw_asset,omitempty"`
+	RawAsset       map[string]interface{}  `json:"raw_asset,omitempty"`
 	Stages         []VerificationStageItem `json:"stages"`
 	Message        string                  `json:"message"`
 }

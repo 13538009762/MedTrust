@@ -658,4 +658,3 @@ func (s *AuthService) UpdateMedicalKeyWithContext(userID uint64, oldKey, newKey,
 	})
 	return nil
 }
-

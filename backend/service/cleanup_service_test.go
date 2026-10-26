@@ -80,4 +80,3 @@ func TestCleanRealIPFSStorage(t *testing.T) {
 	}
 	t.Logf("✅ 存储目录清理测试完成: 清理文件数=%d, 释放空间=%d 字节", cleaned, bytesFreed)
 }
-

@@ -272,4 +272,3 @@ func TestAuthService_SensitiveFieldsJsonIgnored(t *testing.T) {
 		}
 	}
 }
-

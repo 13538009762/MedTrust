@@ -31,12 +31,12 @@ func TestConsistency_StateMachineAndReconciliation(t *testing.T) {
 
 	// 创建测试医生与患者
 	doc := model.User{
-		UserNo:       "DOC_CONSISTENCY_01",
-		Username:     "DOC_CONSISTENCY_01",
-		RealName:     "一致性测试医生",
-		Role:         "doctor",
-		HospitalID:   1,
-		Status:       "NORMAL",
+		UserNo:     "DOC_CONSISTENCY_01",
+		Username:   "DOC_CONSISTENCY_01",
+		RealName:   "一致性测试医生",
+		Role:       "doctor",
+		HospitalID: 1,
+		Status:     "NORMAL",
 	}
 	pat := model.User{
 		UserNo:   "PAT_CONSISTENCY_01",
@@ -94,15 +94,15 @@ func TestConsistency_StateMachineAndReconciliation(t *testing.T) {
 
 	// 3. 跨系统补偿对账测试 (模拟数据库存在但链上丢失时的自动补偿)
 	recLoss := model.MedicalRecord{
-		RecordNo:       fmt.Sprintf("MR-LOSS-%d", time.Now().UnixNano()),
-		PatientID:      pat.ID,
-		DoctorID:       doc.ID,
-		HospitalID:     doc.HospitalID,
-		DataType:       "门诊",
-		Symptoms:       "急性胃肠炎",
-		Diagnosis:      "急性胃肠炎",
-		SyncStatus:     service.SyncStatusNeedsReconciliation,
-		CreatedAt:      time.Now(),
+		RecordNo:   fmt.Sprintf("MR-LOSS-%d", time.Now().UnixNano()),
+		PatientID:  pat.ID,
+		DoctorID:   doc.ID,
+		HospitalID: doc.HospitalID,
+		DataType:   "门诊",
+		Symptoms:   "急性胃肠炎",
+		Diagnosis:  "急性胃肠炎",
+		SyncStatus: service.SyncStatusNeedsReconciliation,
+		CreatedAt:  time.Now(),
 	}
 	repository.DB.Create(&recLoss)
 	defer repository.DB.Delete(&recLoss)

@@ -265,4 +265,3 @@ func (s *EmergencyService) GenerateAuditComparisonSummary(event *model.Emergency
 
 	return sb.String()
 }
-

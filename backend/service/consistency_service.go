@@ -91,18 +91,18 @@ func (s *ConsistencyService) CreateRecordWithConsistency(p UploadRecordParams, i
 
 	if len(p.FileData) == 0 {
 		pdfBytes, _ := pdf.GenerateAttestationPDF(pdf.AttestationData{
-			RecordNo:         recordNo,
-			PatientName:      patientName,
-			DoctorName:       doc.RealName,
-			HospitalName:     fmt.Sprintf("医疗机构#%d", doc.HospitalID),
-			EncounterType:    p.EncounterType,
-			DepartmentName:   p.DepartmentName,
-			ChiefComplaint:   p.ChiefComplaint,
-			PresentIllness:   p.PresentIllness,
-			DiagnosticBasis:  p.DiagnosticBasis,
-			Diagnosis:        p.Diagnosis,
-			Etiology:         p.Etiology,
-			TreatmentPlan:    p.TreatmentPlan,
+			RecordNo:        recordNo,
+			PatientName:     patientName,
+			DoctorName:      doc.RealName,
+			HospitalName:    fmt.Sprintf("医疗机构#%d", doc.HospitalID),
+			EncounterType:   p.EncounterType,
+			DepartmentName:  p.DepartmentName,
+			ChiefComplaint:  p.ChiefComplaint,
+			PresentIllness:  p.PresentIllness,
+			DiagnosticBasis: p.DiagnosticBasis,
+			Diagnosis:       p.Diagnosis,
+			Etiology:        p.Etiology,
+			TreatmentPlan:   p.TreatmentPlan,
 		})
 		p.FileData = pdfBytes
 		p.FileName = fmt.Sprintf("临床就诊规范归档凭据_%s.pdf", recordNo)

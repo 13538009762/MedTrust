@@ -71,13 +71,13 @@ func TestAccessEngine_AuthorizationAndRiskFlow(t *testing.T) {
 		Status:       "NORMAL",
 	}
 	docRestricted := model.User{
-		UserNo:       "DOC_RESTRICTED_TEST",
-		Username:     "DOC_RESTRICTED_TEST",
-		RealName:     "违规受限医生",
-		Role:         "doctor",
-		HospitalID:   hospB.ID,
-		Title:        "住院医师",
-		Status:       "RESTRICTED",
+		UserNo:     "DOC_RESTRICTED_TEST",
+		Username:   "DOC_RESTRICTED_TEST",
+		RealName:   "违规受限医生",
+		Role:       "doctor",
+		HospitalID: hospB.ID,
+		Title:      "住院医师",
+		Status:     "RESTRICTED",
 	}
 	patient := model.User{
 		UserNo:   "PAT_TEST_001",
@@ -294,4 +294,3 @@ func TestAccessEngine_DetailedSecurityRules(t *testing.T) {
 		t.Fatalf("患者跨账号越权调阅防御失效: allowed=%v, reason=%s", decPatientCross.Allowed, decPatientCross.Reason)
 	}
 }
-
