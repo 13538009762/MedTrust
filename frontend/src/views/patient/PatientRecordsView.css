@@ -1,0 +1,651 @@
+.page-container {
+  max-width: 1060px;
+  margin: 0 auto;
+  padding-bottom: 40px;
+}
+
+/* 顶栏与标题规范 */
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 20px;
+  gap: 16px;
+}
+.header-left {
+  flex: 1;
+}
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.page-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0;
+  letter-spacing: -0.3px;
+}
+.page-header-tag {
+  font-weight: 600;
+}
+.page-sub {
+  font-size: 13px;
+  color: #64748b;
+  margin: 6px 0 0 0;
+  line-height: 1.5;
+}
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* 患者自主隐私与数据主权卡片 */
+.privacy-sovereignty-card {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(59, 130, 246, 0.04) 100%);
+  border: 1px solid rgba(16, 185, 129, 0.22);
+  border-radius: 12px;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.05);
+}
+.psc-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  flex: 1;
+}
+.psc-icon-wrap {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: rgba(16, 185, 129, 0.16);
+  color: #059669;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.psc-content {
+  flex: 1;
+}
+.psc-title-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 5px;
+}
+.psc-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #065f46;
+}
+.psc-badge {
+  font-weight: 600;
+}
+.psc-desc {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #334155;
+  margin: 0;
+}
+.psc-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-left: 20px;
+  border-left: 1px solid rgba(16, 185, 129, 0.2);
+  flex-shrink: 0;
+}
+.psc-metric {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.metric-val {
+  font-size: 20px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.2;
+}
+.metric-lbl {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 2px;
+}
+.psc-metric-sep {
+  width: 1px;
+  height: 24px;
+  background: rgba(16, 185, 129, 0.2);
+}
+
+/* 时间线容器 */
+.timeline-wrapper {
+  background: #ffffff;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  padding: 24px 24px 10px 24px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.02);
+}
+.med-timeline-node {
+  padding-bottom: 20px;
+}
+
+/* 就诊卡片主体 */
+.record-glass-card {
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  padding: 16px 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+  transition: all 0.2s ease;
+}
+.record-glass-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.04);
+}
+
+/* 卡片头部 */
+.rg-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.rg-head-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.hosp-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+}
+.doc-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+}
+.h-sep {
+  color: #94a3b8;
+  font-weight: bold;
+}
+.encounter-type-tag {
+  font-weight: 600;
+}
+.rg-head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.scope-badge {
+  font-weight: 600;
+}
+.data-type-pill {
+  font-weight: 600;
+  background: #f1f5f9;
+  color: #475569;
+}
+.block-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #059669;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-family: monospace;
+}
+
+/* 结构化胶囊 */
+.clinical-structured-capsule {
+  background: #f8fafc;
+  border: 1px solid #eef2f6;
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+.vitals-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed #e2e8f0;
+}
+.vitals-val {
+  font-weight: 700;
+  color: #0d9488;
+  font-family: monospace;
+}
+.capsule-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.capsule-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.5;
+}
+.capsule-item.full-width {
+  align-items: flex-start;
+}
+.capsule-label {
+  font-weight: 600;
+  color: #64748b;
+  flex-shrink: 0;
+}
+.capsule-val {
+  color: #1e293b;
+}
+.etiology-chip {
+  background: #fef3c7;
+  color: #92400e;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 12px;
+}
+.treatment-plan-row {
+  background: rgba(16, 185, 129, 0.05);
+  border-left: 3px solid #10b981;
+  padding: 8px 10px;
+  border-radius: 4px;
+}
+.plan-text {
+  color: #065f46;
+  font-weight: 600;
+}
+
+/* 诊断结论 */
+.diagnosis-callout {
+  background: #f1f5f9;
+  border-left: 3px solid #3b82f6;
+  padding: 8px 14px;
+  border-radius: 0 6px 6px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.diag-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1e40af;
+}
+.diag-value {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+/* 卡片底栏 */
+.rg-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #64748b;
+  border-top: 1px dashed #e2e8f0;
+  padding-top: 10px;
+}
+.meta-ids {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.meta-lbl {
+  color: #94a3b8;
+}
+.meta-code {
+  font-family: monospace;
+  color: #334155;
+  font-weight: 600;
+}
+.meta-dot {
+  color: #cbd5e1;
+}
+.tx-hash {
+  color: #2563eb;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: color 0.2s;
+}
+.tx-hash:hover {
+  color: #1d4ed8;
+  text-decoration: underline;
+}
+.copy-icon {
+  font-size: 12px;
+}
+.meta-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.policy-active-text {
+  margin-left: 3px;
+  font-weight: bold;
+}
+
+.detail-policy-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+}
+.dps-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.dps-label {
+  font-weight: 600;
+  color: #475569;
+}
+
+/* 策略选择弹窗样式 */
+.policy-modal-body {
+  padding: 4px 0;
+}
+.target-rec-summary {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+.trs-row {
+  display: flex;
+  align-items: center;
+}
+.trs-label {
+  font-weight: 600;
+  color: #64748b;
+  min-width: 75px;
+}
+.trs-code {
+  font-family: monospace;
+  font-weight: bold;
+  color: #0f172a;
+}
+.policy-radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+.policy-option-card {
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: #ffffff;
+}
+.policy-option-card:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+.policy-option-card.active {
+  border-color: #10b981;
+  background: #ecfdf5;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.15);
+}
+.policy-option-card.active.active-all {
+  border-color: #10b981;
+  background: #f0fdf4;
+  box-shadow: 0 2px 10px rgba(16, 185, 129, 0.15);
+}
+.policy-option-card.active.active-hospital {
+  border-color: #3b82f6;
+  background: #eff6ff;
+  box-shadow: 0 2px 10px rgba(59, 130, 246, 0.15);
+}
+.policy-option-card.active.active-doctor {
+  border-color: #8b5cf6;
+  background: #f5f3ff;
+  box-shadow: 0 2px 10px rgba(139, 92, 246, 0.15);
+}
+.policy-option-card.active.active-private {
+  border-color: #64748b;
+  background: #f8fafc;
+  box-shadow: 0 2px 10px rgba(100, 116, 139, 0.15);
+}
+.poc-extra-config {
+  margin-top: 10px;
+  padding: 12px 14px;
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  cursor: default;
+}
+.pec-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 8px;
+}
+.pec-filters {
+  display: flex;
+  gap: 12px;
+}
+.pec-filters .filter-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sub-label {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 500;
+}
+.poc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.poc-desc {
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.5;
+  margin: 0;
+  padding-left: 24px;
+}
+.blockchain-tip-box {
+  margin-top: 14px;
+  font-size: 12px;
+  color: #6366f1;
+  background: #eef2ff;
+  border: 1px dashed #c7d2fe;
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+
+.clinical-structured-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.clinical-structured-table th,
+.clinical-structured-table td {
+  border: 1px solid #e2e8f0;
+  padding: 10px 14px;
+  text-align: left;
+}
+.clinical-structured-table th {
+  background: #f1f5f9;
+  color: #475569;
+  font-weight: 600;
+}
+.cause-box {
+  background: #fffbeb;
+  padding: 6px 10px;
+  border-radius: 4px;
+  color: #92400e;
+}
+.plan-box {
+  background: #ecfdf5;
+  padding: 6px 10px;
+  border-radius: 4px;
+  color: #065f46;
+}
+.full-pre {
+  white-space: pre-wrap;
+  background: #f8fafc;
+  padding: 10px;
+  border-radius: 6px;
+  margin: 0;
+  color: #334155;
+  font-family: inherit;
+}
+
+/* 区块链防篡改高危警告横幅 */
+.tamper-warning-box {
+  background: linear-gradient(135deg, #fff1f2 0%, #fee2e2 100%);
+  border: 2px solid #ef4444;
+  box-shadow: 0 4px 14px rgba(239, 68, 68, 0.25);
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  animation: pulse-border 2s infinite ease-in-out;
+}
+
+@keyframes pulse-border {
+  0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  70% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+.tw-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #b91c1c;
+  font-size: 16px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.tw-icon {
+  font-size: 22px;
+  animation: tw-bounce 1s infinite alternate;
+}
+
+@keyframes tw-bounce {
+  from { transform: scale(1); }
+  to { transform: scale(1.2); }
+}
+
+.tw-body {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #991b1b;
+  margin-bottom: 12px;
+}
+
+.tw-hashes {
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tw-h-item {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  gap: 8px;
+}
+
+.tw-h-item.danger code {
+  color: #b91c1c;
+  background: #fee2e2;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.tw-h-item.chain code {
+  color: #047857;
+  background: #d1fae5;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.tw-h-item .lbl {
+  font-weight: 600;
+  min-width: 220px;
+}
+
+/* 校验通过安全横幅 */
+.verified-safe-box {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #065f46;
+  border-radius: 8px;
+  padding: 10px 16px;
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.tamper-tag-glow {
+  animation: tag-glow 1.5s infinite alternate;
+  font-weight: 700;
+}
+
+@keyframes tag-glow {
+  from { opacity: 0.85; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1.05); }
+}
