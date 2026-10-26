@@ -85,3 +85,67 @@ func (r *EmergencyRepository) UpdateAuditDecision(eventNo string, supervisorID u
 			"updated_at":    time.Now(),
 		}).Error
 }
+
+func (r *EmergencyRepository) FindPendingFeedbackEventsByPatient(patientID uint64, limit int) ([]model.EmergencyAccessEvent, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+	var emgs []model.EmergencyAccessEvent
+	err := DB.Where("patient_id = ? AND patient_feedback = 'PENDING'", patientID).Order("id desc").Limit(limit).Find(&emgs).Error
+	return emgs, err
+}
+
+func (r *EmergencyRepository) CountTotal() int64 {
+	if DB == nil {
+		return 0
+	}
+	var count int64
+	DB.Model(&model.EmergencyAccessEvent{}).Count(&count)
+	return count
+}
+
+func (r *EmergencyRepository) CountPendingAudits() int64 {
+	if DB == nil {
+		return 0
+	}
+	var count int64
+	DB.Model(&model.EmergencyAccessEvent{}).Where("audit_status = 'PENDING_AUDIT'").Count(&count)
+	return count
+}
+
+func (r *EmergencyRepository) ListEventsWithFilter(status string) ([]model.EmergencyAccessEvent, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	query := DB.Model(&model.EmergencyAccessEvent{})
+	if status != "" {
+		query = query.Where("audit_status = ?", status)
+	}
+	var list []model.EmergencyAccessEvent
+	err := query.Order("id desc").Find(&list).Error
+	return list, err
+}
+
+func (r *EmergencyRepository) GetPatientEventNos(patientID uint64) []string {
+	if DB == nil {
+		return nil
+	}
+	var eventNos []string
+	DB.Model(&model.EmergencyAccessEvent{}).Where("patient_id = ?", patientID).Pluck("event_no", &eventNos)
+	return eventNos
+}
+
+func (r *EmergencyRepository) FindRecentActiveEvent(doctorID, patientID, recordID uint64, windowStart time.Time) (*model.EmergencyAccessEvent, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	var activeEvt model.EmergencyAccessEvent
+	if err := DB.Where("doctor_id = ? AND patient_id = ? AND record_id = ? AND created_at >= ? AND audit_status != 'CLOSED_VIOLATION'",
+		doctorID, patientID, recordID, windowStart).First(&activeEvt).Error; err != nil {
+		return nil, err
+	}
+	return &activeEvt, nil
+}

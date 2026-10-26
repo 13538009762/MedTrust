@@ -104,3 +104,79 @@ func (r *MedicalRepository) UpdateFile(file *model.MedicalFile) error {
 	}
 	return DB.Save(file).Error
 }
+
+func (r *MedicalRepository) FindRecordsByIDs(ids []uint64) ([]model.MedicalRecord, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	var recs []model.MedicalRecord
+	err := DB.Where("id IN ?", ids).Find(&recs).Error
+	return recs, err
+}
+
+func (r *MedicalRepository) FindExamOrderByID(id uint64) (*model.MedicalExamOrder, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	var order model.MedicalExamOrder
+	if err := DB.First(&order, id).Error; err != nil {
+		return nil, err
+	}
+	return &order, nil
+}
+
+func (r *MedicalRepository) CountTotal() int64 {
+	if DB == nil {
+		return 0
+	}
+	var count int64
+	DB.Model(&model.MedicalRecord{}).Count(&count)
+	return count
+}
+
+func (r *MedicalRepository) ListAllRecords() ([]model.MedicalRecord, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	var recs []model.MedicalRecord
+	err := DB.Find(&recs).Error
+	return recs, err
+}
+
+func (r *MedicalRepository) GetPatientRecordIdentifiers(patientID uint64) (recordNos []string, recordIDs []uint64) {
+	if DB == nil {
+		return nil, nil
+	}
+	DB.Model(&model.MedicalRecord{}).Where("patient_id = ?", patientID).Pluck("record_no", &recordNos)
+	DB.Model(&model.MedicalRecord{}).Where("patient_id = ?", patientID).Pluck("id", &recordIDs)
+	return recordNos, recordIDs
+}
+
+func (r *MedicalRepository) FindRecordsByPatientAndIDs(patientID uint64, recordIDs []uint64) ([]model.MedicalRecord, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	var records []model.MedicalRecord
+	err := DB.Where("patient_id = ? AND id IN ?", patientID, recordIDs).Find(&records).Error
+	return records, err
+}
+
+func (r *MedicalRepository) FindRecordsByPatient(patientID uint64) ([]model.MedicalRecord, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	var records []model.MedicalRecord
+	err := DB.Where("patient_id = ?", patientID).Find(&records).Error
+	return records, err
+}
+
+func (r *MedicalRepository) FindPatientRecord(recordID, patientID uint64) (*model.MedicalRecord, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	var rec model.MedicalRecord
+	if err := DB.Where("id = ? AND patient_id = ?", recordID, patientID).First(&rec).Error; err != nil {
+		return nil, err
+	}
+	return &rec, nil
+}

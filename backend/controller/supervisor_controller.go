@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"medtrust-backend/model"
@@ -18,69 +17,25 @@ type SupervisorController struct{}
 var DefaultSupervisorController = &SupervisorController{}
 
 func (ctrl *SupervisorController) Overview(c *gin.Context) {
-	var totalRecords int64
-	repository.DB.Model(&model.MedicalRecord{}).Count(&totalRecords)
-
-	var totalEmergencies int64
-	repository.DB.Model(&model.EmergencyAccessEvent{}).Count(&totalEmergencies)
-
-	var pendingAudits int64
-	repository.DB.Model(&model.EmergencyAccessEvent{}).Where("audit_status = 'PENDING_AUDIT'").Count(&pendingAudits)
-
-	var totalLogs int64
-	repository.DB.Model(&model.AuditLog{}).Count(&totalLogs)
+	totalRecords := repository.DefaultMedicalRepository.CountTotal()
+	totalEmergencies := repository.DefaultEmergencyRepository.CountTotal()
+	pendingAudits := repository.DefaultEmergencyRepository.CountPendingAudits()
+	totalLogs := repository.DefaultAuditRepository.CountTotal()
 
 	totalTx, blockHeight := blockchain.DefaultService.GetStats()
 
 	// 1. 统计不同机构病历占比
-	type HospStat struct {
-		Name  string `json:"name"`
-		Count int64  `json:"count"`
-	}
-	var hospStats []HospStat
-	repository.DB.Raw(`
-		SELECT h.name, COUNT(r.id) as count 
-		FROM hospitals h 
-		LEFT JOIN medical_records r ON h.id = r.hospital_id 
-		GROUP BY h.id, h.name
-	`).Scan(&hospStats)
+	hospStats := repository.DefaultAuditRepository.GetHospStats()
 
 	// 2. 统计风险等级分布
-	type RiskStat struct {
-		RiskLevel string `json:"risk_level"`
-		Count     int64  `json:"count"`
-	}
-	var riskStats []RiskStat
-	repository.DB.Raw(`SELECT risk_level, COUNT(id) as count FROM audit_logs GROUP BY risk_level`).Scan(&riskStats)
+	riskStats := repository.DefaultAuditRepository.GetRiskStats()
 
 	// 3. 统计近7天全局流转量与风险拦截走势 (ECharts 折线/柱状图数据源)
-	type DayTrend struct {
-		Date           string `json:"date"`
-		FlowCount      int64  `json:"flow_count"`
-		InterceptCount int64  `json:"intercept_count"`
-	}
-	var trendList []DayTrend
-	for i := 6; i >= 0; i-- {
-		dStr := time.Now().AddDate(0, 0, -i).Format("01-02")
-		startOfDay := time.Now().AddDate(0, 0, -i).Truncate(24 * time.Hour)
-		endOfDay := startOfDay.Add(24 * time.Hour)
-		var flowCnt, intCnt int64
-		repository.DB.Model(&model.AuditLog{}).Where("created_at >= ? AND created_at < ?", startOfDay, endOfDay).Count(&flowCnt)
-		repository.DB.Model(&model.AuditLog{}).Where("created_at >= ? AND created_at < ? AND result IN ('INTERCEPTED', 'FAILED')", startOfDay, endOfDay).Count(&intCnt)
-		if flowCnt == 0 {
-			flowCnt = int64(14 + (6-i)*4)
-		}
-		trendList = append(trendList, DayTrend{
-			Date:           dStr,
-			FlowCount:      flowCnt,
-			InterceptCount: intCnt,
-		})
-	}
+	trendList := repository.DefaultAuditRepository.GetThroughputTrends(7)
 
 	// 4. 统计防篡改核验通过率与拦截总量
 	var tamperedCount int64
-	var allRecs []model.MedicalRecord
-	repository.DB.Find(&allRecs)
+	allRecs, _ := repository.DefaultMedicalRepository.ListAllRecords()
 	for i := range allRecs {
 		service.DefaultMedicalService.VerifyRecord(&allRecs[i])
 		if allRecs[i].IsTampered {
@@ -96,8 +51,7 @@ func (ctrl *SupervisorController) Overview(c *gin.Context) {
 		}
 	}
 
-	var totalIntercepted int64
-	repository.DB.Model(&model.AuditLog{}).Where("result IN ('INTERCEPTED', 'FAILED')").Count(&totalIntercepted)
+	totalIntercepted := repository.DefaultAuditRepository.CountIntercepted()
 
 	c.JSON(http.StatusOK, model.Response{
 		Code:    200,
@@ -122,32 +76,22 @@ func (ctrl *SupervisorController) Overview(c *gin.Context) {
 
 func (ctrl *SupervisorController) ListEmergencyEvents(c *gin.Context) {
 	status := c.Query("status")
-	query := repository.DB.Model(&model.EmergencyAccessEvent{})
-	if status != "" {
-		query = query.Where("audit_status = ?", status)
-	}
-
-	var list []model.EmergencyAccessEvent
-	query.Order("id desc").Find(&list)
+	list, _ := repository.DefaultEmergencyRepository.ListEventsWithFilter(status)
 
 	for i := range list {
-		var doc model.User
-		if err := repository.DB.First(&doc, list[i].DoctorID).Error; err == nil {
+		if doc, err := repository.DefaultUserRepository.FindByID(list[i].DoctorID); err == nil {
 			list[i].DoctorName = doc.RealName
 		}
-		var pat model.User
-		if err := repository.DB.First(&pat, list[i].PatientID).Error; err == nil {
+		if pat, err := repository.DefaultUserRepository.FindByID(list[i].PatientID); err == nil {
 			list[i].PatientName = pat.RealName
 		}
-		var rec model.MedicalRecord
-		if err := repository.DB.First(&rec, list[i].RecordID).Error; err == nil {
+		if rec, err := repository.DefaultMedicalRepository.FindRecordByID(list[i].RecordID); err == nil {
 			list[i].RecordNo = rec.RecordNo
 		}
-		var h1, h2 model.Hospital
-		if err := repository.DB.First(&h1, list[i].SourceHospitalID).Error; err == nil {
+		if h1, err := repository.DefaultHospitalRepository.FindByID(list[i].SourceHospitalID); err == nil {
 			list[i].SourceHospitalName = h1.Name
 		}
-		if err := repository.DB.First(&h2, list[i].TargetHospitalID).Error; err == nil {
+		if h2, err := repository.DefaultHospitalRepository.FindByID(list[i].TargetHospitalID); err == nil {
 			list[i].TargetHospitalName = h2.Name
 		}
 
@@ -215,32 +159,19 @@ func (ctrl *SupervisorController) ListAuditLogs(c *gin.Context) {
 	currentUserID := c.GetUint64("user_id")
 	role := c.GetString("role")
 
-	query := repository.DB.Model(&model.AuditLog{})
-	if opType != "" {
-		query = query.Where("operation_type = ?", opType)
-	}
-	if riskLevel != "" {
-		query = query.Where("risk_level = ?", riskLevel)
-	}
-
+	var filter *repository.PatientAuditFilter
 	// 患者角色数据隔离: 仅允许调阅涉及本人的访问痕迹与全生命周期追踪 ("谁访问过我的数据")
 	if role == "patient" {
-		var pat model.User
-		repository.DB.First(&pat, currentUserID)
+		pat, _ := repository.DefaultUserRepository.FindByID(currentUserID)
+		userNo := ""
+		if pat != nil {
+			userNo = pat.UserNo
+		}
 
-		var recordNos []string
-		var recordIDs []uint64
-		repository.DB.Model(&model.MedicalRecord{}).Where("patient_id = ?", currentUserID).Pluck("record_no", &recordNos)
-		repository.DB.Model(&model.MedicalRecord{}).Where("patient_id = ?", currentUserID).Pluck("id", &recordIDs)
-
-		var authNos []string
-		repository.DB.Model(&model.Authorization{}).Where("patient_id = ?", currentUserID).Pluck("auth_no", &authNos)
-
-		var eventNos []string
-		repository.DB.Model(&model.EmergencyAccessEvent{}).Where("patient_id = ?", currentUserID).Pluck("event_no", &eventNos)
-
-		var requestNos []string
-		repository.DB.Model(&model.AccessRequest{}).Where("patient_id = ?", currentUserID).Pluck("request_no", &requestNos)
+		recordNos, recordIDs := repository.DefaultMedicalRepository.GetPatientRecordIdentifiers(currentUserID)
+		authNos := repository.DefaultAuthPolicyRepository.GetPatientAuthNos(currentUserID)
+		eventNos := repository.DefaultEmergencyRepository.GetPatientEventNos(currentUserID)
+		requestNos := repository.DefaultAuthPolicyRepository.GetPatientRequestNos(currentUserID)
 
 		var recIdStrs []string
 		for _, rid := range recordIDs {
@@ -261,12 +192,17 @@ func (ctrl *SupervisorController) ListAuditLogs(c *gin.Context) {
 			requestNos = []string{"__EMPTY__"}
 		}
 
-		query = query.Where("user_id = ? OR (target_type = 'RECORD' AND target_id IN (?)) OR (target_type = 'PATIENT' AND (target_id = ? OR target_id = ?)) OR (target_type = 'AUTH' AND target_id IN (?)) OR (target_type = 'EVENT' AND target_id IN (?)) OR (target_type = 'REQUEST' AND target_id IN (?))",
-			currentUserID, allRecordTargets, pat.UserNo, fmt.Sprintf("PATIENT_%d", currentUserID), authNos, eventNos, requestNos)
+		filter = &repository.PatientAuditFilter{
+			PatientID:     currentUserID,
+			UserNo:        userNo,
+			RecordTargets: allRecordTargets,
+			AuthNos:       authNos,
+			EventNos:      eventNos,
+			RequestNos:    requestNos,
+		}
 	}
 
-	var list []model.AuditLog
-	query.Order("id desc").Limit(100).Find(&list)
+	list, _ := repository.DefaultAuditRepository.ListAuditLogsWithFilter(opType, riskLevel, filter, 100)
 
 	if len(list) > 0 {
 		userIDs := make([]uint64, 0, len(list))
@@ -280,30 +216,15 @@ func (ctrl *SupervisorController) ListAuditLogs(c *gin.Context) {
 			}
 		}
 
-		userMap := make(map[uint64]string)
-		if len(userIDs) > 0 {
-			var users []model.User
-			repository.DB.Where("id IN ?", userIDs).Find(&users)
-			for _, u := range users {
-				userMap[u.ID] = u.RealName
-			}
-		}
-
-		hospMap := make(map[uint64]string)
-		if len(hospIDs) > 0 {
-			var hosps []model.Hospital
-			repository.DB.Where("id IN ?", hospIDs).Find(&hosps)
-			for _, h := range hosps {
-				hospMap[h.ID] = h.Name
-			}
-		}
+		userMap := loadUsersBatch(userIDs)
+		hospMap := loadHospitalsBatch(hospIDs)
 
 		for i := range list {
-			if name, ok := userMap[list[i].UserID]; ok {
-				list[i].UserName = name
+			if u, ok := userMap[list[i].UserID]; ok {
+				list[i].UserName = u.RealName
 			}
-			if name, ok := hospMap[list[i].HospitalID]; ok {
-				list[i].HospitalName = name
+			if h, ok := hospMap[list[i].HospitalID]; ok {
+				list[i].HospitalName = h.Name
 			}
 		}
 	}
@@ -375,49 +296,7 @@ func (ctrl *SupervisorController) LiftDoctorRestriction(c *gin.Context) {
 
 // AccessHeatmap 统计近7天×24小时的全网调阅行为热力图矩阵
 func (ctrl *SupervisorController) AccessHeatmap(c *gin.Context) {
-	type HeatItem struct {
-		Weekday int `gorm:"column:wd"`
-		Hour    int `gorm:"column:hr"`
-		Count   int `gorm:"column:cnt"`
-	}
-	var dbItems []HeatItem
-	repository.DB.Raw(`
-		SELECT WEEKDAY(created_at) AS wd, HOUR(created_at) AS hr, COUNT(*) AS cnt
-		FROM audit_logs
-		WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-		GROUP BY wd, hr
-	`).Scan(&dbItems)
-
-	// 构建 7天 × 24小时 基础矩阵 [hour, weekday, count]
-	// 预设符合医疗作息与急救规律的基线模型，真实审计日志发生时实时累加叠加
-	matrix := make(map[string]int)
-	for wd := 0; wd < 7; wd++ {
-		for hr := 0; hr < 24; hr++ {
-			baseVal := 1
-			if hr >= 8 && hr <= 11 { // 上午就诊高峰
-				baseVal = 12 + ((hr*3 + wd*2) % 7)
-			} else if hr >= 14 && hr <= 17 { // 下午门诊高峰
-				baseVal = 9 + ((hr*2 + wd*3) % 6)
-			} else if hr == 2 || hr == 3 { // 凌晨异常小波峰 (模拟攻防演练或突发急诊)
-				baseVal = 3 + (wd % 3)
-			}
-			key := fmt.Sprintf("%d-%d", hr, wd)
-			matrix[key] = baseVal
-		}
-	}
-
-	for _, item := range dbItems {
-		key := fmt.Sprintf("%d-%d", item.Hour, item.Weekday)
-		matrix[key] += item.Count * 3
-	}
-
-	result := make([][3]int, 0, 7*24)
-	for wd := 0; wd < 7; wd++ {
-		for hr := 0; hr < 24; hr++ {
-			key := fmt.Sprintf("%d-%d", hr, wd)
-			result = append(result, [3]int{hr, wd, matrix[key]})
-		}
-	}
+	result := repository.DefaultAuditRepository.GetAccessHeatmapMatrix()
 
 	c.JSON(http.StatusOK, model.Response{
 		Code:    200,
@@ -428,34 +307,7 @@ func (ctrl *SupervisorController) AccessHeatmap(c *gin.Context) {
 
 // HospitalFlow 统计机构间跨院医疗数据共享流向矩阵 (供 Sankey 桑基图)
 func (ctrl *SupervisorController) HospitalFlow(c *gin.Context) {
-	type FlowItem struct {
-		Source string `json:"source" gorm:"column:src"`
-		Target string `json:"target" gorm:"column:tgt"`
-		Value  int64  `json:"value"  gorm:"column:cnt"`
-	}
-	var flows []FlowItem
-	repository.DB.Raw(`
-		SELECT 
-			COALESCE(sh.name, '第一人民医院') AS src,
-			COALESCE(th.name, '省立中心医院') AS tgt,
-			COUNT(*) AS cnt
-		FROM access_requests ar
-		LEFT JOIN hospitals sh ON ar.source_hospital_id = sh.id
-		LEFT JOIN hospitals th ON ar.target_hospital_id = th.id
-		WHERE sh.name IS NOT NULL AND th.name IS NOT NULL
-		GROUP BY sh.name, th.name
-	`).Scan(&flows)
-
-	if len(flows) == 0 {
-		flows = []FlowItem{
-			{Source: "第一人民医院 (门诊中心)", Target: "省立中心医院 (急救中心)", Value: 28},
-			{Source: "第一人民医院 (门诊中心)", Target: "协和医学中心 (专科中心)", Value: 16},
-			{Source: "省立中心医院 (急救中心)", Target: "第一人民医院 (门诊中心)", Value: 19},
-			{Source: "省立中心医院 (急救中心)", Target: "协和医学中心 (专科中心)", Value: 12},
-			{Source: "协和医学中心 (专科中心)", Target: "省立中心医院 (急救中心)", Value: 8},
-			{Source: "协和医学中心 (专科中心)", Target: "第一人民医院 (门诊中心)", Value: 14},
-		}
-	}
+	flows := repository.DefaultAuditRepository.GetHospitalFlows()
 
 	c.JSON(http.StatusOK, model.Response{
 		Code:    200,
@@ -466,25 +318,7 @@ func (ctrl *SupervisorController) HospitalFlow(c *gin.Context) {
 
 // AuthFunnel 统计患者自主知情授权闭环漏斗数据
 func (ctrl *SupervisorController) AuthFunnel(c *gin.Context) {
-	var totalRequests int64
-	repository.DB.Model(&model.AccessRequest{}).Count(&totalRequests)
-
-	var handledRequests int64
-	repository.DB.Model(&model.AccessRequest{}).Where("status IN ('APPROVED', 'REJECTED')").Count(&handledRequests)
-
-	var approvedRequests int64
-	repository.DB.Model(&model.AccessRequest{}).Where("status = 'APPROVED'").Count(&approvedRequests)
-
-	var activeAuths int64
-	repository.DB.Model(&model.Authorization{}).Where("status = 'ACTIVE'").Count(&activeAuths)
-
-	// 基准垫底数，保障演示数据充实
-	if totalRequests < 20 {
-		totalRequests += 45
-		handledRequests += 38
-		approvedRequests += 32
-		activeAuths += 28
-	}
+	totalRequests, handledRequests, approvedRequests, activeAuths := repository.DefaultAuditRepository.GetAuthFunnelStats()
 
 	c.JSON(http.StatusOK, model.Response{
 		Code:    200,
@@ -506,22 +340,7 @@ func (ctrl *SupervisorController) ListBlockchainTransactions(c *gin.Context) {
 	txID := c.Query("tx_id")
 	status := c.Query("status")
 
-	query := repository.DB.Model(&model.BlockchainTransaction{})
-	if businessType != "" {
-		query = query.Where("business_type = ?", businessType)
-	}
-	if txID != "" {
-		query = query.Where("tx_id LIKE ?", "%"+txID+"%")
-	}
-	if status != "" {
-		query = query.Where("status = ?", status)
-	}
-
-	var total int64
-	query.Count(&total)
-
-	var list []model.BlockchainTransaction
-	query.Order("id desc").Offset(offset).Limit(pageSize).Find(&list)
+	list, total, _ := repository.DefaultAuditRepository.ListBlockchainTransactions(businessType, txID, status, offset, pageSize)
 
 	c.JSON(http.StatusOK, model.Response{
 		Code:    200,

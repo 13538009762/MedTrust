@@ -22,8 +22,7 @@ type SystemController struct{}
 var DefaultSystemController = &SystemController{}
 
 func (ctrl *SystemController) ListUsers(c *gin.Context) {
-	var users []model.User
-	repository.DB.Order("id asc").Find(&users)
+	users, _ := repository.DefaultUserRepository.ListAllUsers()
 
 	for i := range users {
 		users[i].HasMedicalKey = (users[i].MedicalKeyHash != "" || users[i].MedicalKey != "")
@@ -32,14 +31,12 @@ func (ctrl *SystemController) ListUsers(c *gin.Context) {
 		users[i].MedicalKeyHash = ""
 
 		if users[i].HospitalID > 0 {
-			var hosp model.Hospital
-			if err := repository.DB.First(&hosp, users[i].HospitalID).Error; err == nil {
+			if hosp, err := repository.DefaultHospitalRepository.FindByID(users[i].HospitalID); err == nil {
 				users[i].HospitalName = hosp.Name
 			}
 		}
 		if users[i].DepartmentID > 0 {
-			var dept model.Department
-			if err := repository.DB.First(&dept, users[i].DepartmentID).Error; err == nil {
+			if dept, err := repository.DefaultHospitalRepository.FindDepartmentByID(users[i].DepartmentID); err == nil {
 				users[i].DepartmentName = dept.Name
 			}
 		}
@@ -54,7 +51,6 @@ type UpdateStatusReq struct {
 
 func (ctrl *SystemController) UpdateUserStatus(c *gin.Context) {
 	paramID := c.Param("id")
-	id, _ := strconv.ParseUint(paramID, 10, 64)
 	var req UpdateStatusReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "参数错误: 缺少或无效的 status 字段"})
@@ -67,21 +63,14 @@ func (ctrl *SystemController) UpdateUserStatus(c *gin.Context) {
 		return
 	}
 
-	var u model.User
-	var err error
-	if id > 0 {
-		err = repository.DB.First(&u, id).Error
-	} else {
-		err = repository.DB.Where("user_no = ? OR username = ?", paramID, paramID).First(&u).Error
-	}
+	u, err := repository.DefaultUserRepository.FindUserByIDOrNoOrUsername(paramID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "用户不存在"})
 		return
 	}
 
 	u.Status = status
-	repository.DB.Model(&model.User{}).Where("id = ?", u.ID).Update("status", status)
-	repository.InvalidateUserStatus(u.ID)
+	_ = repository.DefaultUserRepository.UpdateStatus(u.ID, status)
 
 	if service.DefaultAuditService != nil {
 		service.DefaultAuditService.Log(c.GetUint64("user_id"), "UPDATE_USER_STATUS", "USER", u.UserNo, u.HospitalID, "SUCCESS", "LOW", c.ClientIP())
@@ -95,6 +84,62 @@ func (ctrl *SystemController) UpdateUserStatus(c *gin.Context) {
 			"username": u.Username,
 			"status":   status,
 		},
+	})
+}
+
+type ResetPasswordReq struct {
+	NewPassword string `json:"new_password"` // 若为空则系统自动生成安全随机密码
+}
+
+func (ctrl *SystemController) ResetUserPassword(c *gin.Context) {
+	paramID := c.Param("id")
+	var req ResetPasswordReq
+	_ = c.ShouldBindJSON(&req)
+
+	u, err := repository.DefaultUserRepository.FindUserByIDOrNoOrUsername(paramID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "用户不存在"})
+		return
+	}
+
+	newPwd := strings.TrimSpace(req.NewPassword)
+	isRandomTemp := false
+	if newPwd == "" {
+		newPwd = service.GenerateSecureRandomPassword(10)
+		isRandomTemp = true
+	} else if len(newPwd) < 6 {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "密码长度至少需要 6 个字符"})
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPwd), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "密码哈希生成失败"})
+		return
+	}
+
+	if err := repository.DefaultUserRepository.UpdatePassword(u.ID, string(hash)); err != nil {
+		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "重置密码失败: " + err.Error()})
+		return
+	}
+
+	if service.DefaultAuditService != nil {
+		service.DefaultAuditService.Log(c.GetUint64("user_id"), "RESET_PASSWORD", "USER", u.UserNo, u.HospitalID, "SUCCESS", "MEDIUM", c.ClientIP())
+	}
+
+	respData := gin.H{
+		"user_id":  u.ID,
+		"username": u.Username,
+	}
+	if isRandomTemp {
+		respData["temp_password"] = newPwd
+		respData["notice"] = "已生成临时随机密码，请妥善保管并及时通知该用户在首次登录时修改"
+	}
+
+	c.JSON(http.StatusOK, model.Response{
+		Code:    200,
+		Message: fmt.Sprintf("用户 %s 的登录密码已成功重置", u.Username),
+		Data:    respData,
 	})
 }
 
@@ -174,7 +219,7 @@ func (ctrl *SystemController) CreateUser(c *gin.Context) {
 		UpdatedAt:     time.Now(),
 	}
 
-	if err := repository.DB.Create(&u).Error; err != nil {
+	if err := repository.DefaultUserRepository.Create(&u); err != nil {
 		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "创建用户失败: " + err.Error()})
 		return
 	}
@@ -202,41 +247,28 @@ func (ctrl *SystemController) CreateUser(c *gin.Context) {
 }
 
 func (ctrl *SystemController) ListHospitals(c *gin.Context) {
-	var list []model.Hospital
-	repository.DB.Find(&list)
+	list, _ := repository.DefaultHospitalRepository.ListHospitals()
 	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "查询成功", Data: list})
 }
 
 func (ctrl *SystemController) ListDepartments(c *gin.Context) {
 	hospID, _ := strconv.ParseUint(c.Query("hospital_id"), 10, 64)
-	var list []model.Department
-	query := repository.DB.Model(&model.Department{})
-	if hospID > 0 {
-		query = query.Where("hospital_id = ?", hospID)
-	}
-	query.Find(&list)
+	list, _ := repository.DefaultHospitalRepository.ListDepartments(hospID)
 	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "查询成功", Data: list})
 }
 
 func (ctrl *SystemController) ListDoctors(c *gin.Context) {
 	hospID, _ := strconv.ParseUint(c.Query("hospital_id"), 10, 64)
-	var doctors []model.User
-	query := repository.DB.Where("role = 'doctor'")
-	if hospID > 0 {
-		query = query.Where("hospital_id = ?", hospID)
-	}
-	query.Order("id asc").Find(&doctors)
+	doctors, _ := repository.DefaultUserRepository.ListDoctors("", hospID)
 
 	for i := range doctors {
 		if doctors[i].HospitalID > 0 {
-			var hosp model.Hospital
-			if err := repository.DB.First(&hosp, doctors[i].HospitalID).Error; err == nil {
+			if hosp, err := repository.DefaultHospitalRepository.FindByID(doctors[i].HospitalID); err == nil {
 				doctors[i].HospitalName = hosp.Name
 			}
 		}
 		if doctors[i].DepartmentID > 0 {
-			var dept model.Department
-			if err := repository.DB.First(&dept, doctors[i].DepartmentID).Error; err == nil {
+			if dept, err := repository.DefaultHospitalRepository.FindDepartmentByID(doctors[i].DepartmentID); err == nil {
 				doctors[i].DepartmentName = dept.Name
 			}
 		}
@@ -297,8 +329,7 @@ func (ctrl *SystemController) CreateHospital(c *gin.Context) {
 		return
 	}
 
-	var existing model.Hospital
-	if err := repository.DB.Where("hospital_no = ?", hospitalNo).First(&existing).Error; err == nil {
+	if _, err := repository.DefaultHospitalRepository.FindByHospitalNo(hospitalNo); err == nil {
 		c.JSON(http.StatusConflict, model.Response{Code: 409, Message: "机构代码已存在，请勿重复添加"})
 		return
 	}
@@ -317,7 +348,7 @@ func (ctrl *SystemController) CreateHospital(c *gin.Context) {
 		CreatedAt:  time.Now(),
 	}
 
-	if err := repository.DB.Create(&h).Error; err != nil {
+	if err := repository.DefaultHospitalRepository.CreateHospital(&h); err != nil {
 		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "创建医疗机构失败: " + err.Error()})
 		return
 	}
@@ -348,8 +379,8 @@ func (ctrl *SystemController) UpdateHospital(c *gin.Context) {
 		return
 	}
 
-	var h model.Hospital
-	if err := repository.DB.First(&h, id).Error; err != nil {
+	h, err := repository.DefaultHospitalRepository.FindByID(id)
+	if err != nil {
 		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "医疗机构不存在"})
 		return
 	}
@@ -364,12 +395,12 @@ func (ctrl *SystemController) UpdateHospital(c *gin.Context) {
 		updates["address"] = strings.TrimSpace(req.Address)
 	}
 
-	if err := repository.DB.Model(&h).Updates(updates).Error; err != nil {
+	updatedH, err := repository.DefaultHospitalRepository.UpdateHospital(id, updates)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "更新医疗机构失败: " + err.Error()})
 		return
 	}
-
-	repository.DB.First(&h, id)
+	h = updatedH
 
 	if service.DefaultAuditService != nil {
 		service.DefaultAuditService.Log(c.GetUint64("user_id"), "UPDATE_HOSPITAL", "HOSPITAL", h.HospitalNo, h.ID, "SUCCESS", "LOW", c.ClientIP())
@@ -391,14 +422,14 @@ func (ctrl *SystemController) UpdateHospitalStatus(c *gin.Context) {
 		return
 	}
 
-	var h model.Hospital
-	if err := repository.DB.First(&h, id).Error; err != nil {
+	h, err := repository.DefaultHospitalRepository.FindByID(id)
+	if err != nil {
 		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "医疗机构不存在"})
 		return
 	}
 
 	newStatus := *req.Status
-	if err := repository.DB.Model(&model.Hospital{}).Where("id = ?", h.ID).Update("status", newStatus).Error; err != nil {
+	if err := repository.DefaultHospitalRepository.UpdateHospitalStatus(h.ID, newStatus); err != nil {
 		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "更新机构状态失败: " + err.Error()})
 		return
 	}
@@ -432,14 +463,12 @@ func (ctrl *SystemController) CreateDepartment(c *gin.Context) {
 		return
 	}
 
-	var hosp model.Hospital
-	if err := repository.DB.First(&hosp, req.HospitalID).Error; err != nil {
+	if _, err := repository.DefaultHospitalRepository.FindByID(req.HospitalID); err != nil {
 		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "指定的所属医疗机构不存在"})
 		return
 	}
 
-	var existing model.Department
-	if err := repository.DB.Where("hospital_id = ? AND dept_no = ?", req.HospitalID, deptNo).First(&existing).Error; err == nil {
+	if _, err := repository.DefaultHospitalRepository.FindDepartmentByHospAndNo(req.HospitalID, deptNo); err == nil {
 		c.JSON(http.StatusConflict, model.Response{Code: 409, Message: "该机构下已存在相同科室代码，请勿重复创建"})
 		return
 	}
@@ -452,7 +481,7 @@ func (ctrl *SystemController) CreateDepartment(c *gin.Context) {
 		CreatedAt:   time.Now(),
 	}
 
-	if err := repository.DB.Create(&dept).Error; err != nil {
+	if err := repository.DefaultHospitalRepository.CreateDepartment(&dept); err != nil {
 		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "创建科室失败: " + err.Error()})
 		return
 	}
@@ -483,8 +512,8 @@ func (ctrl *SystemController) UpdateDepartment(c *gin.Context) {
 		return
 	}
 
-	var dept model.Department
-	if err := repository.DB.First(&dept, id).Error; err != nil {
+	dept, err := repository.DefaultHospitalRepository.FindDepartmentByID(id)
+	if err != nil {
 		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "科室不存在"})
 		return
 	}
@@ -494,12 +523,12 @@ func (ctrl *SystemController) UpdateDepartment(c *gin.Context) {
 		"description": strings.TrimSpace(req.Description),
 	}
 
-	if err := repository.DB.Model(&dept).Updates(updates).Error; err != nil {
+	updatedDept, err := repository.DefaultHospitalRepository.UpdateDepartment(id, updates)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "更新科室失败: " + err.Error()})
 		return
 	}
-
-	repository.DB.First(&dept, id)
+	dept = updatedDept
 
 	if service.DefaultAuditService != nil {
 		service.DefaultAuditService.Log(c.GetUint64("user_id"), "UPDATE_DEPARTMENT", "DEPARTMENT", dept.DeptNo, dept.HospitalID, "SUCCESS", "LOW", c.ClientIP())
@@ -515,15 +544,14 @@ func (ctrl *SystemController) DeleteDepartment(c *gin.Context) {
 		return
 	}
 
-	var dept model.Department
-	if err := repository.DB.First(&dept, id).Error; err != nil {
+	dept, err := repository.DefaultHospitalRepository.FindDepartmentByID(id)
+	if err != nil {
 		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "科室不存在"})
 		return
 	}
 
 	// 级联防灾校验 1: 检查是否存在关联医生/医护人员
-	var userCount int64
-	repository.DB.Model(&model.User{}).Where("department_id = ?", dept.ID).Count(&userCount)
+	userCount, _ := repository.DefaultHospitalRepository.CountUsersByDepartment(dept.ID)
 	if userCount > 0 {
 		c.JSON(http.StatusConflict, model.Response{
 			Code:    409,
@@ -533,8 +561,7 @@ func (ctrl *SystemController) DeleteDepartment(c *gin.Context) {
 	}
 
 	// 级联防灾校验 2: 检查是否存在历史开立病历
-	var recordCount int64
-	repository.DB.Model(&model.MedicalRecord{}).Where("department_id = ?", dept.ID).Count(&recordCount)
+	recordCount, _ := repository.DefaultHospitalRepository.CountRecordsByDepartment(dept.ID)
 	if recordCount > 0 {
 		c.JSON(http.StatusConflict, model.Response{
 			Code:    409,
@@ -543,7 +570,7 @@ func (ctrl *SystemController) DeleteDepartment(c *gin.Context) {
 		return
 	}
 
-	if err := repository.DB.Delete(&dept).Error; err != nil {
+	if err := repository.DefaultHospitalRepository.DeleteDepartment(dept.ID); err != nil {
 		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "删除科室失败: " + err.Error()})
 		return
 	}

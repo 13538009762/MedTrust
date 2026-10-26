@@ -34,20 +34,23 @@ func (ctrl *AccessController) EmergencyBatchAccess(c *gin.Context) {
 		return
 	}
 
-	var patient model.User
-	if err := repository.DB.First(&patient, req.PatientID).Error; err != nil {
+	patientPtr, err := repository.DefaultUserRepository.FindByID(req.PatientID)
+	if err != nil || patientPtr == nil {
 		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "患者档案不存在"})
 		return
 	}
+	patient := *patientPtr
 
 	var doctor model.User
-	_ = repository.DB.First(&doctor, doctorID)
+	if d, err := repository.DefaultUserRepository.FindByID(doctorID); err == nil && d != nil {
+		doctor = *d
+	}
 
 	var records []model.MedicalRecord
 	if len(req.RecordIDs) > 0 {
-		repository.DB.Where("patient_id = ? AND id IN ?", req.PatientID, req.RecordIDs).Find(&records)
+		records, _ = repository.DefaultMedicalRepository.FindRecordsByPatientAndIDs(req.PatientID, req.RecordIDs)
 	} else {
-		repository.DB.Where("patient_id = ?", req.PatientID).Find(&records)
+		records, _ = repository.DefaultMedicalRepository.FindRecordsByPatient(req.PatientID)
 	}
 
 	if len(records) == 0 {
@@ -142,11 +145,12 @@ func (ctrl *AccessController) BreakGlass(c *gin.Context) {
 		return
 	}
 
-	var rec model.MedicalRecord
-	if err := repository.DB.First(&rec, req.RecordID).Error; err != nil {
+	recPtr, err := repository.DefaultMedicalRepository.FindRecordByID(req.RecordID)
+	if err != nil || recPtr == nil {
 		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "病历不存在"})
 		return
 	}
+	rec := *recPtr
 
 	// 统一权限网关的前置核验 (医生身份、是否被处罚 RESTRICTED)
 	decision, _ := service.DefaultAccessEngine.EvaluateAccess(doctorID, rec.PatientID, req.RecordID, true)
@@ -156,16 +160,14 @@ func (ctrl *AccessController) BreakGlass(c *gin.Context) {
 	}
 
 	// 检查同一医生针对同一患者及病历在最近 1 小时内是否已经存在状态为有效/待审的紧急访问记录
-	var existingEvent model.EmergencyAccessEvent
 	oneHourAgo := time.Now().Add(-1 * time.Hour)
-	if err := repository.DB.Where("doctor_id = ? AND patient_id = ? AND record_id = ? AND created_at >= ? AND audit_status != 'CLOSED_VIOLATION'",
-		doctorID, rec.PatientID, req.RecordID, oneHourAgo).Order("id desc").First(&existingEvent).Error; err == nil && existingEvent.ID > 0 {
+	if existingEvent, err := repository.DefaultEmergencyRepository.FindRecentActiveEvent(doctorID, rec.PatientID, req.RecordID, oneHourAgo); err == nil && existingEvent != nil && existingEvent.ID > 0 {
 		// 已存在有效破窗凭证，复用并返回病历数据
 		fullRecord, _ := service.DefaultMedicalService.GetRecordByID(req.RecordID)
 		c.JSON(http.StatusOK, model.Response{
 			Code:    200,
 			Message: "该病历在 1 小时内已处于有效急救破窗授权状态，直接复用既有紧急调阅凭证放行",
-			Data:    formatEmergencyEventResponse(&existingEvent, fullRecord),
+			Data:    formatEmergencyEventResponse(existingEvent, fullRecord),
 		})
 		return
 	}

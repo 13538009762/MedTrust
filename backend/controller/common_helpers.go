@@ -49,11 +49,10 @@ func parsePagination(c *gin.Context, defaultPageSize int) (page int, pageSize in
 func loadUsersBatch(ids []uint64) map[uint64]model.User {
 	userMap := make(map[uint64]model.User)
 	uniqueIDs := deduplicateIDs(ids)
-	if len(uniqueIDs) == 0 || repository.DB == nil {
+	if len(uniqueIDs) == 0 {
 		return userMap
 	}
-	var users []model.User
-	if err := repository.DB.Where("id IN ?", uniqueIDs).Find(&users).Error; err == nil {
+	if users, err := repository.DefaultUserRepository.FindByIDs(uniqueIDs); err == nil {
 		for _, u := range users {
 			userMap[u.ID] = u
 		}
@@ -65,11 +64,10 @@ func loadUsersBatch(ids []uint64) map[uint64]model.User {
 func loadHospitalsBatch(ids []uint64) map[uint64]model.Hospital {
 	hospMap := make(map[uint64]model.Hospital)
 	uniqueIDs := deduplicateIDs(ids)
-	if len(uniqueIDs) == 0 || repository.DB == nil {
+	if len(uniqueIDs) == 0 {
 		return hospMap
 	}
-	var hosps []model.Hospital
-	if err := repository.DB.Where("id IN ?", uniqueIDs).Find(&hosps).Error; err == nil {
+	if hosps, err := repository.DefaultUserRepository.FindHospitalsByIDs(uniqueIDs); err == nil {
 		for _, h := range hosps {
 			hospMap[h.ID] = h
 		}
@@ -81,11 +79,10 @@ func loadHospitalsBatch(ids []uint64) map[uint64]model.Hospital {
 func loadRecordsBatch(ids []uint64) map[uint64]model.MedicalRecord {
 	recMap := make(map[uint64]model.MedicalRecord)
 	uniqueIDs := deduplicateIDs(ids)
-	if len(uniqueIDs) == 0 || repository.DB == nil {
+	if len(uniqueIDs) == 0 {
 		return recMap
 	}
-	var recs []model.MedicalRecord
-	if err := repository.DB.Where("id IN ?", uniqueIDs).Find(&recs).Error; err == nil {
+	if recs, err := repository.DefaultMedicalRepository.FindRecordsByIDs(uniqueIDs); err == nil {
 		for _, r := range recs {
 			recMap[r.ID] = r
 		}

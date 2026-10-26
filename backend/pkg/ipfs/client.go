@@ -177,4 +177,3 @@ func CreateIPFSService(mode, apiURL, storageDir string) IPFSService {
 func NewIPFSService(apiURL, storageDir string) IPFSService {
 	return CreateIPFSService("live", apiURL, storageDir)
 }
-

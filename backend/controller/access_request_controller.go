@@ -38,9 +38,13 @@ func (ctrl *AccessController) RequestAccess(c *gin.Context) {
 
 	// 记录访问申请与系统决策
 	var doctor model.User
-	_ = repository.DB.First(&doctor, doctorID)
+	if d, err := repository.DefaultUserRepository.FindByID(doctorID); err == nil && d != nil {
+		doctor = *d
+	}
 	var record model.MedicalRecord
-	_ = repository.DB.First(&record, req.RecordID)
+	if r, err := repository.DefaultMedicalRepository.FindRecordByID(req.RecordID); err == nil && r != nil {
+		record = *r
+	}
 
 	randBytes := make([]byte, 3)
 	_, _ = rand.Read(randBytes)
@@ -64,7 +68,7 @@ func (ctrl *AccessController) RequestAccess(c *gin.Context) {
 		ExpireAt:         now.AddDate(0, 0, 7),
 		CreatedAt:        now,
 	}
-	repository.DB.Create(&accessRec)
+	_ = repository.DefaultAuthPolicyRepository.CreateAccessRequest(&accessRec)
 
 	service.DefaultAuditService.Log(doctorID, "ACCESS", "RECORD", record.RecordNo, doctor.HospitalID, func() string {
 		if decision.Allowed {
@@ -109,16 +113,16 @@ func (ctrl *AccessController) ApplyConsent(c *gin.Context) {
 	var targetPatientID uint64
 	var targetHospitalID uint64
 	if req.RecordID > 0 {
-		var rec model.MedicalRecord
-		if err := repository.DB.First(&rec, req.RecordID).Error; err != nil {
+		rec, err := repository.DefaultMedicalRepository.FindRecordByID(req.RecordID)
+		if err != nil || rec == nil {
 			c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "病历记录不存在"})
 			return
 		}
 		targetPatientID = rec.PatientID
 		targetHospitalID = rec.HospitalID
 	} else if req.PatientID > 0 {
-		var pat model.User
-		if err := repository.DB.First(&pat, req.PatientID).Error; err != nil {
+		pat, err := repository.DefaultUserRepository.FindByID(req.PatientID)
+		if err != nil || pat == nil {
 			c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "患者不存在"})
 			return
 		}
@@ -130,7 +134,9 @@ func (ctrl *AccessController) ApplyConsent(c *gin.Context) {
 	}
 
 	var doctor model.User
-	_ = repository.DB.First(&doctor, doctorID)
+	if d, err := repository.DefaultUserRepository.FindByID(doctorID); err == nil && d != nil {
+		doctor = *d
+	}
 
 	if req.Purpose == "" {
 		req.Purpose = "门诊专科联合随访评估与既往慢病复核，需调阅外院历史健康档案"
@@ -163,7 +169,7 @@ func (ctrl *AccessController) ApplyConsent(c *gin.Context) {
 		ExpireAt:         time.Now().AddDate(0, 0, req.Days),
 		CreatedAt:        time.Now(),
 	}
-	repository.DB.Create(&accessRec)
+	_ = repository.DefaultAuthPolicyRepository.CreateAccessRequest(&accessRec)
 
 	service.DefaultAuditService.Log(doctorID, "CONSENT_APPLY", "REQUEST", reqNo, doctor.HospitalID, "PENDING", "LOW", c.ClientIP())
 
@@ -174,7 +180,7 @@ func (ctrl *AccessController) ApplyConsent(c *gin.Context) {
 	}
 	var hospName = "外院医疗机构"
 	var hosp model.Hospital
-	if err := repository.DB.First(&hosp, doctor.HospitalID).Error; err == nil && hosp.Name != "" {
+	if hospPtr, err := repository.DefaultHospitalRepository.FindByID(doctor.HospitalID); err == nil && hospPtr != nil && hospPtr.Name != "" {
 		hospName = hosp.Name
 	}
 	sse.Default.Publish(targetPatientID, sse.NotifyEvent{
@@ -219,7 +225,9 @@ func (ctrl *AccessController) BatchApplyConsent(c *gin.Context) {
 	}
 
 	var doctor model.User
-	_ = repository.DB.First(&doctor, doctorID)
+	if d, err := repository.DefaultUserRepository.FindByID(doctorID); err == nil && d != nil {
+		doctor = *d
+	}
 
 	if req.Purpose == "" {
 		req.Purpose = "急救临床协同诊疗，批量申请调阅患者既往受控病历档案"
@@ -228,8 +236,8 @@ func (ctrl *AccessController) BatchApplyConsent(c *gin.Context) {
 		req.Days = 7
 	}
 
-	var records []model.MedicalRecord
-	if err := repository.DB.Where("id IN ?", req.RecordIDs).Find(&records).Error; err != nil || len(records) != len(req.RecordIDs) {
+	records, err := repository.DefaultMedicalRepository.FindRecordsByIDs(req.RecordIDs)
+	if err != nil || len(records) != len(req.RecordIDs) {
 		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "申请病历列表中存在不存在的病历记录"})
 		return
 	}
@@ -269,7 +277,7 @@ func (ctrl *AccessController) BatchApplyConsent(c *gin.Context) {
 			ExpireAt:         expireAt,
 			CreatedAt:        now,
 		}
-		repository.DB.Create(&accessRec)
+		_ = repository.DefaultAuthPolicyRepository.CreateAccessRequest(&accessRec)
 		createdRequests = append(createdRequests, accessRec)
 	}
 
@@ -282,7 +290,7 @@ func (ctrl *AccessController) BatchApplyConsent(c *gin.Context) {
 		}
 		var hospName = "外院医疗机构"
 		var hosp model.Hospital
-		if err := repository.DB.First(&hosp, doctor.HospitalID).Error; err == nil && hosp.Name != "" {
+		if hospPtr, err := repository.DefaultHospitalRepository.FindByID(doctor.HospitalID); err == nil && hospPtr != nil && hospPtr.Name != "" {
 			hospName = hosp.Name
 		}
 		sse.Default.Publish(req.PatientID, sse.NotifyEvent{
@@ -307,8 +315,7 @@ func (ctrl *AccessController) BatchApplyConsent(c *gin.Context) {
 func (ctrl *AccessController) ListPendingRequests(c *gin.Context) {
 	patientID := c.GetUint64("user_id")
 
-	var list []model.AccessRequest
-	repository.DB.Where("patient_id = ? AND status = 'PENDING'", patientID).Order("id desc").Find(&list)
+	list, _ := repository.DefaultAuthPolicyRepository.FindPendingRequestsByPatient(patientID, 100)
 
 	if len(list) == 0 {
 		c.JSON(http.StatusOK, model.Response{Code: 200, Message: "查询成功", Data: list})
@@ -368,11 +375,12 @@ func (ctrl *AccessController) ApproveRequest(c *gin.Context) {
 	patientID := c.GetUint64("user_id")
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 
-	var req model.AccessRequest
-	if err := repository.DB.Where("id = ? AND patient_id = ?", id, patientID).First(&req).Error; err != nil {
+	reqPtr, err := repository.DefaultAuthPolicyRepository.FindPatientAccessRequest(patientID, strconv.FormatUint(id, 10))
+	if err != nil || reqPtr == nil {
 		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "未找到该申请记录"})
 		return
 	}
+	req := *reqPtr
 
 	if req.Status != "PENDING" {
 		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "该申请已处理过"})
@@ -414,12 +422,12 @@ func (ctrl *AccessController) ApproveRequest(c *gin.Context) {
 		FabricTxID:     txID,
 		CreatedAt:      time.Now(),
 	}
-	repository.DB.Create(&auth)
+	_ = repository.DefaultAuthPolicyRepository.CreateAuthorization(&auth)
 
 	// 更新申请单状态
 	req.Status = "APPROVED"
 	req.Decision = "ALLOWED"
-	repository.DB.Save(&req)
+	_ = repository.DefaultAuthPolicyRepository.SaveAccessRequest(&req)
 
 	service.DefaultAuditService.Log(patientID, "APPROVE_CONSENT", "AUTH", authNo, 0, "SUCCESS", "LOW", c.ClientIP())
 
@@ -448,15 +456,16 @@ func (ctrl *AccessController) RejectRequest(c *gin.Context) {
 	patientID := c.GetUint64("user_id")
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 
-	var req model.AccessRequest
-	if err := repository.DB.Where("id = ? AND patient_id = ?", id, patientID).First(&req).Error; err != nil {
+	reqPtr, err := repository.DefaultAuthPolicyRepository.FindPatientAccessRequest(patientID, strconv.FormatUint(id, 10))
+	if err != nil || reqPtr == nil {
 		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "未找到该申请记录"})
 		return
 	}
+	req := *reqPtr
 
 	req.Status = "REJECTED"
 	req.Decision = "REJECTED"
-	repository.DB.Save(&req)
+	_ = repository.DefaultAuthPolicyRepository.SaveAccessRequest(&req)
 
 	service.DefaultAuditService.Log(patientID, "REJECT_CONSENT", "REQUEST", req.RequestNo, 0, "SUCCESS", "LOW", c.ClientIP())
 

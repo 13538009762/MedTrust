@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -78,14 +77,7 @@ func (ctrl *NotificationController) ConfirmAccessRequest(c *gin.Context) {
 		reqNo = c.Param("id")
 	}
 
-	var req model.AccessRequest
-	var err error
-	if id, parseErr := strconv.ParseUint(reqNo, 10, 64); parseErr == nil && id > 0 {
-		err = repository.DB.Where("(id = ? OR request_no = ?) AND patient_id = ?", id, reqNo, patientID).First(&req).Error
-	} else {
-		err = repository.DB.Where("request_no = ? AND patient_id = ?", reqNo, patientID).First(&req).Error
-	}
-
+	req, err := repository.DefaultAuthPolicyRepository.FindPatientAccessRequest(patientID, reqNo)
 	if err != nil {
 		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "未找到待确认的加急访问申请记录"})
 		return
@@ -126,11 +118,11 @@ func (ctrl *NotificationController) ConfirmAccessRequest(c *gin.Context) {
 		FabricTxID:     txID,
 		CreatedAt:      now,
 	}
-	repository.DB.Create(&auth)
+	_ = repository.DefaultAuthPolicyRepository.CreateAuthorization(&auth)
 
 	req.Status = "APPROVED"
 	req.Decision = "ALLOWED"
-	repository.DB.Save(&req)
+	_ = repository.DefaultAuthPolicyRepository.SaveAccessRequest(req)
 
 	if service.DefaultAuditService != nil {
 		service.DefaultAuditService.Log(patientID, "APPROVE_CONSENT", "AUTH", authNo, 0, "SUCCESS", "LOW", c.ClientIP())
@@ -169,8 +161,7 @@ func (ctrl *NotificationController) ListNotifications(c *gin.Context) {
 	var list []map[string]interface{}
 
 	if userRole == "patient" {
-		var reqs []model.AccessRequest
-		repository.DB.Where("patient_id = ? AND status = 'PENDING'", userID).Order("id desc").Limit(10).Find(&reqs)
+		reqs, _ := repository.DefaultAuthPolicyRepository.FindPendingRequestsByPatient(userID, 10)
 		for _, r := range reqs {
 			list = append(list, map[string]interface{}{
 				"id":         r.ID,
@@ -182,8 +173,7 @@ func (ctrl *NotificationController) ListNotifications(c *gin.Context) {
 			})
 		}
 
-		var emgs []model.EmergencyAccessEvent
-		repository.DB.Where("patient_id = ? AND patient_feedback = 'PENDING'", userID).Order("id desc").Limit(10).Find(&emgs)
+		emgs, _ := repository.DefaultEmergencyRepository.FindPendingFeedbackEventsByPatient(userID, 10)
 		for _, e := range emgs {
 			list = append(list, map[string]interface{}{
 				"id":         e.ID,

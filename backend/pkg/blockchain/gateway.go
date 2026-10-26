@@ -109,7 +109,7 @@ type AuthorizationPayload struct {
 	PatientID  string `json:"patient_id"`
 	TargetType string `json:"target_type"` // DOCTOR / HOSPITAL
 	TargetID   string `json:"target_id"`
-	ScopeType  string `json:"scope_type"`  // ALL / SINGLE
+	ScopeType  string `json:"scope_type"` // ALL / SINGLE
 	RecordID   string `json:"record_id"`
 	StartTime  string `json:"start_time"`
 	EndTime    string `json:"end_time"`

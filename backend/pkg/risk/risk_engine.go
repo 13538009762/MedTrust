@@ -129,11 +129,11 @@ func (e *RiskEngine) Evaluate(doctorID, patientID uint64, isCrossHospital, hasCo
 		rules = append(rules, "RULE-D1: 跨医疗机构调阅 (+15)")
 	}
 	factors = append(factors, RiskFactorItem{
-		RuleID:      "RULE-D1",
-		FactorName:  "跨医疗机构调阅行为",
-		Weight:      15,
-		Score:       d1Score,
-		Triggered:   d1Triggered,
+		RuleID:     "RULE-D1",
+		FactorName: "跨医疗机构调阅行为",
+		Weight:     15,
+		Score:      d1Score,
+		Triggered:  d1Triggered,
 		Description: func() string {
 			if d1Triggered {
 				return "调阅对象归属外部医疗机构，触发跨组织数据协同风控基线"
@@ -151,11 +151,11 @@ func (e *RiskEngine) Evaluate(doctorID, patientID uint64, isCrossHospital, hasCo
 		rules = append(rules, "RULE-A1: 患者未在线显式授权 (+30)")
 	}
 	factors = append(factors, RiskFactorItem{
-		RuleID:      "RULE-A1",
-		FactorName:  "患者知情同意授权状态",
-		Weight:      30,
-		Score:       a1Score,
-		Triggered:   a1Triggered,
+		RuleID:     "RULE-A1",
+		FactorName: "患者知情同意授权状态",
+		Weight:     30,
+		Score:      a1Score,
+		Triggered:  a1Triggered,
 		Description: func() string {
 			if a1Triggered {
 				return "患者尚未在区块链建立生效中的知情授权凭证，存在隐私越权合规风险"
@@ -174,11 +174,11 @@ func (e *RiskEngine) Evaluate(doctorID, patientID uint64, isCrossHospital, hasCo
 		rules = append(rules, "RULE-T1: 非工作时间调阅 (+20)")
 	}
 	factors = append(factors, RiskFactorItem{
-		RuleID:      "RULE-T1",
-		FactorName:  "访问时间窗口合规性",
-		Weight:      20,
-		Score:       t1Score,
-		Triggered:   t1Triggered,
+		RuleID:     "RULE-T1",
+		FactorName: "访问时间窗口合规性",
+		Weight:     20,
+		Score:      t1Score,
+		Triggered:  t1Triggered,
 		Description: func() string {
 			if t1Triggered {
 				return fmt.Sprintf("当前时间 %02d:%02d 处于常规门诊工作时段(08:00-18:00)之外，触发夜间防泄露监控", hour, now.Minute())
@@ -209,11 +209,11 @@ func (e *RiskEngine) Evaluate(doctorID, patientID uint64, isCrossHospital, hasCo
 		rules = append(rules, "RULE-F1: 5分钟窗口高频调阅 (+25)")
 	}
 	factors = append(factors, RiskFactorItem{
-		RuleID:      "RULE-F1",
-		FactorName:  "同患者短周期高频调阅",
-		Weight:      25,
-		Score:       f1Score,
-		Triggered:   f1Triggered,
+		RuleID:     "RULE-F1",
+		FactorName: "同患者短周期高频调阅",
+		Weight:     25,
+		Score:      f1Score,
+		Triggered:  f1Triggered,
 		Description: func() string {
 			if f1Triggered {
 				return fmt.Sprintf("5分钟内针对该患者已发起 %d 次调阅，疑似爬取或脚本异常访问", samePatientCount)
@@ -244,11 +244,11 @@ func (e *RiskEngine) Evaluate(doctorID, patientID uint64, isCrossHospital, hasCo
 		rules = append(rules, "RULE-F2: 批量跨患者调阅 (+20)")
 	}
 	factors = append(factors, RiskFactorItem{
-		RuleID:      "RULE-F2",
-		FactorName:  "短周期批量多患者调阅",
-		Weight:      20,
-		Score:       f2Score,
-		Triggered:   f2Triggered,
+		RuleID:     "RULE-F2",
+		FactorName: "短周期批量多患者调阅",
+		Weight:     20,
+		Score:      f2Score,
+		Triggered:  f2Triggered,
 		Description: func() string {
 			if f2Triggered {
 				return fmt.Sprintf("10分钟滑动窗口内累计调阅 %d 位不同患者档案，触发批量泄露保护预警", distinctCount)
@@ -270,11 +270,11 @@ func (e *RiskEngine) Evaluate(doctorID, patientID uint64, isCrossHospital, hasCo
 		}
 	}
 	factors = append(factors, RiskFactorItem{
-		RuleID:      "RULE-H1",
-		FactorName:  "历史违规行为追溯",
-		Weight:      35,
-		Score:       h1Score,
-		Triggered:   h1Triggered,
+		RuleID:     "RULE-H1",
+		FactorName: "历史违规行为追溯",
+		Weight:     35,
+		Score:      h1Score,
+		Triggered:  h1Triggered,
 		Description: func() string {
 			if h1Triggered {
 				return "调阅医生在过去30天内存在被监管裁定违规的紧急调阅记录，提高风险权值"
@@ -296,11 +296,11 @@ func (e *RiskEngine) Evaluate(doctorID, patientID uint64, isCrossHospital, hasCo
 		}
 	}
 	factors = append(factors, RiskFactorItem{
-		RuleID:      "RULE-S1",
-		FactorName:  "医生资质与账号监管状态",
-		Weight:      30,
-		Score:       s1Score,
-		Triggered:   s1Triggered,
+		RuleID:     "RULE-S1",
+		FactorName: "医生资质与账号监管状态",
+		Weight:     30,
+		Score:      s1Score,
+		Triggered:  s1Triggered,
 		Description: func() string {
 			if s1Triggered {
 				return "调阅医生账号当前处于监管受限状态(RESTRICTED)，触发高权值防范"

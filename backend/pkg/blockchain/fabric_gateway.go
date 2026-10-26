@@ -179,7 +179,6 @@ func loadIdentity(certPath, mspID string) (*identity.X509Identity, error) {
 	return identity.NewX509Identity(mspID, cert)
 }
 
-
 // loadSigner 从文件或 keystore 目录读取私钥并构建数字签名器
 func loadSigner(keyPath string) (identity.Sign, error) {
 	var keyFile string
@@ -510,4 +509,3 @@ func (s *FabricGatewayService) GetHistory(assetID string) ([]ChainRecord, error)
 	}
 	return records, nil
 }
-

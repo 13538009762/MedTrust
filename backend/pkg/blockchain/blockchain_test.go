@@ -138,4 +138,3 @@ func TestFabricGatewayLive(t *testing.T) {
 	}
 	t.Logf("✅ 真实上链成功! TxID=%s, Height=%d", txID, height)
 }
-

@@ -94,32 +94,32 @@ func (MedicalFile) TableName() string {
 
 // MedicalExamOrder 12. 医技检查申请与回传报告单 (medical_exam_orders，支持检验科、影像科等流程解耦)
 type MedicalExamOrder struct {
-	ID             uint64     `gorm:"primaryKey;autoIncrement" json:"id"`
-	OrderNo        string     `gorm:"size:64;uniqueIndex" json:"order_no"`       // 申请单号 (ORD...)
-	RecordID       uint64     `gorm:"index" json:"record_id"`                    // 关联就诊记录 ID
-	PatientID      uint64     `gorm:"index" json:"patient_id"`                    // 患者 ID
-	DoctorID       uint64     `gorm:"index" json:"doctor_id"`                    // 开单医生 ID
-	HospitalID     uint64     `gorm:"index" json:"hospital_id"`                  // 机构 ID
-	DepartmentName string     `gorm:"size:64;default:''" json:"department_name"` // 就诊科室
-	ExamItem       string     `gorm:"size:128" json:"exam_item"`                 // 检查项目
-	ExamReason     string     `gorm:"type:text" json:"exam_reason"`              // 检查目的与临床指征
-	Status         string     `gorm:"size:32;default:'PENDING'" json:"status"`   // PENDING, PROCESSING, COMPLETED
+	ID             uint64 `gorm:"primaryKey;autoIncrement" json:"id"`
+	OrderNo        string `gorm:"size:64;uniqueIndex" json:"order_no"`       // 申请单号 (ORD...)
+	RecordID       uint64 `gorm:"index" json:"record_id"`                    // 关联就诊记录 ID
+	PatientID      uint64 `gorm:"index" json:"patient_id"`                   // 患者 ID
+	DoctorID       uint64 `gorm:"index" json:"doctor_id"`                    // 开单医生 ID
+	HospitalID     uint64 `gorm:"index" json:"hospital_id"`                  // 机构 ID
+	DepartmentName string `gorm:"size:64;default:''" json:"department_name"` // 就诊科室
+	ExamItem       string `gorm:"size:128" json:"exam_item"`                 // 检查项目
+	ExamReason     string `gorm:"type:text" json:"exam_reason"`              // 检查目的与临床指征
+	Status         string `gorm:"size:32;default:'PENDING'" json:"status"`   // PENDING, PROCESSING, COMPLETED
 
 	// 医技科室执行与回传
 	TechnicianID   uint64     `gorm:"default:0" json:"technician_id"`
 	TechnicianName string     `gorm:"size:64;default:''" json:"technician_name"`
-	ExamResult     string     `gorm:"type:text" json:"exam_result"`              // 测量参数与所见描述
-	ExamConclusion string     `gorm:"type:text" json:"exam_conclusion"`          // 报告结论
+	ExamResult     string     `gorm:"type:text" json:"exam_result"`     // 测量参数与所见描述
+	ExamConclusion string     `gorm:"type:text" json:"exam_conclusion"` // 报告结论
 	ExecutedAt     *time.Time `json:"executed_at"`
 
 	// 影像或报告附件 (IPFS 存证)
-	ReportFileName string     `gorm:"size:255;default:''" json:"report_file_name"`
-	ReportFileType string     `gorm:"size:32;default:''" json:"report_file_type"`
-	IPFSCID        string     `gorm:"size:128;default:''" json:"ipfs_cid"`
-	FileHash       string     `gorm:"size:64;default:''" json:"file_hash"`
+	ReportFileName string `gorm:"size:255;default:''" json:"report_file_name"`
+	ReportFileType string `gorm:"size:32;default:''" json:"report_file_type"`
+	IPFSCID        string `gorm:"size:128;default:''" json:"ipfs_cid"`
+	FileHash       string `gorm:"size:64;default:''" json:"file_hash"`
 
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 
 	// 辅助展示字段
 	RecordNo                string `gorm:"-" json:"record_no,omitempty"`

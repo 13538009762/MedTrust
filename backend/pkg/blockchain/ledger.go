@@ -12,7 +12,6 @@ import (
 	"time"
 )
 
-
 // MockLedgerService 高仿真本地区块链账本引擎 (满足无 Docker 容器环境下的答辩与单测演示)
 type MockLedgerService struct {
 	ledgerDir     string
@@ -70,7 +69,6 @@ func InitBlockchainService(ledgerDir string, fabricCfg FabricGatewayConfig) Bloc
 	return mock
 }
 
-
 func (l *MockLedgerService) IsLiveFabric() bool {
 	return false
 }
@@ -88,7 +86,6 @@ func (l *MockLedgerService) GetBlockchainStatus() BlockchainStatusDTO {
 		LatestBlock: l.currentHeight,
 	}
 }
-
 
 func (l *MockLedgerService) load() {
 	l.mu.Lock()

@@ -124,8 +124,7 @@ func (ctrl *MedicalController) List(c *gin.Context) {
 	currentUserID := c.GetUint64("user_id")
 
 	if onlyCross && excludeHospitalID == 0 {
-		var doctor model.User
-		if err := repository.DB.First(&doctor, currentUserID).Error; err == nil {
+		if doctor, err := repository.DefaultUserRepository.FindByID(currentUserID); err == nil {
 			excludeHospitalID = doctor.HospitalID
 		}
 	}
@@ -220,11 +219,12 @@ func (ctrl *MedicalController) GetByID(c *gin.Context) {
 
 func (ctrl *MedicalController) Download(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	var rec model.MedicalRecord
-	if err := repository.DB.Preload("Files").First(&rec, id).Error; err != nil {
+	recPtr, err := repository.DefaultMedicalRepository.FindRecordByID(id)
+	if err != nil || recPtr == nil {
 		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "文件不存在"})
 		return
 	}
+	rec := *recPtr
 
 	currentUserID := c.GetUint64("user_id")
 	role := c.GetString("role")
@@ -255,18 +255,15 @@ func (ctrl *MedicalController) Download(c *gin.Context) {
 		service.DefaultAccessEngine.RecordSuccessfulAccess(currentUserID, rec.PatientID)
 	}
 
-	var pat model.User
-	if err := repository.DB.First(&pat, rec.PatientID).Error; err == nil {
+	if pat, err := repository.DefaultUserRepository.FindByID(rec.PatientID); err == nil {
 		rec.PatientName = pat.RealName
 		rec.PatientIDCard = pat.IDCard
 		rec.PatientPhone = pat.Phone
 	}
-	var doc model.User
-	if err := repository.DB.First(&doc, rec.DoctorID).Error; err == nil {
+	if doc, err := repository.DefaultUserRepository.FindByID(rec.DoctorID); err == nil {
 		rec.DoctorName = doc.RealName
 	}
-	var hosp model.Hospital
-	if err := repository.DB.First(&hosp, rec.HospitalID).Error; err == nil {
+	if hosp, err := repository.DefaultHospitalRepository.FindByID(rec.HospitalID); err == nil {
 		rec.HospitalName = hosp.Name
 	}
 
@@ -387,8 +384,7 @@ func (ctrl *MedicalController) ListExamOrders(c *gin.Context) {
 	} else {
 		hospitalID = userHospID
 		if hospitalID == 0 {
-			var u model.User
-			if err := repository.DB.First(&u, userID).Error; err == nil {
+			if u, err := repository.DefaultUserRepository.FindByID(userID); err == nil {
 				hospitalID = u.HospitalID
 			}
 		}
@@ -409,9 +405,8 @@ func (ctrl *MedicalController) ProcessExamOrder(c *gin.Context) {
 	userHospID := c.GetUint64("hospital_id")
 	role := c.GetString("role")
 
-	var u model.User
 	userName := "检验科技师"
-	if err := repository.DB.First(&u, userID).Error; err == nil && u.RealName != "" {
+	if u, err := repository.DefaultUserRepository.FindByID(userID); err == nil && u.RealName != "" {
 		userName = u.RealName
 		if userHospID == 0 {
 			userHospID = u.HospitalID
@@ -419,11 +414,12 @@ func (ctrl *MedicalController) ProcessExamOrder(c *gin.Context) {
 	}
 
 	// 校验单据存在性及本院权限
-	var order model.MedicalExamOrder
-	if err := repository.DB.First(&order, orderID).Error; err != nil {
+	orderPtr, err := repository.DefaultMedicalRepository.FindExamOrderByID(orderID)
+	if err != nil || orderPtr == nil {
 		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "检查申请单不存在"})
 		return
 	}
+	order := *orderPtr
 	if role != "admin" && role != "supervisor" && userHospID > 0 && order.HospitalID != userHospID {
 		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "权限不足：医技中心仅可接单处理本院申请单，禁止跨机构越权操作"})
 		return
@@ -443,9 +439,8 @@ func (ctrl *MedicalController) CompleteExamOrder(c *gin.Context) {
 	userHospID := c.GetUint64("hospital_id")
 	role := c.GetString("role")
 
-	var u model.User
 	userName := "检验科/影像中心主管"
-	if err := repository.DB.First(&u, userID).Error; err == nil && u.RealName != "" {
+	if u, err := repository.DefaultUserRepository.FindByID(userID); err == nil && u.RealName != "" {
 		userName = u.RealName
 		if userHospID == 0 {
 			userHospID = u.HospitalID
@@ -453,11 +448,12 @@ func (ctrl *MedicalController) CompleteExamOrder(c *gin.Context) {
 	}
 
 	// 校验单据存在性及本院权限
-	var order model.MedicalExamOrder
-	if err := repository.DB.First(&order, orderID).Error; err != nil {
+	orderPtr, err := repository.DefaultMedicalRepository.FindExamOrderByID(orderID)
+	if err != nil || orderPtr == nil {
 		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "检查申请单不存在"})
 		return
 	}
+	order := *orderPtr
 	if role != "admin" && role != "supervisor" && userHospID > 0 && order.HospitalID != userHospID {
 		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "权限不足：医技中心仅可出具本院检查报告，禁止跨机构越权操作"})
 		return
@@ -538,15 +534,18 @@ func (ctrl *MedicalController) CompleteEncounterFinal(c *gin.Context) {
 // retrieveAndDecryptMedicalFile 统一附件授权鉴权、IPFS 密文寻址、AES-256-GCM 动态流式解密与内容类型推断 (论文核心流式解密模型)
 func (ctrl *MedicalController) retrieveAndDecryptMedicalFile(c *gin.Context, action string) (*model.MedicalFile, *model.MedicalRecord, []byte, string, error) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	var file model.MedicalFile
-	if err := repository.DB.First(&file, id).Error; err != nil {
+	filePtr, err := repository.DefaultMedicalRepository.FindFileByID(id)
+	if err != nil || filePtr == nil {
 		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "附件文件不存在"})
 		return nil, nil, nil, "", err
 	}
+	file := *filePtr
 
 	var rec model.MedicalRecord
 	if file.RecordID > 0 {
-		_ = repository.DB.First(&rec, file.RecordID)
+		if r, err := repository.DefaultMedicalRepository.FindRecordByID(file.RecordID); err == nil && r != nil {
+			rec = *r
+		}
 	}
 
 	if rec.ID == 0 {
@@ -669,7 +668,9 @@ func (ctrl *MedicalController) DownloadMedicalFile(c *gin.Context) {
 func (ctrl *MedicalController) serveMockMedicalImage(c *gin.Context, file *model.MedicalFile) {
 	var rec model.MedicalRecord
 	if file.RecordID > 0 {
-		_ = repository.DB.First(&rec, file.RecordID).Error
+		if r, err := repository.DefaultMedicalRepository.FindRecordByID(file.RecordID); err == nil && r != nil {
+			rec = *r
+		}
 	}
 	diag := rec.Diagnosis
 	if diag == "" {
@@ -795,11 +796,12 @@ func (ctrl *MedicalController) GetRecordInfectionRisks(c *gin.Context) {
 		return
 	}
 
-	var rec model.MedicalRecord
-	if err := repository.DB.First(&rec, recordID).Error; err != nil {
+	recPtr, err := repository.DefaultMedicalRepository.FindRecordByID(recordID)
+	if err != nil || recPtr == nil {
 		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "病历不存在"})
 		return
 	}
+	rec := *recPtr
 
 	currentUserID := c.GetUint64("user_id")
 	role := c.GetString("role")

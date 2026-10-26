@@ -1,9 +1,9 @@
 package middleware
 
 import (
-	"net/http"
 	"github.com/gin-gonic/gin"
 	"medtrust-backend/model"
+	"net/http"
 )
 
 func RequireRoles(roles ...string) gin.HandlerFunc {

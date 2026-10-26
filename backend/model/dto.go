@@ -53,7 +53,7 @@ type VerificationResultDTO struct {
 type CreateAuthorizationDTO struct {
 	AuthTargetType string `json:"auth_target_type" binding:"required"` // DOCTOR, HOSPITAL
 	AuthTargetID   uint64 `json:"auth_target_id" binding:"required"`
-	ScopeType      string `json:"scope_type" binding:"required"`       // ALL, SINGLE
+	ScopeType      string `json:"scope_type" binding:"required"` // ALL, SINGLE
 	RecordID       uint64 `json:"record_id"`
 	Days           int    `json:"days"` // 有效天数 (如 7, 30)
 }
@@ -81,13 +81,13 @@ type SupervisorAuditDTO struct {
 
 // DashboardStatsDTO 监管大屏统计数据聚合对象
 type DashboardStatsDTO struct {
-	TotalTransactions int64            `json:"total_transactions"`
-	CurrentHeight     uint64           `json:"current_height"`
-	TotalSharedCount  int64            `json:"total_shared_count"`
-	HighRiskAlerts    int64            `json:"high_risk_alerts"`
-	PendingEmergencies int64           `json:"pending_emergencies"`
-	OrgStats          map[string]int64 `json:"org_stats"`
-	RiskDistribution  map[string]int64 `json:"risk_distribution"`
+	TotalTransactions  int64            `json:"total_transactions"`
+	CurrentHeight      uint64           `json:"current_height"`
+	TotalSharedCount   int64            `json:"total_shared_count"`
+	HighRiskAlerts     int64            `json:"high_risk_alerts"`
+	PendingEmergencies int64            `json:"pending_emergencies"`
+	OrgStats           map[string]int64 `json:"org_stats"`
+	RiskDistribution   map[string]int64 `json:"risk_distribution"`
 }
 
 // ── AI 跨期病历关联辅助诊断 DTO ───────────────────────────────────
@@ -120,9 +120,9 @@ type HiddenClueDTO struct {
 // SemanticContradictionDTO 跨院记录语义矛盾提示
 type SemanticContradictionDTO struct {
 	ContradictionType  string   `json:"contradiction_type"`  // "既往病史陈述矛盾", "用药依从性矛盾", "过敏史自述差异"
-	Description        string   `json:"description"`          // 矛盾具体描述
-	InvolvedRecords    []string `json:"involved_records"`     // 涉及的病历单号或机构
-	VerificationAdvice string   `json:"verification_advice"`  // 建议接诊医生当面核实要点
+	Description        string   `json:"description"`         // 矛盾具体描述
+	InvolvedRecords    []string `json:"involved_records"`    // 涉及的病历单号或机构
+	VerificationAdvice string   `json:"verification_advice"` // 建议接诊医生当面核实要点
 }
 
 // TimelineCorrelationItem 跨期时序演变与时间间隔分析项

@@ -3,6 +3,7 @@ package repository
 import (
 	"errors"
 	"medtrust-backend/model"
+	"strconv"
 )
 
 type UserRepository struct{}
@@ -149,4 +150,76 @@ func (r *UserRepository) CheckStatus(id uint64) (string, error) {
 		return "NORMAL", nil
 	}
 	return u.Status, nil
+}
+
+func (r *UserRepository) FindByIDs(ids []uint64) ([]model.User, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	var users []model.User
+	err := DB.Where("id IN ?", ids).Find(&users).Error
+	return users, err
+}
+
+func (r *UserRepository) FindHospitalsByIDs(ids []uint64) ([]model.Hospital, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	var hosps []model.Hospital
+	err := DB.Where("id IN ?", ids).Find(&hosps).Error
+	return hosps, err
+}
+
+func (r *UserRepository) FindUserByIDOrNoOrUsername(paramID string) (*model.User, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	var u model.User
+	var err error
+	if id, parseErr := strconv.ParseUint(paramID, 10, 64); parseErr == nil && id > 0 {
+		err = DB.First(&u, id).Error
+	} else {
+		err = DB.Where("user_no = ? OR username = ?", paramID, paramID).First(&u).Error
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+func (r *UserRepository) ListAllUsers() ([]model.User, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	var users []model.User
+	err := DB.Order("id asc").Find(&users).Error
+	return users, err
+}
+
+func (r *UserRepository) ListDoctors(keyword string, hospitalID uint64) ([]model.User, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	query := DB.Where("role = 'doctor'")
+	if hospitalID > 0 {
+		query = query.Where("hospital_id = ?", hospitalID)
+	}
+	if keyword != "" {
+		query = query.Where("real_name LIKE ? OR user_no LIKE ? OR professional_title LIKE ?",
+			"%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%")
+	}
+	var doctors []model.User
+	err := query.Find(&doctors).Error
+	return doctors, err
+}
+
+func (r *UserRepository) FindDoctorByID(id uint64) (*model.User, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	var doc model.User
+	if err := DB.Where("id = ? AND role = 'doctor'", id).First(&doc).Error; err != nil {
+		return nil, err
+	}
+	return &doc, nil
 }

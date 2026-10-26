@@ -26,11 +26,12 @@ func (ctrl *AccessController) SetRecordAccessPolicy(c *gin.Context) {
 	patientID := c.GetUint64("user_id")
 	recordID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 
-	var rec model.MedicalRecord
-	if err := repository.DB.Where("id = ? AND patient_id = ?", recordID, patientID).First(&rec).Error; err != nil {
+	recPtr, err := repository.DefaultMedicalRepository.FindPatientRecord(recordID, patientID)
+	if err != nil || recPtr == nil {
 		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "未找到该就诊病历记录"})
 		return
 	}
+	rec := *recPtr
 
 	var req SetRecordAccessPolicyDTO
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -78,7 +79,7 @@ func (ctrl *AccessController) SetRecordAccessPolicy(c *gin.Context) {
 			FabricTxID:     txID,
 			CreatedAt:      now,
 		}
-		repository.DB.Create(&auth)
+		_ = repository.DefaultAuthPolicyRepository.CreateAuthorization(&auth)
 
 		service.DefaultAuditService.Log(patientID, "SET_RECORD_VISIBILITY", "RECORD", rec.RecordNo, 0, "SUCCESS", "LOW", c.ClientIP())
 		c.JSON(http.StatusOK, model.Response{
@@ -91,11 +92,12 @@ func (ctrl *AccessController) SetRecordAccessPolicy(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "请指定授权开放的目标医疗机构"})
 			return
 		}
-		var hosp model.Hospital
-		if err := repository.DB.First(&hosp, req.AuthTargetID).Error; err != nil {
+		hospPtr, err := repository.DefaultHospitalRepository.FindByID(req.AuthTargetID)
+		if err != nil || hospPtr == nil {
 			c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "指定的医疗机构不存在"})
 			return
 		}
+		hosp := *hospPtr
 
 		// 先撤销旧的单份活跃授权
 		revokeActiveAuthorizationsWithChainSync(patientID, "SINGLE", recordID)
@@ -128,7 +130,7 @@ func (ctrl *AccessController) SetRecordAccessPolicy(c *gin.Context) {
 			FabricTxID:     txID,
 			CreatedAt:      now,
 		}
-		repository.DB.Create(&auth)
+		_ = repository.DefaultAuthPolicyRepository.CreateAuthorization(&auth)
 
 		service.DefaultAuditService.Log(patientID, "SET_RECORD_VISIBILITY", "RECORD", rec.RecordNo, 0, "SUCCESS", "LOW", c.ClientIP())
 		c.JSON(http.StatusOK, model.Response{
@@ -141,11 +143,12 @@ func (ctrl *AccessController) SetRecordAccessPolicy(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "请指定授权开放的目标医生"})
 			return
 		}
-		var doc model.User
-		if err := repository.DB.Where("id = ? AND role = 'doctor'", req.AuthTargetID).First(&doc).Error; err != nil {
+		docPtr, err := repository.DefaultUserRepository.FindDoctorByID(req.AuthTargetID)
+		if err != nil || docPtr == nil {
 			c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "指定的医生不存在或非执业医生"})
 			return
 		}
+		doc := *docPtr
 
 		// 先撤销旧的单份活跃授权
 		revokeActiveAuthorizationsWithChainSync(patientID, "SINGLE", recordID)
@@ -178,7 +181,7 @@ func (ctrl *AccessController) SetRecordAccessPolicy(c *gin.Context) {
 			FabricTxID:     txID,
 			CreatedAt:      now,
 		}
-		repository.DB.Create(&auth)
+		_ = repository.DefaultAuthPolicyRepository.CreateAuthorization(&auth)
 
 		docName := doc.RealName
 		if !strings.HasSuffix(docName, "医生") && !strings.HasSuffix(docName, "医师") {
@@ -222,7 +225,7 @@ func (ctrl *AccessController) SetRecordAccessPolicy(c *gin.Context) {
 			FabricTxID:     txID,
 			CreatedAt:      now,
 		}
-		repository.DB.Create(&auth)
+		_ = repository.DefaultAuthPolicyRepository.CreateAuthorization(&auth)
 
 		service.DefaultAuditService.Log(patientID, "REVOKE_RECORD_VISIBILITY", "RECORD", rec.RecordNo, 0, "SUCCESS", "LOW", c.ClientIP())
 		c.JSON(http.StatusOK, model.Response{
@@ -290,7 +293,7 @@ func (ctrl *AccessController) BatchSetAccessPolicy(c *gin.Context) {
 			FabricTxID:     txID,
 			CreatedAt:      now,
 		}
-		repository.DB.Create(&auth)
+		_ = repository.DefaultAuthPolicyRepository.CreateAuthorization(&auth)
 
 		service.DefaultAuditService.Log(patientID, "SET_ALL_VISIBILITY", "ALL_RECORDS", "ALL", 0, "SUCCESS", "LOW", c.ClientIP())
 		c.JSON(http.StatusOK, model.Response{
@@ -303,11 +306,12 @@ func (ctrl *AccessController) BatchSetAccessPolicy(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "请指定授权开放的目标医疗机构"})
 			return
 		}
-		var hosp model.Hospital
-		if err := repository.DB.First(&hosp, req.AuthTargetID).Error; err != nil {
+		hospPtr, err := repository.DefaultHospitalRepository.FindByID(req.AuthTargetID)
+		if err != nil || hospPtr == nil {
 			c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "指定的医疗机构不存在"})
 			return
 		}
+		hosp := *hospPtr
 
 		revokeActiveAuthorizationsWithChainSync(patientID, "ALL", 0)
 
@@ -339,7 +343,7 @@ func (ctrl *AccessController) BatchSetAccessPolicy(c *gin.Context) {
 			FabricTxID:     txID,
 			CreatedAt:      now,
 		}
-		repository.DB.Create(&auth)
+		_ = repository.DefaultAuthPolicyRepository.CreateAuthorization(&auth)
 
 		service.DefaultAuditService.Log(patientID, "SET_ALL_VISIBILITY", "ALL_RECORDS", "HOSPITAL", 0, "SUCCESS", "LOW", c.ClientIP())
 		c.JSON(http.StatusOK, model.Response{
@@ -352,11 +356,12 @@ func (ctrl *AccessController) BatchSetAccessPolicy(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "请指定授权开放的目标医生"})
 			return
 		}
-		var doc model.User
-		if err := repository.DB.Where("id = ? AND role = 'doctor'", req.AuthTargetID).First(&doc).Error; err != nil {
+		docPtr, err := repository.DefaultUserRepository.FindDoctorByID(req.AuthTargetID)
+		if err != nil || docPtr == nil {
 			c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "指定的医生不存在或非执业医生"})
 			return
 		}
+		doc := *docPtr
 
 		revokeActiveAuthorizationsWithChainSync(patientID, "ALL", 0)
 
@@ -388,7 +393,7 @@ func (ctrl *AccessController) BatchSetAccessPolicy(c *gin.Context) {
 			FabricTxID:     txID,
 			CreatedAt:      now,
 		}
-		repository.DB.Create(&auth)
+		_ = repository.DefaultAuthPolicyRepository.CreateAuthorization(&auth)
 
 		docName := doc.RealName
 		if !strings.HasSuffix(docName, "医生") && !strings.HasSuffix(docName, "医师") {

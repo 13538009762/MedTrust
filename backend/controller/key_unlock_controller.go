@@ -86,14 +86,17 @@ func (ctrl *AccessController) UnlockPatientByKey(c *gin.Context) {
 		return
 	}
 
-	var patient model.User
-	if err := repository.DB.First(&patient, req.PatientID).Error; err != nil {
+	patientPtr, err := repository.DefaultUserRepository.FindByID(req.PatientID)
+	if err != nil || patientPtr == nil {
 		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "目标患者档案不存在"})
 		return
 	}
+	patient := *patientPtr
 
 	var doctor model.User
-	_ = repository.DB.First(&doctor, doctorID)
+	if d, err := repository.DefaultUserRepository.FindByID(doctorID); err == nil && d != nil {
+		doctor = *d
+	}
 
 	inputKey := strings.TrimSpace(req.MedicalKey)
 	if !service.VerifyMedicalKey(inputKey, patient.UserNo, patient.MedicalKeyHash, patient.MedicalKey) {
@@ -150,7 +153,7 @@ func (ctrl *AccessController) UnlockPatientByKey(c *gin.Context) {
 		FabricTxID:     txID,
 		CreatedAt:      startTime,
 	}
-	repository.DB.Create(&auth)
+	_ = repository.DefaultAuthPolicyRepository.CreateAuthorization(&auth)
 
 	service.DefaultAuditService.Log(doctorID, "KEY_UNLOCK_SUCCESS", "PATIENT", patient.UserNo, doctor.HospitalID, "SUCCESS", "LOW", c.ClientIP())
 
@@ -188,11 +191,12 @@ func (ctrl *AccessController) UnlockByKey(c *gin.Context) {
 		}
 	}
 
-	var rec model.MedicalRecord
-	if err := repository.DB.First(&rec, req.RecordID).Error; err != nil {
+	recPtr, err := repository.DefaultMedicalRepository.FindRecordByID(req.RecordID)
+	if err != nil || recPtr == nil {
 		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "目标病历档案不存在"})
 		return
 	}
+	rec := *recPtr
 
 	if locked, rem := checkKeyUnlockLocked(doctorID, rec.PatientID); locked {
 		c.JSON(http.StatusTooManyRequests, model.Response{
@@ -202,14 +206,17 @@ func (ctrl *AccessController) UnlockByKey(c *gin.Context) {
 		return
 	}
 
-	var patient model.User
-	if err := repository.DB.First(&patient, rec.PatientID).Error; err != nil {
+	patientPtr, err := repository.DefaultUserRepository.FindByID(rec.PatientID)
+	if err != nil || patientPtr == nil {
 		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "患者用户档案不存在"})
 		return
 	}
+	patient := *patientPtr
 
 	var doctor model.User
-	_ = repository.DB.First(&doctor, doctorID)
+	if d, err := repository.DefaultUserRepository.FindByID(doctorID); err == nil && d != nil {
+		doctor = *d
+	}
 
 	inputKey := strings.TrimSpace(req.MedicalKey)
 	if !service.VerifyMedicalKey(inputKey, patient.UserNo, patient.MedicalKeyHash, patient.MedicalKey) {
@@ -267,15 +274,10 @@ func (ctrl *AccessController) UnlockByKey(c *gin.Context) {
 		FabricTxID:     txID,
 		CreatedAt:      time.Now(),
 	}
-	repository.DB.Create(&auth)
+	_ = repository.DefaultAuthPolicyRepository.CreateAuthorization(&auth)
 
 	// 若有关于此病历与医生的待处理申请单，顺便标记为已核准
-	repository.DB.Model(&model.AccessRequest{}).
-		Where("doctor_id = ? AND record_id = ? AND status = 'PENDING'", doctorID, req.RecordID).
-		Updates(map[string]interface{}{
-			"status":   "APPROVED",
-			"decision": "ALLOWED",
-		})
+	_ = repository.DefaultAuthPolicyRepository.ApprovePendingRequests(req.RecordID, doctorID)
 
 	service.DefaultAuditService.Log(doctorID, "KEY_UNLOCK_SUCCESS", "RECORD", rec.RecordNo, doctor.HospitalID, "SUCCESS", "LOW", c.ClientIP())
 

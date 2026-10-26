@@ -80,7 +80,7 @@ func (ctrl *AccessController) CreateAuthorization(c *gin.Context) {
 		FabricTxID:     txID,
 		CreatedAt:      time.Now(),
 	}
-	repository.DB.Create(&auth)
+	_ = repository.DefaultAuthPolicyRepository.CreateAuthorization(&auth)
 
 	service.DefaultAuditService.Log(patientID, "AUTHORIZE", "AUTH", authNo, 0, "SUCCESS", "LOW", c.ClientIP())
 	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "授权策略建立并上链成功", Data: auth})
@@ -90,12 +90,11 @@ func (ctrl *AccessController) ListAuthorizations(c *gin.Context) {
 	patientID := c.GetUint64("user_id")
 	role := c.GetString("role")
 
-	var list []model.Authorization
-	query := repository.DB.Model(&model.Authorization{})
+	patientFilter := uint64(0)
 	if role == "patient" {
-		query = query.Where("patient_id = ?", patientID)
+		patientFilter = patientID
 	}
-	query.Order("id desc").Find(&list)
+	list, _ := repository.DefaultAuthPolicyRepository.ListAuthorizations(patientFilter, "")
 
 	docIDs := make([]uint64, 0, len(list))
 	hospIDs := make([]uint64, 0, len(list))
