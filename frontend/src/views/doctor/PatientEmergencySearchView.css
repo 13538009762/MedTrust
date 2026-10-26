@@ -1,0 +1,1168 @@
+.patient-emergency-container {
+  padding: 16px 20px 60px;
+  background: var(--edms-body-bg, #f8fafc);
+  min-height: calc(100vh - 70px);
+}
+
+/* 顶部检索卡片 */
+.search-header-card {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 20px 24px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(16, 185, 129, 0.12);
+  margin-bottom: 20px;
+  background-image: radial-gradient(circle at 95% 10%, rgba(16, 185, 129, 0.06) 0%, transparent 50%);
+}
+
+.title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.title-badge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.title-icon {
+  font-size: 26px;
+  color: #dc2626;
+  background: #fee2e2;
+  padding: 6px;
+  border-radius: 8px;
+}
+
+.title-row h2 {
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.emergency-mode-tag {
+  font-weight: bold;
+  letter-spacing: 0.5px;
+}
+
+.live-pulse {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: #ffffff;
+  border-radius: 50%;
+  margin-right: 6px;
+  animation: pulse-ring 1.5s infinite;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.9); opacity: 0.8; }
+  50% { transform: scale(1.4); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.8; }
+}
+
+.subtitle {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0 0 16px;
+  line-height: 1.5;
+}
+
+.search-controls-row {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.search-input-group {
+  max-width: 680px;
+}
+
+.patient-search-input :deep(.el-input__wrapper) {
+  border-radius: 8px 0 0 8px;
+}
+
+.patient-search-input :deep(.el-input-group__append) {
+  border-radius: 0 8px 8px 0;
+  background: #059669;
+  color: #ffffff;
+  border-color: #059669;
+}
+
+.patient-search-input :deep(.el-input-group__append button) {
+  color: #ffffff;
+  font-weight: bold;
+}
+
+.quick-candidates {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.candidate-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.candidate-chips-wrap {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.candidate-chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  padding: 4px 12px 4px 6px;
+  font-size: 13px;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  outline: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+.candidate-chip-btn:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  transform: translateY(-1px);
+}
+
+.candidate-chip-btn.active {
+  background: linear-gradient(135deg, #059669, #047857);
+  border-color: #059669;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(5, 150, 105, 0.28);
+}
+
+.chip-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.candidate-chip-btn.active .chip-avatar {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
+.chip-name {
+  font-weight: 600;
+}
+
+.chip-meta {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.chip-alert-badge {
+  font-size: 10px;
+  background: #fee2e2;
+  color: #dc2626;
+  padding: 1px 5px;
+  border-radius: 10px;
+  font-weight: 700;
+}
+
+.candidate-chip-btn.active .chip-alert-badge {
+  background: #ffffff;
+  color: #dc2626;
+}
+
+/* 空态提示 */
+.empty-patient-guide {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 48px 24px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+  border: 1px dashed #cbd5e1;
+}
+
+.empty-icon-wrap {
+  background: #dcfce7;
+  display: inline-flex;
+  padding: 20px;
+  border-radius: 50%;
+  margin-bottom: 12px;
+}
+
+.guide-features {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  max-width: 600px;
+  margin: 24px auto 0;
+  text-align: left;
+}
+
+.guide-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #334155;
+  background: #f8fafc;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.g-icon.green { color: #059669; }
+.g-icon.red { color: #dc2626; }
+.g-icon.blue { color: #2563eb; }
+
+/* ================= 界面上层：病人身份与急救 Bento ================= */
+.tier-upper-patient-profile {
+  margin-bottom: 20px;
+}
+
+.profile-hero-strip {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.03);
+  border: 1px solid #e2e8f0;
+  margin-bottom: 16px;
+}
+
+.profile-avatar-box {
+  margin-right: 16px;
+}
+
+.avatar-circle {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-size: 22px;
+  font-weight: bold;
+}
+
+.avatar-circle.male {
+  background: linear-gradient(135deg, #0284c7, #2563eb);
+}
+
+.avatar-circle.female {
+  background: linear-gradient(135deg, #ec4899, #db2777);
+}
+
+.profile-main-meta {
+  flex: 1;
+}
+
+.name-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.patient-name {
+  font-size: 22px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.patient-no-badge {
+  font-size: 12px;
+  color: #64748b;
+  font-family: monospace;
+  background: #f1f5f9;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.identity-info-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13px;
+  color: #475569;
+}
+
+.info-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.info-sep {
+  color: #cbd5e1;
+}
+
+.code-val {
+  font-family: monospace;
+  font-weight: bold;
+  background: #f8fafc;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid #e2e8f0;
+}
+
+/* 急救 Bento 6格 */
+.emergency-bento-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 1100px) {
+  .emergency-bento-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 700px) {
+  .emergency-bento-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.bento-card {
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 96px;
+  transition: all 0.2s ease;
+}
+
+.bento-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05);
+}
+
+.bento-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.bento-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.bento-icon.blood { background: #fee2e2; color: #dc2626; }
+.bento-icon.allergy { background: #fef3c7; color: #d97706; }
+.bento-icon.contact { background: #e0e7ff; color: #4338ca; }
+.bento-icon.vitals { background: #dcfce7; color: #059669; }
+.bento-icon.chronic { background: #f1f5f9; color: #475569; }
+.bento-icon.infection { background: #fce7f3; color: #be185d; }
+
+.bento-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #334155;
+  flex: 1;
+}
+
+.bento-note {
+  font-size: 11px;
+  color: #94a3b8;
+  margin: 4px 0 0;
+  line-height: 1.3;
+}
+
+/* 血型卡片 */
+.blood-card {
+  border-left: 3px solid #ef4444;
+  background: linear-gradient(135deg, #ffffff 60%, #fef2f2 100%);
+}
+
+.blood-big {
+  font-size: 20px;
+  font-weight: 900;
+  color: #dc2626;
+  letter-spacing: 0.5px;
+}
+
+/* 过敏卡片 */
+.allergy-card {
+  border-left: 3px solid #10b981;
+  background: #ffffff;
+}
+
+.allergy-card.has-danger {
+  border-left: 3px solid #dc2626;
+  background: linear-gradient(135deg, #ffffff 60%, #fff8f8 100%);
+}
+
+.allergy-card.is-safe {
+  border-left: 3px solid #10b981;
+  background: linear-gradient(135deg, #ffffff 60%, #f0fdf4 100%);
+}
+
+.bento-icon.allergy.danger {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.bento-icon.allergy.safe {
+  background: #dcfce7;
+  color: #059669;
+}
+
+.danger-pill {
+  font-size: 10px;
+  background: #dc2626;
+  color: #ffffff;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+}
+
+.safe-pill {
+  font-size: 10px;
+  background: #dcfce7;
+  color: #059669;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+}
+
+.allergy-text {
+  color: #b91c1c;
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
+.allergy-rule {
+  font-size: 11px;
+  color: #ef4444;
+  margin-top: 3px;
+}
+
+.allergy-safe-box {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.allergy-safe-title {
+  color: #059669;
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
+.allergy-safe-sub {
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.3;
+}
+
+/* 家属联系人 */
+.contact-person-name {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 2px;
+}
+
+.contact-phone-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.contact-phone-num {
+  font-size: 14px;
+  font-family: monospace;
+  font-weight: 700;
+  color: #2563eb;
+}
+
+/* 生命体征 */
+.vitals-card {
+  border-left: 3px solid #059669;
+  background: linear-gradient(135deg, #ffffff 60%, #f0fdf4 100%);
+}
+
+.vitals-display-row {
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.4;
+  background: rgba(240, 253, 244, 0.7);
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid #bbf7d0;
+}
+
+.vitals-tags-row {
+  display: flex;
+  gap: 5px;
+  margin-top: 5px;
+}
+
+.v-tag {
+  font-size: 10px;
+  color: #047857;
+  background: #d1fae5;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+/* 慢病史 */
+.chronic-card {
+  border-left: 3px solid #64748b;
+  background: linear-gradient(135deg, #ffffff 60%, #f8fafc 100%);
+}
+
+.chronic-text {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #334155;
+  line-height: 1.35;
+}
+
+/* 传染病防护 */
+.infection-card {
+  border-left: 3px solid #10b981;
+  background: #ffffff;
+}
+
+.infection-card.is-infectious {
+  border-left: 3px solid #be185d;
+  background: linear-gradient(135deg, #ffffff 60%, #fdf2f8 100%);
+}
+
+.infect-danger-pill {
+  font-size: 10px;
+  background: #be185d;
+  color: #ffffff;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.infect-summary {
+  color: #9d174d;
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
+.infect-guide {
+  font-size: 11px;
+  color: #be185d;
+  margin-top: 3px;
+}
+
+.infect-safe-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #059669;
+}
+
+/* ================= 界面中间：主要病例列表 ================= */
+.tier-middle-medical-records {
+  margin-bottom: 24px;
+}
+
+.records-card {
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+}
+
+.records-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.rh-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.rh-filters {
+  display: flex;
+  align-items: center;
+}
+
+.selection-notice-bar {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 10px 16px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #1e40af;
+}
+
+.sn-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.unauth-highlight {
+  color: #b45309;
+}
+
+.mono-code {
+  font-family: monospace;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.hosp-dept-cell .hosp-name {
+  font-size: 13px;
+  color: #0f172a;
+}
+
+.hosp-dept-cell .dept-name {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.diag-cell-authorized .diag-text {
+  font-size: 13px;
+  color: #059669;
+}
+
+.diag-cell-authorized .symptoms-text {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.diag-cell-locked {
+  display: flex;
+  flex-direction: column;
+  color: #d97706;
+  font-size: 12px;
+  background: #fffbeb;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px dashed #fde68a;
+}
+
+.locked-hint {
+  font-size: 11px;
+  color: #b45309;
+  margin-top: 2px;
+}
+
+.access-status-badge-wrap .status-tag {
+  font-weight: bold;
+}
+
+.pulse-indicator-white {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: #ffffff;
+  border-radius: 50%;
+  margin-right: 4px;
+  animation: pulse-ring 1s infinite;
+}
+
+.time-text {
+  font-size: 12px;
+  color: #64748b;
+}
+
+/* ================= 临床调阅授权与急救指令指挥台 (Emergency Command Deck) ================= */
+.emergency-command-deck {
+  margin-bottom: 16px;
+}
+
+.deck-main-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px 20px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+  position: relative;
+  background-image: radial-gradient(circle at 10% 50%, rgba(5, 150, 105, 0.03) 0%, transparent 40%);
+}
+
+.deck-brand-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.deck-tag-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.deck-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+  animation: pulse-ring 1.8s infinite;
+}
+
+.deck-heading {
+  font-size: 14px;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: 0.3px;
+}
+
+.deck-chip {
+  font-size: 10px;
+  font-family: monospace;
+  font-weight: 700;
+  background: #f1f5f9;
+  color: #475569;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid #e2e8f0;
+}
+
+.deck-sub-text {
+  font-size: 11.5px;
+  color: #64748b;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.deck-action-buttons {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.deck-btn {
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 8px;
+  padding: 8px 16px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.deck-btn:hover {
+  transform: translateY(-1px);
+}
+
+.btn-primary-gradient {
+  background: linear-gradient(135deg, #2563eb, #1d4ed8) !important;
+  border: none !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+}
+
+.btn-primary-gradient:hover {
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+}
+
+.btn-success-gradient {
+  background: linear-gradient(135deg, #059669, #047857) !important;
+  border: none !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(5, 150, 105, 0.25);
+}
+
+.btn-success-gradient:hover {
+  box-shadow: 0 4px 14px rgba(5, 150, 105, 0.35);
+}
+
+.btn-warning-outline {
+  background: #fffbeb !important;
+  border: 1px solid #f59e0b !important;
+  color: #b45309 !important;
+}
+
+.btn-warning-outline:hover {
+  background: #fef3c7 !important;
+  border-color: #d97706 !important;
+}
+
+.btn-danger-gradient {
+  background: linear-gradient(135deg, #dc2626, #b91c1c) !important;
+  border: none !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 10px rgba(220, 38, 38, 0.35);
+  font-weight: 700 !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-danger-gradient:hover {
+  box-shadow: 0 4px 16px rgba(220, 38, 38, 0.45);
+}
+
+.btn-ai-gradient {
+  background: linear-gradient(135deg, #8b5cf6, #7c3aed) !important;
+  border: none !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.28);
+}
+
+.btn-ai-gradient:hover {
+  box-shadow: 0 4px 14px rgba(139, 92, 246, 0.4);
+}
+
+.deck-pulse-ring {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: #ffffff;
+  border-radius: 50%;
+  margin-right: 2px;
+  animation: pulse-ring 1s infinite;
+}
+
+.btn-micro-badge {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  margin-left: 4px;
+}
+
+.btn-micro-badge.primary {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
+.btn-count-hint {
+  font-size: 12px;
+  opacity: 0.9;
+  margin-left: 2px;
+}
+
+.table-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px 0;
+  border-top: 1px solid #f1f5f9;
+  margin-top: 8px;
+}
+
+.tcf-stats {
+  font-size: 12px;
+}
+
+.tcf-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 弹窗样式 */
+.break-glass-warning-banner {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  gap: 12px;
+}
+
+.bg-banner-text h4 {
+  margin: 0 0 6px;
+  color: #b91c1c;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.bg-banner-text p {
+  margin: 0;
+  font-size: 12px;
+  color: #7f1d1d;
+  line-height: 1.5;
+}
+
+.legal-disclaimer-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin-top: 12px;
+}
+
+.disclaimer-text {
+  font-size: 12px;
+  color: #334155;
+  line-height: 1.5;
+}
+
+.selected-records-preview {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.preview-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+  margin-bottom: 6px;
+}
+
+.preview-list-scroll {
+  max-height: 120px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.preview-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  background: #ffffff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #f1f5f9;
+}
+
+.record-detail-container {
+  padding: 0 10px;
+}
+
+.detail-header-pill {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f8fafc;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.dh-no {
+  font-family: monospace;
+  font-weight: 800;
+  font-size: 15px;
+  color: #0f172a;
+  margin-right: 8px;
+}
+
+.detail-section-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+}
+
+.detail-section-card.chain-card {
+  background: #f0f9ff;
+  border-color: #bae6fd;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 8px;
+}
+
+.section-body.content-text {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #334155;
+}
+
+.chain-meta-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cm-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cm-label {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.cm-code {
+  font-family: monospace;
+  font-size: 12px;
+  background: #ffffff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #e0f2fe;
+  word-break: break-all;
+  color: #0369a1;
+}
+
+.raw-pre {
+  background: #f8fafc;
+  padding: 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+}
+
+.line-clamp-1 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.text-muted {
+  color: #64748b;
+}
+
+.font-bold {
+  font-weight: bold;
+}
+
+.text-primary {
+  color: #059669;
+}
+
+.mr-1 { margin-right: 4px; }
+.ml-1 { margin-left: 4px; }
+.ml-2 { margin-left: 8px; }
+.mb-2 { margin-bottom: 8px; }
+.mb-3 { margin-bottom: 12px; }
+.mb-4 { margin-bottom: 16px; }
+.mt-3 { margin-top: 12px; }
+.mt-4 { margin-top: 16px; }
+
+/* 强制露出高对比度、宽 10px 的醒目水平滚动条 */
+:deep(.patient-records-table .el-scrollbar__bar.is-horizontal) {
+  height: 10px !important;
+  opacity: 1 !important;
+  display: block !important;
+  background: rgba(226, 232, 240, 0.95) !important;
+  border-radius: 6px !important;
+  z-index: 10 !important;
+  bottom: 0 !important;
+}
+
+:deep(.patient-records-table .el-scrollbar__bar.is-horizontal .el-scrollbar__thumb) {
+  background: #64748b !important;
+  border-radius: 6px !important;
+  height: 10px !important;
+  cursor: grab !important;
+}
+
+:deep(.patient-records-table .el-scrollbar__bar.is-horizontal .el-scrollbar__thumb:hover) {
+  background: #334155 !important;
+}
+
+:deep(.patient-records-table .el-table__body-wrapper),
+:deep(.patient-records-table .el-scrollbar__wrap) {
+  overflow-x: auto !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: #64748b #f1f5f9 !important;
+}
+
+/* Responsive deck handled via flex */
+
+.captcha-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.captcha-input {
+  flex: 1;
+}
+
+.captcha-img-container {
+  width: 120px;
+  height: 40px;
+  cursor: pointer;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f8fafc;
+  transition: all 0.2s ease;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.captcha-img-container:hover {
+  border-color: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.2);
+  transform: translateY(-1px);
+}
+
+.captcha-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.captcha-loading {
+  font-size: 12px;
+  color: #10b981;
+  font-weight: 500;
+}
