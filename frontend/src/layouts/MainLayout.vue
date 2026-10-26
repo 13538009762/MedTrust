@@ -275,7 +275,7 @@ const displayChannelName = computed(() => {
 })
 
 const isChannelOnline = computed(() => {
-  return isSSEConnected.value || chainStatus.value.connected || chainStatus.value.mode === 'fabric' || chainStatus.value.mode === 'mock' || true
+  return isSSEConnected.value || chainStatus.value.connected || chainStatus.value.mode === 'fabric' || chainStatus.value.mode === 'mock'
 })
 
 async function fetchChainStatus() {

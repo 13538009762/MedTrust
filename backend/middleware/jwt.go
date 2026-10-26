@@ -81,6 +81,9 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 
 		claims := &CustomClaims{}
 		token, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, jwt.ErrSignatureInvalid
+			}
 			return []byte(config.AppConfig.Server.JWTSecret), nil
 		})
 
@@ -90,6 +93,27 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 				Message: "无效或已过期的身份令牌",
 			})
 			return
+		}
+
+		// 实时核验账号状态 (通过 Redis / MemoryCache 高频削峰，仅在缓存未命中时回源 MySQL)
+		if claims.UserID > 0 {
+			status, ok := repository.GetUserStatus(claims.UserID)
+			if !ok {
+				if repository.DB != nil {
+					var u model.User
+					if err := repository.DB.Select("id, status").First(&u, claims.UserID).Error; err == nil {
+						status = u.Status
+						repository.CacheUserStatus(claims.UserID, status, 60*time.Second)
+					}
+				}
+			}
+			if status == "DISABLED" {
+				c.AbortWithStatusJSON(http.StatusForbidden, model.Response{
+					Code:    403,
+					Message: "您的账号已被监管机构停用封禁，禁止继续执行系统操作",
+				})
+				return
+			}
 		}
 
 		c.Set("user_id", claims.UserID)

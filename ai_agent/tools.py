@@ -152,14 +152,29 @@ class ControlledMedicalTools:
         except Exception as e:
             result = {"code": 500, "message": str(e)}
             status_code = 500
+        records_data = result.get("data") if isinstance(result, dict) else []
+        has_unauthorized = False
+        if isinstance(records_data, list) and len(records_data) > 0:
+            has_unauthorized = any(not item.get("has_access", True) for item in records_data if isinstance(item, dict))
+        auth_status = "PASSED"
+        gate1_msg = "RBAC/ABAC/患者授权核验通过 (HTTP 200)"
+        gate3_msg = "已核验返回结果中全部 RecordID 均在有效 Consent 集合内，无隐私越权泄露"
+        if status_code != 200:
+            auth_status = "INTERCEPTED_BY_GATEKEEPER"
+            gate1_msg = f"未获患者授权，安全网关主动阻断 (HTTP {status_code})"
+            gate3_msg = "未放行，跳过"
+        elif has_unauthorized:
+            auth_status = "PARTIAL_MASKED_BY_GATEKEEPER"
+            gate3_msg = "检测到未获患者授权的外院病历，Go 安全网关已自动执行字段级掩码脱敏与传染病隐私剥离"
+
         self.trace_logs.append({
             "tool": "query_patient_records",
             "endpoint": "GET /api/v1/medical-records",
             "status_code": status_code,
-            "gate1_guard": "RBAC/ABAC/患者授权核验通过 (HTTP 200)" if status_code == 200 else f"未获患者授权，安全网关主动阻断 (HTTP {status_code})",
+            "gate1_guard": gate1_msg,
             "gate2_semantic": "执行工具: query_patient_records (跨院非结构化病历语义检索与聚合)",
-            "gate3_post_check": "已核验返回结果中全部 RecordID 均在有效 Consent 集合内，无隐私越权泄露" if status_code == 200 else "未放行，跳过",
-            "auth_check": "PASSED" if status_code == 200 else "INTERCEPTED_BY_GATEKEEPER"
+            "gate3_post_check": gate3_msg,
+            "auth_check": auth_status
         })
         return result
 

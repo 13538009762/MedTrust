@@ -73,3 +73,5 @@ vendor/
 chaincode/vendor/
 backend/pkg/pdf/sample_attestation.pdf
 
+
+.agent/

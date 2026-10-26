@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"medtrust-backend/config"
@@ -97,6 +98,13 @@ func initE2EEnvironment(t *testing.T) {
 // TestE2E_AcceptanceFlow 执行 updatev1.txt 第九节要求的全部 6 项核心验收测试用例
 func TestE2E_AcceptanceFlow(t *testing.T) {
 	initE2EEnvironment(t)
+	if service.DefaultAccessEngine != nil && service.DefaultAccessEngine.GetRiskEngine() != nil {
+		service.DefaultAccessEngine.GetRiskEngine().SetClock(func() time.Time {
+			now := time.Now()
+			return time.Date(now.Year(), now.Month(), now.Day(), 14, now.Minute(), now.Second(), now.Nanosecond(), now.Location())
+		})
+		defer service.DefaultAccessEngine.GetRiskEngine().SetClock(nil)
+	}
 
 	// 获取预置种子账号
 	docLi, err := repository.DefaultUserRepository.FindByUsername("doc_li")

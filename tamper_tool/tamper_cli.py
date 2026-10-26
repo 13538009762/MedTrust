@@ -15,13 +15,13 @@ DB_CONFIG = {
 }
 
 ORIGINAL_RECORD_1 = {
-    'onset_time': '2026-09-01 08:30',
-    'duration': '持续3天，劳累后加重',
-    'symptoms': '胸骨后压榨样闷痛、伴心悸气促，夜间偶有阵发性呼吸困难',
-    'etiology': '连续夜班过度劳累诱发；既往高血压病史8年未规律服药；对青霉素、头孢类抗生素有明确严重过敏史',
-    'treatment_plan': '1. 完善12导联心电图与心肌酶谱复查；2. 硝苯地平缓释片30mg qd降压；3. 严禁使用β-内酰胺类药物；4. 建议低盐低脂饮食并定期门诊随访',
-    'vital_signs': '体温: 36.6℃ | 血压: 155/98 mmHg | 心率: 88 bpm | 血氧: 98%',
-    'diagnosis': '【主诉】患者因“胸骨后闷痛3天加重半天”就诊。\n【现病史与诱因】于2026-09-01 08:30发病，劳累诱发，持续3天。\n【生命体征】体温36.6℃，血压155/98 mmHg，心率88 bpm。\n【初步诊断】高血压病II级（中危）；心绞痛待查；严重过敏体质。\n【处置建议】降压治疗、心电监护，禁用青霉素头孢。'
+    'onset_time': '2025-04-10',
+    'duration': '2周',
+    'symptoms': '反复心前区闷痛伴胸闷',
+    'chief_complaint': '活动后胸痛胸闷6月，加重1周',
+    'etiology': '劳累及情绪激动诱发',
+    'treatment_plan': '单硝酸异山梨酯缓释片 30mg qd, 阿托伐他汀 20mg qn',
+    'diagnosis': '冠状动脉粥样硬化性心脏病 劳力性心绞痛'
 }
 
 TAMPERED_RECORD_1 = {
@@ -68,14 +68,13 @@ def do_attack():
     cur.execute('''
         UPDATE medical_records 
         SET etiology = %s, treatment_plan = %s, diagnosis = %s 
-        WHERE id = 1
+        WHERE record_no = 'REC20250501001' OR id = 1
     ''', (TAMPERED_RECORD_1['etiology'], TAMPERED_RECORD_1['treatment_plan'], TAMPERED_RECORD_1['diagnosis']))
     conn.close()
     print('\n' + '!' * 70)
     print('🚨 [ATTACK SUCCESS] 攻击完成！已直接绕过 API 修改 MySQL 数据库！')
-    print('   - 目标记录: ID=1 (REC202609001 - 张三)')
-    print('   - 篡改过敏史: "对青霉素严重过敏史" ---> "无任何药物过敏史"')
-    print('   - 篡改治疗方案: "严禁使用β-内酰胺" ---> "静推大剂量青霉素"')
+    print('   - 目标记录: ID=1 (REC20250501001 - 张三)')
+    print('   - 篡改诱因与诊断: 冠心病心绞痛 ---> 无任何过敏史准予青霉素输注')
     print('   - 预期结果: 现在在 MedTrust 前端打开病历，系统将立即亮起高危篡改告警！')
     print('!' * 70 + '\n')
 
@@ -84,15 +83,15 @@ def do_rollback():
     cur = conn.cursor()
     cur.execute('''
         UPDATE medical_records 
-        SET onset_time = %s, duration = %s, symptoms = %s, etiology = %s, treatment_plan = %s, vital_signs = %s, diagnosis = %s 
-        WHERE id = 1
+        SET onset_time = %s, duration = %s, symptoms = %s, chief_complaint = %s, etiology = %s, treatment_plan = %s, diagnosis = %s 
+        WHERE record_no = 'REC20250501001' OR id = 1
     ''', (
         ORIGINAL_RECORD_1['onset_time'],
         ORIGINAL_RECORD_1['duration'],
         ORIGINAL_RECORD_1['symptoms'],
+        ORIGINAL_RECORD_1['chief_complaint'],
         ORIGINAL_RECORD_1['etiology'],
         ORIGINAL_RECORD_1['treatment_plan'],
-        ORIGINAL_RECORD_1['vital_signs'],
         ORIGINAL_RECORD_1['diagnosis']
     ))
     conn.close()

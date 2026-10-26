@@ -154,6 +154,7 @@ func (s *EmergencyService) AuditEvent(supervisorID uint64, eventNo, auditStatus,
 	// 执行惩戒联动 (NORMAL, RESTRICTED, DISABLED)
 	if punishment != "" && punishment != "NORMAL" {
 		_ = repository.DB.Model(&model.User{}).Where("id = ?", event.DoctorID).Update("status", punishment).Error
+		repository.InvalidateUserStatus(event.DoctorID)
 	}
 
 	DefaultAuditService.Log(supervisorID, "AUDIT_CLOSE", "EVENT", eventNo, 0, "SUCCESS", "LOW", ip)
@@ -175,6 +176,7 @@ func (s *EmergencyService) LiftDoctorRestriction(supervisorID, doctorID uint64, 
 	if err := repository.DB.Model(&model.User{}).Where("id = ?", doctorID).Update("status", "NORMAL").Error; err != nil {
 		return err
 	}
+	repository.InvalidateUserStatus(doctorID)
 
 	DefaultAuditService.Log(supervisorID, "UNRESTRICT_DOCTOR", "USER", fmt.Sprintf("%d", doctorID), doc.HospitalID, "SUCCESS", "LOW", ip)
 	return nil

@@ -1,0 +1,93 @@
+graph ChenERD {
+    // 布局与全局属性配置
+    layout="fdp";
+    overlap=false;
+    splines=true;
+    K=1.2;
+    bgcolor="white";
+    fontname="Microsoft YaHei";
+    fontsize=16;
+    label="经典陈氏 ER 模型图示例（Peter Chen's ER Model）\n \n";
+    labelloc="t";
+
+    // 全局节点与边默认属性
+    node [fontname="Microsoft YaHei", fontsize=12];
+    edge [fontname="Microsoft YaHei", fontsize=11, color="#424242"];
+
+    // ==========================================
+    // 1. 实体集定义 (Entities: 矩形 shape=box)
+    // ==========================================
+    user [shape=box, style="filled,bold", fillcolor="#E3F2FD", color="#1976D2", penwidth=2, label="用户 (User)"];
+    order [shape=box, style="filled,bold", fillcolor="#E8F5E9", color="#388E3C", penwidth=2, label="订单 (Order)"];
+    product [shape=box, style="filled,bold", fillcolor="#FFF3E0", color="#F57C00", penwidth=2, label="商品 (Product)"];
+
+    // ==========================================
+    // 2. 联系集定义 (Relationships: 菱形 shape=diamond)
+    // ==========================================
+    rel_places [shape=diamond, style=filled, fillcolor="#EDE7F6", color="#5E35B1", penwidth=1.8, label="下单", width=1.4, height=0.9];
+    rel_contains [shape=diamond, style=filled, fillcolor="#EDE7F6", color="#5E35B1", penwidth=1.8, label="包含", width=1.4, height=0.9];
+
+    // ==========================================
+    // 3. 属性集定义 (Attributes: 椭圆 shape=ellipse)
+    //    注：主键属性使用 HTML 格式标签加下划线 <<U>...</U>>
+    // ==========================================
+    // 用户属性 (User Attributes)
+    u_id [shape=ellipse, style=filled, fillcolor="#FAFAFA", color="#757575", label=<<U>用户ID</U>>];
+    u_name [shape=ellipse, style=filled, fillcolor="#FAFAFA", color="#757575", label="用户名"];
+    u_phone [shape=ellipse, style=filled, fillcolor="#FAFAFA", color="#757575", label="手机号"];
+    u_email [shape=ellipse, style=filled, fillcolor="#FAFAFA", color="#757575", label="电子邮箱"];
+    u_time [shape=ellipse, style=filled, fillcolor="#FAFAFA", color="#757575", label="注册时间"];
+
+    // 订单属性 (Order Attributes)
+    o_id [shape=ellipse, style=filled, fillcolor="#FAFAFA", color="#757575", label=<<U>订单ID</U>>];
+    o_no [shape=ellipse, style=filled, fillcolor="#FAFAFA", color="#757575", label="订单编号"];
+    o_amount [shape=ellipse, style=filled, fillcolor="#FAFAFA", color="#757575", label="实付金额"];
+    o_status [shape=ellipse, style=filled, fillcolor="#FAFAFA", color="#757575", label="支付状态"];
+    o_time [shape=ellipse, style=filled, fillcolor="#FAFAFA", color="#757575", label="下单时间"];
+
+    // 商品属性 (Product Attributes)
+    p_id [shape=ellipse, style=filled, fillcolor="#FAFAFA", color="#757575", label=<<U>商品ID</U>>];
+    p_name [shape=ellipse, style=filled, fillcolor="#FAFAFA", color="#757575", label="商品名称"];
+    p_price [shape=ellipse, style=filled, fillcolor="#FAFAFA", color="#757575", label="销售单价"];
+    p_stock [shape=ellipse, style=filled, fillcolor="#FAFAFA", color="#757575", label="库存数量"];
+    p_cat [shape=ellipse, style=filled, fillcolor="#FAFAFA", color="#757575", label="商品分类"];
+
+    // 联系自身属性 (Relationship Attributes, e.g., 订单明细中每个商品的成交信息)
+    rel_qty [shape=ellipse, style=filled, fillcolor="#FAFAFA", color="#757575", label="购买数量"];
+    rel_price [shape=ellipse, style=filled, fillcolor="#FAFAFA", color="#757575", label="成交单价"];
+
+    // ==========================================
+    // 4. 拓扑连接与基数标注 (Topology & Cardinality)
+    // ==========================================
+    // 用户与其属性的放射状连线
+    user -- u_id;
+    user -- u_name;
+    user -- u_phone;
+    user -- u_email;
+    user -- u_time;
+
+    // 订单与其属性的放射状连线
+    order -- o_id;
+    order -- o_no;
+    order -- o_amount;
+    order -- o_status;
+    order -- o_time;
+
+    // 商品与其属性的放射状连线
+    product -- p_id;
+    product -- p_name;
+    product -- p_price;
+    product -- p_stock;
+    product -- p_cat;
+
+    // 联系与其自身属性的连线
+    rel_contains -- rel_qty;
+    rel_contains -- rel_price;
+
+    // 实体与联系之间的连线（两端严格标注基数 1:n 与 m:n）
+    user -- rel_places [label="1", fontsize=14, fontcolor="#C2185B", penwidth=2];
+    rel_places -- order [label="n", fontsize=14, fontcolor="#C2185B", penwidth=2];
+
+    order -- rel_contains [label="m", fontsize=14, fontcolor="#C2185B", penwidth=2];
+    rel_contains -- product [label="n", fontsize=14, fontcolor="#C2185B", penwidth=2];
+}

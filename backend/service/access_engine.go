@@ -93,6 +93,7 @@ func (p *DBAccessHistoryProvider) GetDoctorStatus(doctorID uint64) string {
 
 type AccessEngine struct {
 	riskEngine *risk.RiskEngine
+	nowFunc    func() time.Time
 }
 
 var DefaultAccessEngine *AccessEngine
@@ -102,6 +103,16 @@ func InitAccessEngine(low, high int) {
 	eng.SetHistoryProvider(&DBAccessHistoryProvider{})
 	DefaultAccessEngine = &AccessEngine{
 		riskEngine: eng,
+	}
+}
+
+func (e *AccessEngine) SetClock(fn func() time.Time) {
+	if e == nil {
+		return
+	}
+	e.nowFunc = fn
+	if e.riskEngine != nil {
+		e.riskEngine.SetClock(fn)
 	}
 }
 
@@ -296,6 +307,20 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "数据一致性拦截(IDOR)：病历所属患者与请求患者身份不符"}, nil
 	}
 
+	// Decision D1 (ABAC 环境属性校验): 医疗机构启停状态核验
+	if user.HospitalID > 0 {
+		var docHosp model.Hospital
+		if err := repository.DB.Select("id, status").First(&docHosp, user.HospitalID).Error; err == nil && docHosp.Status == 0 {
+			return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "机构已停用：调阅医生所属医疗机构已暂停接入"}, nil
+		}
+	}
+	if record.HospitalID > 0 {
+		var recHosp model.Hospital
+		if err := repository.DB.Select("id, status").First(&recHosp, record.HospitalID).Error; err == nil && recHosp.Status == 0 {
+			return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "机构已停用：目标病历归属医疗机构已暂停接入"}, nil
+		}
+	}
+
 	// 规则 1: 经治医生对本人开具的病历直接享有调阅放行权限
 	if record.DoctorID == user.ID {
 		return &AccessDecision{
@@ -338,6 +363,9 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 
 	// 规则 3: 患者在线显式授权策略核查
 	now := time.Now()
+	if e.nowFunc != nil {
+		now = e.nowFunc()
+	}
 	var auths []model.Authorization
 	repository.DB.Where("patient_id = ? AND status = 'ACTIVE' AND start_time <= ? AND end_time >= ?", record.PatientID, now, now).Find(&auths)
 

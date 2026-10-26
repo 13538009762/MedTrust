@@ -49,7 +49,7 @@ func (ctrl *AuthController) Login(c *gin.Context) {
 	}
 
 	// 验证图形计算验证码，防御针对账号密码的自动化碰撞与爆破攻击
-	if gin.Mode() != gin.TestMode && req.CaptchaToken != "TEST_BYPASS" {
+	if gin.Mode() != gin.TestMode {
 		if ok, errMsg := captcha.VerifyCaptcha(req.CaptchaToken, req.CaptchaAnswer); !ok {
 			c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: errMsg})
 			return

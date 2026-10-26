@@ -6,6 +6,92 @@ import (
 	"time"
 )
 
+// MedicalAsset 医疗数据统一上链存证资产模型 (规范契合 Fabric 智能合约)
+type MedicalAsset struct {
+	RecordID     string `json:"record_id"`
+	PatientID    string `json:"patient_id"`
+	CID          string `json:"cid"`
+	FileHash     string `json:"file_hash"`
+	ClinicalHash string `json:"clinical_hash"`
+	HospitalID   string `json:"hospital_id"`
+	CreatorID    string `json:"creator_id"`
+	DataType     string `json:"data_type"`
+	CreateTime   string `json:"create_time"`
+}
+
+// EmergencyAccessRecord 紧急破窗访问上链凭据 (与智能合约严格对齐)
+type EmergencyAccessRecord struct {
+	EventNo      string `json:"event_no"`
+	DoctorID     string `json:"doctor_id"`
+	PatientID    string `json:"patient_id"`
+	RecordID     string `json:"record_id"`
+	HospitalID   string `json:"hospital_id"`
+	Reason       string `json:"reason"`
+	Description  string `json:"description"`
+	Timestamp    string `json:"timestamp"`
+	Status       string `json:"status"`
+	SupervisorID string `json:"supervisor_id,omitempty"`
+	AuditComment string `json:"audit_comment,omitempty"`
+	Punishment   string `json:"punishment,omitempty"`
+	AuditTime    string `json:"audit_time,omitempty"`
+}
+
+// ChainRecord 账本流转存证记录
+type ChainRecord struct {
+	TxID        string                 `json:"tx_id"`
+	BlockHeight uint64                 `json:"block_height"`
+	Timestamp   string                 `json:"timestamp"`
+	AssetType   string                 `json:"asset_type"`
+	AssetID     string                 `json:"asset_id"`
+	Payload     map[string]interface{} `json:"payload"`
+}
+
+// BlockchainStatusDTO 区块链底层引擎运行状态
+type BlockchainStatusDTO struct {
+	Mode        string `json:"mode"`
+	Connected   bool   `json:"connected"`
+	Network     string `json:"network,omitempty"`
+	Chaincode   string `json:"chaincode,omitempty"`
+	Peer        string `json:"peer,omitempty"`
+	LatestBlock uint64 `json:"latest_block"`
+	Message     string `json:"message,omitempty"`
+}
+
+// AuditLog 链上审计结构
+type AuditLog struct {
+	AuditID   string `json:"audit_id"`
+	UserID    string `json:"user_id"`
+	Action    string `json:"action"`
+	RecordID  string `json:"record_id"`
+	RiskLevel string `json:"risk_level"`
+	Timestamp string `json:"timestamp"`
+}
+
+// BlockchainService 统一区块链服务抽象接口 (满足正式 Fabric 2.5 Gateway 与本地容灾 Mock 互换)
+type BlockchainService interface {
+	CommitAsset(assetType, assetID string, payload map[string]interface{}) (txID string, height uint64, err error)
+	QueryAsset(assetID string) (map[string]interface{}, bool)
+	GetStats() (totalTx int, currentHeight uint64)
+	GetHistory(assetID string) ([]ChainRecord, error)
+	IsLiveFabric() bool
+	GetBlockchainStatus() BlockchainStatusDTO
+
+	// 高阶规范方法
+	CreateMedicalAsset(asset MedicalAssetPayload) (txID string, blockHeight uint64, err error)
+	QueryMedicalAsset(recordNo string) (*MedicalAssetPayload, error)
+	CreateAuthorizationRecord(auth AuthorizationPayload) (txID string, err error)
+	RevokeAuthorizationRecord(authNo string) (txID string, err error)
+	CreateEmergencyRecord(ev EmergencyPayload) (txID string, err error)
+	UpdateEmergencyStatus(eventNo string, newStatus string) (txID string, err error)
+	CreateAuditRecord(audit AuditPayload) (txID string, err error)
+}
+
+// DefaultService 全局单例区块链服务实例
+var DefaultService BlockchainService
+
+// TxRecorder 交易落库钩子函数 (支持链上链下双重校验与区块链交易存证表记录)
+var TxRecorder func(businessType, businessID, txID string, blockNo uint64, channelName, chaincodeName, status string)
+
 // MedicalAssetPayload 链上医疗数据存证负载
 type MedicalAssetPayload struct {
 	RecordID   string `json:"record_id"`

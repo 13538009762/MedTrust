@@ -26,6 +26,19 @@ DB_CONFIG = {
 }
 
 ORIGINAL_RECORD_1 = {
+    'record_no': 'REC20250501001',
+    'data_type': 'EMR',
+    'onset_time': '2025-04-10',
+    'duration': '2周',
+    'symptoms': '反复心前区闷痛伴胸闷',
+    'chief_complaint': '活动后胸痛胸闷6月，加重1周',
+    'etiology': '劳累及情绪激动诱发',
+    'treatment_plan': '单硝酸异山梨酯缓释片 30mg qd, 阿托伐他汀 20mg qn',
+    'diagnosis': '冠状动脉粥样硬化性心脏病 劳力性心绞痛',
+    'file_content': '广州第一附属医院 门诊电子病历 [REC20250501001]\n患者: 张三\n经治医生: 李建国 (主任医师)\n诊断: 冠状动脉粥样硬化性心脏病 劳力性心绞痛\n医嘱: 规范抗心肌缺血与降脂稳定斑块治疗。'
+}
+
+LEGACY_RECORD_1 = {
     'onset_time': '2026-09-01 08:30',
     'duration': '持续3天，劳累后加重',
     'symptoms': '胸骨后压榨样闷痛、伴心悸气促，夜间偶有阵发性呼吸困难',
@@ -41,13 +54,57 @@ TAMPERED_RECORD_1 = {
     'diagnosis': '【已被黑客恶意篡改】患者完全健康，血压心电图正常，既往药物过敏史已清空，准予青霉素输注。'
 }
 
-# 预存的 Fabric 联盟链链上固化基准哈希（不可篡改）
+def _seed_clinical_hash(rec_no, data_type, onset, duration, symptoms, etiology, plan, diag, file_content):
+    fh = hashlib.sha256(file_content.encode('utf-8')).hexdigest()
+    raw = '|'.join([rec_no, data_type, onset, duration, symptoms, etiology, plan, diag, fh])
+    return hashlib.sha256(raw.encode('utf-8')).hexdigest()
+
+# 预存的 Fabric 联盟链链上固化基准哈希（不可篡改，同时兼容 REC202505* 与旧版 REC202609*）
 BASELINE_CHAIN_HASHES = {
+    'REC20250501001': _seed_clinical_hash(
+        'REC20250501001', 'EMR', '2025-04-10', '2周', '反复心前区闷痛伴胸闷',
+        '劳累及情绪激动诱发', '单硝酸异山梨酯缓释片 30mg qd, 阿托伐他汀 20mg qn',
+        '冠状动脉粥样硬化性心脏病 劳力性心绞痛',
+        '广州第一附属医院 门诊电子病历 [REC20250501001]\n患者: 张三\n经治医生: 李建国 (主任医师)\n诊断: 冠状动脉粥样硬化性心脏病 劳力性心绞痛\n医嘱: 规范抗心肌缺血与降脂稳定斑块治疗。'
+    ),
+    'REC20250502002': _seed_clinical_hash(
+        'REC20250502002', 'EMR', '2025-04-15', '1个月', '间歇性头晕、颈项发胀伴睡眠不佳',
+        '高盐饮食及工作熬夜', '苯磺酸氨氯地平片 5mg qd, 替米沙坦片 40mg qd',
+        '原发性高血压 3级 (很高危组)',
+        '深圳中心医院 门诊电子病历 [REC20250502002]\n患者: 张三\n经治医生: 王明德 (主治医师)\n诊断: 原发性高血压 3级 (很高危组)\n医嘱: 规律服用降压药，严格监测晨起与晚间血压。'
+    ),
+    'REC20250503003': _seed_clinical_hash(
+        'REC20250503003', 'EMR', '2025-05-03 08:30', '2小时', '突发剧烈胸骨后压榨样疼痛，向左肩放射，面色苍白大汗',
+        '急性心肌缺血坏死', '急诊冠脉造影(CAG)及经皮冠状动脉介入治疗(PCI)，植入DES支架1枚',
+        '急性广泛前壁心肌梗死 (AMI) Killip II级',
+        '深圳中心医院 急诊抢救记录 [REC20250503003]\n患者: 张三\n经治医生: 陈建明 (主治医师)\n诊断: 急性广泛前壁心肌梗死 (AMI) Killip II级\n抢救处置: 紧急开通绿色通道行急诊PCI开通闭塞前降支。'
+    ),
     'REC202609001': 'b1e85a9a949446045c213ae3fdc558b3e0c62686ec7cd482cb4f8d3e8f3b992e',
     'REC202609002': '861ebf116f5632136fa3c2ec4d32a246708f0e8eb34344d949928cc4fef4d9f8',
     'REC20260910351c4d04': 'cbc5294928bb6f8ed240f6b79ef9e8696e843b0b2a7d55ec1d2929b3bcceccc3',
     'REC20260720C01': 'd1752f9b35104504be57a289ba8f6b953ad30183d66f3dfbd66799a648495571'
 }
+
+def load_chain_hash_from_ledger(record_no, default_hash=''):
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(base_dir, '..', 'backend', 'ledger_data', 'ledger_history.json'),
+        os.path.join(base_dir, '..', 'backend', 'data', 'ledger_history.json'),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    items = json.load(f)
+                for item in reversed(items):
+                    if item.get('asset_id') == record_no or item.get('AssetID') == record_no:
+                        payload = item.get('payload') or item.get('Payload') or {}
+                        ch = payload.get('clinical_hash') or payload.get('file_hash')
+                        if ch:
+                            return str(ch)
+            except Exception:
+                pass
+    return BASELINE_CHAIN_HASHES.get(record_no, default_hash)
 
 def get_db():
     return pymysql.connect(**DB_CONFIG)
@@ -571,7 +628,7 @@ def get_records():
     for r in rows:
         file_hash = r.get('file_hash') or ''
         curr_hash = compute_hash(r, file_hash)
-        chain_hash = BASELINE_CHAIN_HASHES.get(r['record_no'], curr_hash)
+        chain_hash = load_chain_hash_from_ledger(r['record_no'], curr_hash)
         is_tampered = (curr_hash != chain_hash)
         result.append({
             'id': r['id'],
@@ -597,35 +654,53 @@ def attack():
     cur.execute("""
         UPDATE medical_records 
         SET etiology = %s, treatment_plan = %s, diagnosis = %s 
-        WHERE id = 1
+        WHERE record_no = 'REC20250501001' OR id = 1
     """, (TAMPERED_RECORD_1['etiology'], TAMPERED_RECORD_1['treatment_plan'], TAMPERED_RECORD_1['diagnosis']))
     conn.close()
     return jsonify({
         'code': 200,
-        'message': '🚨 [ATTACK SUCCESS] 攻击完成！病历1的严重过敏史已在底层 MySQL 数据库中被直接抹除并伪造！'
+        'message': '🚨 [ATTACK SUCCESS] 攻击完成！病历1 (REC20250501001) 的临床诱因、诊断与处置方案已在底层 MySQL 数据库中被直接篡改！'
     })
 
 @app.route('/api/rollback', methods=['POST'])
 def rollback():
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        UPDATE medical_records 
-        SET onset_time = %s, duration = %s, symptoms = %s, etiology = %s, treatment_plan = %s, vital_signs = %s, diagnosis = %s 
-        WHERE id = 1
-    """, (
-        ORIGINAL_RECORD_1['onset_time'],
-        ORIGINAL_RECORD_1['duration'],
-        ORIGINAL_RECORD_1['symptoms'],
-        ORIGINAL_RECORD_1['etiology'],
-        ORIGINAL_RECORD_1['treatment_plan'],
-        ORIGINAL_RECORD_1['vital_signs'],
-        ORIGINAL_RECORD_1['diagnosis']
-    ))
+    cur = conn.cursor(pymysql.cursors.DictCursor)
+    cur.execute("SELECT id, record_no FROM medical_records WHERE record_no = 'REC20250501001' OR id = 1 ORDER BY id ASC LIMIT 1")
+    target = cur.fetchone()
+    if target and target.get('record_no') == 'REC202609001':
+        cur.execute("""
+            UPDATE medical_records 
+            SET onset_time = %s, duration = %s, symptoms = %s, etiology = %s, treatment_plan = %s, vital_signs = %s, diagnosis = %s 
+            WHERE id = %s
+        """, (
+            LEGACY_RECORD_1['onset_time'],
+            LEGACY_RECORD_1['duration'],
+            LEGACY_RECORD_1['symptoms'],
+            LEGACY_RECORD_1['etiology'],
+            LEGACY_RECORD_1['treatment_plan'],
+            LEGACY_RECORD_1['vital_signs'],
+            LEGACY_RECORD_1['diagnosis'],
+            target['id']
+        ))
+    else:
+        cur.execute("""
+            UPDATE medical_records 
+            SET onset_time = %s, duration = %s, symptoms = %s, chief_complaint = %s, etiology = %s, treatment_plan = %s, diagnosis = %s 
+            WHERE record_no = 'REC20250501001' OR id = 1
+        """, (
+            ORIGINAL_RECORD_1['onset_time'],
+            ORIGINAL_RECORD_1['duration'],
+            ORIGINAL_RECORD_1['symptoms'],
+            ORIGINAL_RECORD_1['chief_complaint'],
+            ORIGINAL_RECORD_1['etiology'],
+            ORIGINAL_RECORD_1['treatment_plan'],
+            ORIGINAL_RECORD_1['diagnosis']
+        ))
     conn.close()
     return jsonify({
         'code': 200,
-        'message': '✅ [ROLLBACK SUCCESS] 还原完成！病历1已重置为真实的原始医疗数据！'
+        'message': '✅ [ROLLBACK SUCCESS] 还原完成！病历1 (REC20250501001) 已重置为与 Fabric 链上基线完全一致的原始医疗数据！'
     })
 
 @app.route('/api/custom_tamper', methods=['POST'])

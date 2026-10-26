@@ -2,12 +2,9 @@ package service
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -288,7 +285,51 @@ func ComputeRecordHash(r *model.MedicalRecord) string {
 	return crypto.CalculateSHA256([]byte(raw))
 }
 
-// VerifyRecord 对病历执行区块链分布式防篡改核验
+// DecryptFileAndComputeHash 从 IPFS 拉取密文并在内存中执行 AES-256-GCM 验签解密，返回解密后明文、重算的 SHA-256 及错误信息
+func (s *MedicalService) DecryptFileAndComputeHash(rec *model.MedicalRecord, file *model.MedicalFile) ([]byte, string, error) {
+	if file == nil || file.IPFSCID == "" {
+		return nil, "", fmt.Errorf("附件 CID 为空")
+	}
+	ipfsSvc := s.GetIPFSService()
+	cipherPack, err := ipfsSvc.Cat(file.IPFSCID)
+	if err != nil || len(cipherPack) == 0 {
+		return nil, "", fmt.Errorf("从 IPFS 拉取密文失败 (CID=%s): %v", file.IPFSCID, err)
+	}
+
+	var plainData []byte
+	var decErr error
+	if file.EncryptedDEK != "" && file.IVNonce != "" {
+		masterKey := config.AppConfig.GetAESMasterKey()
+		plainData, decErr = crypto.DecryptMedicalFile(cipherPack, file.EncryptedDEK, file.IVNonce, rec.PatientID, rec.RecordNo, masterKey)
+	}
+	if len(plainData) == 0 {
+		plainData, decErr = crypto.DecryptRecordFile(cipherPack, rec.PatientID, rec.RecordNo)
+		if decErr != nil {
+			plainData, decErr = crypto.DecryptRecordFile(cipherPack, rec.PatientID, "")
+		}
+	}
+	if decErr != nil || len(plainData) == 0 {
+		return nil, "", fmt.Errorf("AES-256-GCM 认证标签或 AAD 校验失败: %v", decErr)
+	}
+	return plainData, crypto.ComputeSHA256(plainData), nil
+}
+
+// SelectPrimaryMedicalFile 选择用于链上锚定核验的主归档附件
+func SelectPrimaryMedicalFile(r *model.MedicalRecord) *model.MedicalFile {
+	if r == nil || len(r.Files) == 0 {
+		return nil
+	}
+	target := &r.Files[len(r.Files)-1]
+	for i := range r.Files {
+		if strings.Contains(r.Files[i].FileName, "归档凭据") || strings.Contains(r.Files[i].FileName, r.RecordNo) {
+			target = &r.Files[i]
+			break
+		}
+	}
+	return target
+}
+
+// VerifyRecord 对病历执行区块链分布式防篡改核验（含 IPFS 密文拉取 + AES-256-GCM 解密验签 + 结构化综合哈希比对）
 func (s *MedicalService) VerifyRecord(r *model.MedicalRecord) {
 	if len(r.Files) == 0 && r.ID > 0 && repository.DB != nil {
 		var files []model.MedicalFile
@@ -333,6 +374,33 @@ func (s *MedicalService) VerifyRecord(r *model.MedicalRecord) {
 		r.IsTampered = true
 		r.TamperReason = "【区块链安全告警】链上存证数据关键指纹为空，未能通过可信背书校验！"
 		return
+	}
+
+	// 阶段 0：若存在关联 IPFS 密文附件，真实拉取 IPFS 密文块并校验 AES-256-GCM AuthTag 与明文 SHA-256
+	chainFileHash := ""
+	if fh, ok := chainData["file_hash"]; ok && fmt.Sprintf("%v", fh) != "" && fmt.Sprintf("%v", fh) != "<nil>" {
+		chainFileHash = fmt.Sprintf("%v", fh)
+	}
+	if primaryFile := SelectPrimaryMedicalFile(r); primaryFile != nil && primaryFile.IPFSCID != "" {
+		_, decryptedFileHash, decErr := s.DecryptFileAndComputeHash(r, primaryFile)
+		if decErr != nil {
+			r.CurrentHash = ComputeRecordHash(r)
+			r.IsTampered = true
+			r.Verified = false
+			r.TamperReason = fmt.Sprintf("【IPFS 密文安全告警】链下 IPFS 密文块拉取或 AES-256-GCM 认证标签校验失败 (%v)！密文可能已被篡改或替换！", decErr)
+			return
+		}
+		expectedFH := chainFileHash
+		if expectedFH == "" {
+			expectedFH = primaryFile.FileHash
+		}
+		if expectedFH != "" && decryptedFileHash != expectedFH {
+			r.CurrentHash = ComputeRecordHash(r)
+			r.IsTampered = true
+			r.Verified = false
+			r.TamperReason = fmt.Sprintf("【IPFS 密文安全告警】IPFS 解密明文 SHA-256 (%s...) 与链上登记文件指纹 (%s...) 不匹配！", decryptedFileHash[:16], expectedFH[:16])
+			return
+		}
 	}
 
 	// 动态智能比对：针对就诊流程中的临床多维结构化数据与附件进行严密防篡改核验
@@ -475,6 +543,25 @@ func EnsureBaselineLedgerAnchored() {
 		recFound := (repository.DB.Where("record_no = ?", seed.RecordNo).First(&existing).Error == nil)
 
 		fileData := []byte(seed.FileContent)
+		expectedFileHash := crypto.ComputeSHA256(fileData)
+		expectedClinicalHash := crypto.ComputeSHA256([]byte(fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s",
+			seed.RecordNo, seed.DataType, seed.OnsetTime, seed.Duration, seed.Symptoms, seed.Etiology, seed.TreatmentPlan, seed.Diagnosis, expectedFileHash)))
+
+		// 幂等检查：若数据库记录、IPFS 密文块以及链上存证均已完整且一致，避免每次重启重新生成随机 CID 覆盖链上存证
+		if recFound && existing.FabricTxID != "" {
+			var existingFile model.MedicalFile
+			if repository.DB.Where("record_id = ?", existing.ID).First(&existingFile).Error == nil && existingFile.IPFSCID != "" {
+				if _, decFH, decErr := DefaultMedicalService.DecryptFileAndComputeHash(&existing, &existingFile); decErr == nil && decFH == expectedFileHash {
+					if chainData, ok := blockchain.DefaultService.QueryAsset(seed.RecordNo); ok && chainData != nil {
+						if fmt.Sprintf("%v", chainData["clinical_hash"]) == expectedClinicalHash && ComputeRecordHash(&existing) == expectedClinicalHash {
+							log.Printf("[EnsureBaselineLedgerAnchored] ✅ 种子病历 %s 已处于完整一致状态 (CID=%s, TxID=%s)，跳过重复加密上链", seed.RecordNo, existingFile.IPFSCID, existing.FabricTxID)
+							continue
+						}
+					}
+				}
+			}
+		}
+
 		cipherData, encDEK, ivNonce, fileHash, err := crypto.EncryptMedicalFile(fileData, pat.ID, seed.RecordNo, masterKey)
 		if err != nil {
 			log.Printf("[EnsureBaselineLedgerAnchored] 加密种子病历失败 %s: %v", seed.RecordNo, err)
@@ -490,7 +577,7 @@ func EnsureBaselineLedgerAnchored() {
 		clinicalHash := crypto.ComputeSHA256([]byte(fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s",
 			seed.RecordNo, seed.DataType, seed.OnsetTime, seed.Duration, seed.Symptoms, seed.Etiology, seed.TreatmentPlan, seed.Diagnosis, fileHash)))
 
-		txID, height, _ := blockchain.DefaultService.CommitAsset("MEDICAL_RECORD", seed.RecordNo, map[string]interface{}{
+		txID, height, commitErr := blockchain.DefaultService.CommitAsset("MEDICAL_RECORD", seed.RecordNo, map[string]interface{}{
 			"record_no":      seed.RecordNo,
 			"patient_id":     pat.ID,
 			"doctor_id":      doc.ID,
@@ -502,6 +589,11 @@ func EnsureBaselineLedgerAnchored() {
 			"encounter_type": seed.EncounterType,
 			"create_time":    time.Now().Format(time.RFC3339),
 		})
+		// 若真实 Fabric 链上资产已存在导致 CommitAsset 报错，保留既有 TxID 与区块高度，防止抹空
+		if (commitErr != nil || txID == "") && recFound && existing.FabricTxID != "" {
+			txID = existing.FabricTxID
+			height = existing.BlockHeight
+		}
 
 		if !recFound {
 			record := model.MedicalRecord{
@@ -996,9 +1088,13 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 			list[i].Files = nil
 		}
 
-		// 医护职业暴露安全与传染病预警检测
-		if alert, err := GetInfectionService().AnalyzeRecordRisks(list[i].ID); err == nil && alert.HasRisk {
-			list[i].InfectionAlert = alert
+		// 医护职业暴露安全与传染病预警检测（严格遵循访问控制边界：仅已获得合法调阅权限的记录才暴露传染病诊断明细，杜绝越权隐私泄露）
+		if list[i].HasAccess {
+			if alert, err := GetInfectionService().AnalyzeRecordRisks(list[i].ID); err == nil && alert.HasRisk {
+				list[i].InfectionAlert = alert
+			}
+		} else {
+			list[i].InfectionAlert = nil
 		}
 	}
 	return list, nil
@@ -1549,36 +1645,13 @@ func (s *MedicalService) CompleteEncounterFinal(p CompleteEncounterFinalParams) 
 		}
 	}
 
-	// 1. 提交联盟链存证获得全局唯一的真实 FabricTxID 与区块高度 BlockHeight
-	txID, height, err := blockchain.DefaultService.CommitAsset("MEDICAL_RECORD", rec.RecordNo, map[string]interface{}{
-		"record_no":      rec.RecordNo,
-		"patient_id":     rec.PatientID,
-		"doctor_id":      p.DoctorID,
-		"hospital_id":    doc.HospitalID,
-		"data_type":      rec.DataType,
-		"encounter_type": rec.EncounterType,
-		"create_time":    time.Now().Format(time.RFC3339),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("区块链存证写入失败: %w", err)
-	}
-	rec.FabricTxID = txID
-	rec.BlockHeight = height
-
-	// 2. 派生高强度防伪存证指纹与确定性 IPFS CID
+	// 1. 生成规范 PDF 归档文件并计算原始文件 SHA-256 指纹与结构化临床综合哈希
 	rawClinicalSummary := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s",
 		rec.RecordNo, rec.DataType, rec.OnsetTime, rec.Duration, rec.Symptoms, rec.Etiology, rec.TreatmentPlan, rec.Diagnosis)
 	if p.SOAPContent != "" {
 		rawClinicalSummary = p.SOAPContent
 	}
-	fileHash := crypto.CalculateSHA256([]byte(rawClinicalSummary))
-	clinicalHash := crypto.CalculateSHA256([]byte(fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s",
-		rec.RecordNo, rec.DataType, rec.OnsetTime, rec.Duration, rec.Symptoms, rec.Etiology, rec.TreatmentPlan, rec.Diagnosis, fileHash)))
 
-	cidHash := sha256.Sum256([]byte(fmt.Sprintf("%s:%s:%s", rec.RecordNo, txID, fileHash)))
-	cid := fmt.Sprintf("Qm%s%s", hex.EncodeToString(cidHash[:16]), hex.EncodeToString(cidHash[16:32]))
-
-	// 3. 生成包含真实 FabricTxID, BlockHeight, IPFSCID, FileHash 的规范 PDF 归档文件
 	pdfBytes, pdfErr := pdf.GenerateAttestationPDF(pdf.AttestationData{
 		RecordNo:         rec.RecordNo,
 		HospitalName:     rec.HospitalName,
@@ -1600,11 +1673,6 @@ func (s *MedicalService) CompleteEncounterFinal(p CompleteEncounterFinalParams) 
 		Diagnosis:        rec.Diagnosis,
 		Etiology:         rec.Etiology,
 		TreatmentPlan:    rec.TreatmentPlan,
-		FabricTxID:       txID,
-		BlockHeight:      height,
-		IPFSCID:          cid,
-		FileHash:         fileHash,
-		ClinicalHash:     clinicalHash,
 	})
 	var fileBytes []byte
 	if pdfErr == nil && len(pdfBytes) > 0 {
@@ -1613,25 +1681,22 @@ func (s *MedicalService) CompleteEncounterFinal(p CompleteEncounterFinalParams) 
 		fileBytes = []byte(rawClinicalSummary)
 	}
 
-	// 4. AES-256-GCM (带 AAD 关联验证) 加密并持久化至 IPFS 密文存储区
-	encKey := crypto.DeriveRecordKey("", rec.RecordNo)
-	iv, _ := crypto.GenerateRandomIV()
-	aad := []byte(fmt.Sprintf("%d:%s", rec.PatientID, rec.RecordNo))
-	ciphertext, err := crypto.EncryptAES256GCM(encKey, iv, fileBytes, aad)
+	// 2. AES-256-GCM 信封加密（绑定 AAD patient:ID|record:NO）并持久化至 IPFS 密文存储区
+	masterKey := config.AppConfig.GetAESMasterKey()
+	cipherData, encDEK, ivNonce, fileHash, err := crypto.EncryptMedicalFile(fileBytes, rec.PatientID, rec.RecordNo, masterKey)
 	if err != nil {
 		return nil, fmt.Errorf("AES-256-GCM 加密失败: %w", err)
 	}
+	clinicalHash := crypto.CalculateSHA256([]byte(fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s",
+		rec.RecordNo, rec.DataType, rec.OnsetTime, rec.Duration, rec.Symptoms, rec.Etiology, rec.TreatmentPlan, rec.Diagnosis, fileHash)))
 
-	pack := append(iv, ciphertext...)
-	storageDir := "data/ipfs_storage"
-	_ = os.MkdirAll(storageDir, 0755)
-	_ = os.WriteFile(filepath.Join(storageDir, cid), pack, 0644)
-	if s.ipfsService != nil {
-		_, _ = s.ipfsService.PutData(pack)
+	cid, err := s.GetIPFSService().Add(cipherData)
+	if err != nil {
+		return nil, fmt.Errorf("IPFS 密文存储失败: %w", err)
 	}
 
-	// 5. 固化账本数据 (绑定真实 CID, FileHash 与 ClinicalHash)
-	_, _, _ = blockchain.DefaultService.CommitAsset("MEDICAL_RECORD", rec.RecordNo, map[string]interface{}{
+	// 3. 单次原子提交联盟链存证（完整绑定 CID、FileHash 与 ClinicalHash，避免链码主键冲突）
+	txID, height, err := blockchain.DefaultService.CommitAsset("MEDICAL_RECORD", rec.RecordNo, map[string]interface{}{
 		"record_no":      rec.RecordNo,
 		"patient_id":     rec.PatientID,
 		"doctor_id":      p.DoctorID,
@@ -1641,24 +1706,27 @@ func (s *MedicalService) CompleteEncounterFinal(p CompleteEncounterFinalParams) 
 		"clinical_hash":  clinicalHash,
 		"data_type":      rec.DataType,
 		"encounter_type": rec.EncounterType,
-		"tx_id":          txID,
-		"block_height":   height,
 		"create_time":    time.Now().Format(time.RFC3339),
 	})
+	if err != nil {
+		return nil, fmt.Errorf("区块链存证写入失败: %w", err)
+	}
+	rec.FabricTxID = txID
+	rec.BlockHeight = height
 
 	if err := repository.DB.Save(&rec).Error; err != nil {
 		return nil, fmt.Errorf("保存就诊最终记录失败: %w", err)
 	}
 
-	// 6. 保存归档文件凭据到 medical_files
+	// 4. 保存归档文件凭据到 medical_files（使用标准 Base64 封装的 EncryptedDEK 与 IVNonce）
 	fileRecord := model.MedicalFile{
 		RecordID:     rec.ID,
 		FileName:     fmt.Sprintf("临床就诊规范归档凭据_%s.pdf", rec.RecordNo),
 		FileType:     "pdf",
 		FileSize:     uint64(len(fileBytes)),
 		IPFSCID:      cid,
-		EncryptedDEK: hex.EncodeToString(encKey[:16]),
-		IVNonce:      hex.EncodeToString(iv),
+		EncryptedDEK: encDEK,
+		IVNonce:      ivNonce,
 		FileHash:     fileHash,
 		CreatedAt:    time.Now(),
 	}

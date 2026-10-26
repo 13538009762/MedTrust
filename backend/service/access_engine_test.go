@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -26,14 +27,24 @@ func TestAccessEngine_AuthorizationAndRiskFlow(t *testing.T) {
 	if engine == nil {
 		t.Fatalf("DefaultAccessEngine not initialized")
 	}
+	// 注入工作时段时钟(14:00)，避免因非工作时段(RULE-T1: <8或>=18)触发加分导致中风险拦截
+	engine.SetClock(func() time.Time { return time.Date(2026, 10, 26, 14, 0, 0, 0, time.Local) })
+	defer engine.SetClock(nil)
 
-	// 准备测试数据: 医院、科室、医生、患者
-	hospA := model.Hospital{Name: "测试医院A", Level: "三甲"}
-	hospB := model.Hospital{Name: "测试医院B", Level: "三甲"}
+	// 准备测试数据: 医院、科室、医生、患者（赋予唯一 HospitalNo 防止唯一索引冲突）
+	ts := time.Now().UnixNano()
+	hospA := model.Hospital{HospitalNo: fmt.Sprintf("HOSP_TA_%d", ts), Name: "测试医院A", Level: "三甲", Status: 1}
+	hospB := model.Hospital{HospitalNo: fmt.Sprintf("HOSP_TB_%d", ts), Name: "测试医院B", Level: "三甲", Status: 1}
 	repository.DB.Create(&hospA)
 	repository.DB.Create(&hospB)
-	defer repository.DB.Delete(&hospA)
-	defer repository.DB.Delete(&hospB)
+	defer func() {
+		if hospA.ID > 0 {
+			repository.DB.Delete(&hospA)
+		}
+		if hospB.ID > 0 {
+			repository.DB.Delete(&hospB)
+		}
+	}()
 
 	deptA := model.Department{HospitalID: hospA.ID, Name: "心血管内科", DeptNo: "CARDIO_A"}
 	repository.DB.Create(&deptA)
@@ -128,8 +139,8 @@ func TestAccessEngine_AuthorizationAndRiskFlow(t *testing.T) {
 		AuthTargetID:   docB.ID,
 		ScopeType:      "SINGLE",
 		RecordID:       record.ID,
-		StartTime:      time.Now().Add(-1 * time.Hour),
-		EndTime:        time.Now().Add(24 * time.Hour),
+		StartTime:      time.Now().Add(-24 * time.Hour),
+		EndTime:        time.Now().Add(48 * time.Hour),
 		Status:         "ACTIVE",
 		CreatedAt:      time.Now(),
 	}

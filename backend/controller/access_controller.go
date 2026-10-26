@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -22,6 +23,64 @@ import (
 type AccessController struct{}
 
 var DefaultAccessController = &AccessController{}
+
+type keyUnlockFailState struct {
+	count       int
+	lockedUntil time.Time
+}
+
+var keyUnlockLimiter sync.Map
+
+func checkKeyUnlockLocked(doctorID, patientID uint64) (bool, int) {
+	k := fmt.Sprintf("key_unlock:%d:%d", doctorID, patientID)
+	if v, ok := keyUnlockLimiter.Load(k); ok {
+		st := v.(keyUnlockFailState)
+		if st.lockedUntil.After(time.Now()) {
+			rem := int(st.lockedUntil.Sub(time.Now()).Minutes()) + 1
+			return true, rem
+		}
+	}
+	return false, 0
+}
+
+func recordKeyUnlockResult(doctorID, patientID uint64, success bool) int {
+	k := fmt.Sprintf("key_unlock:%d:%d", doctorID, patientID)
+	if success {
+		keyUnlockLimiter.Delete(k)
+		return 0
+	}
+	st := keyUnlockFailState{count: 1}
+	if v, ok := keyUnlockLimiter.Load(k); ok {
+		prev := v.(keyUnlockFailState)
+		st.count = prev.count + 1
+	}
+	if st.count >= 5 {
+		st.lockedUntil = time.Now().Add(15 * time.Minute)
+	}
+	keyUnlockLimiter.Store(k, st)
+	return st.count
+}
+
+func revokeActiveAuthorizationsWithChainSync(patientID uint64, scopeType string, recordID uint64) {
+	var oldAuths []model.Authorization
+	q := repository.DB.Where("patient_id = ? AND scope_type = ? AND status = 'ACTIVE'", patientID, scopeType)
+	if scopeType == "SINGLE" {
+		q = q.Where("record_id = ?", recordID)
+	}
+	if err := q.Find(&oldAuths).Error; err == nil {
+		for _, oa := range oldAuths {
+			if oa.AuthNo != "" && blockchain.DefaultService != nil {
+				_, _, _ = blockchain.DefaultService.CommitAsset("REVOKE_AUTH", oa.AuthNo, map[string]interface{}{
+					"auth_no":    oa.AuthNo,
+					"patient_id": patientID,
+					"status":     "REVOKED",
+					"timestamp":  time.Now().Format(time.RFC3339),
+				})
+			}
+			repository.DB.Model(&model.Authorization{}).Where("id = ?", oa.ID).Update("status", "REVOKED")
+		}
+	}
+}
 
 type AccessRequestDTO struct {
 	PatientID uint64 `json:"patient_id" binding:"required"`
@@ -330,11 +389,19 @@ func (ctrl *AccessController) UnlockPatientByKey(c *gin.Context) {
 		return
 	}
 	// 校验图形防爆破验证码
-	if gin.Mode() != gin.TestMode && req.CaptchaToken != "TEST_BYPASS" {
+	if gin.Mode() != gin.TestMode {
 		if ok, errMsg := captcha.VerifyCaptcha(req.CaptchaToken, req.CaptchaAnswer); !ok {
 			c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: errMsg})
 			return
 		}
+	}
+
+	if locked, rem := checkKeyUnlockLocked(doctorID, req.PatientID); locked {
+		c.JSON(http.StatusTooManyRequests, model.Response{
+			Code:    429,
+			Message: fmt.Sprintf("针对该患者的调阅密钥连续核验失败已达上限，安全防暴破锁定中（剩余 %d 分钟）", rem),
+		})
+		return
 	}
 
 	var patient model.User
@@ -348,13 +415,22 @@ func (ctrl *AccessController) UnlockPatientByKey(c *gin.Context) {
 
 	inputKey := strings.TrimSpace(req.MedicalKey)
 	if !service.VerifyMedicalKey(inputKey, patient.UserNo, patient.MedicalKeyHash, patient.MedicalKey) {
+		failCnt := recordKeyUnlockResult(doctorID, patient.ID, false)
 		service.DefaultAuditService.Log(doctorID, "KEY_UNLOCK_FAILED", "PATIENT", patient.UserNo, doctor.HospitalID, "INTERCEPTED", "HIGH", c.ClientIP())
+		if failCnt >= 5 {
+			c.JSON(http.StatusTooManyRequests, model.Response{
+				Code:    429,
+				Message: "连续密钥错误已达 5 次，已触发防暴破安全保护，锁定该患者的密钥解锁通道 15 分钟",
+			})
+			return
+		}
 		c.JSON(http.StatusForbidden, model.Response{
 			Code:    403,
 			Message: "患者授权密钥校验失败，密码不正确！请由患者在个人中心核实或重新设置调阅密钥",
 		})
 		return
 	}
+	recordKeyUnlockResult(doctorID, patient.ID, true)
 
 	// 密钥核验通过：生成对该患者全部档案全局生效的授权凭证
 	days := req.Days
@@ -490,55 +566,25 @@ func (ctrl *AccessController) ListPendingRequests(c *gin.Context) {
 	docIDs := make([]uint64, 0, len(list))
 	recIDs := make([]uint64, 0, len(list))
 	for _, item := range list {
-		if item.DoctorID > 0 {
-			docIDs = append(docIDs, item.DoctorID)
-		}
-		if item.RecordID > 0 {
-			recIDs = append(recIDs, item.RecordID)
-		}
+		docIDs = append(docIDs, item.DoctorID)
+		recIDs = append(recIDs, item.RecordID)
 	}
 
-	docMap := make(map[uint64]model.User)
-	hospMap := make(map[uint64]model.Hospital)
-	recMap := make(map[uint64]model.MedicalRecord)
+	docMap := loadUsersBatch(docIDs)
+	recMap := loadRecordsBatch(recIDs)
 
-	if len(docIDs) > 0 {
-		var docs []model.User
-		repository.DB.Where("id IN ?", docIDs).Find(&docs)
-		hospIDs := make([]uint64, 0, len(docs))
-		for _, d := range docs {
-			docMap[d.ID] = d
-			if d.HospitalID > 0 {
-				hospIDs = append(hospIDs, d.HospitalID)
-			}
-		}
-		if len(hospIDs) > 0 {
-			var hosps []model.Hospital
-			repository.DB.Where("id IN ?", hospIDs).Find(&hosps)
-			for _, h := range hosps {
-				hospMap[h.ID] = h
-			}
+	hospIDs := make([]uint64, 0, len(docMap)+len(recMap))
+	for _, d := range docMap {
+		if d.HospitalID > 0 {
+			hospIDs = append(hospIDs, d.HospitalID)
 		}
 	}
-
-	if len(recIDs) > 0 {
-		var recs []model.MedicalRecord
-		repository.DB.Where("id IN ?", recIDs).Find(&recs)
-		recHospIDs := make([]uint64, 0, len(recs))
-		for _, r := range recs {
-			recMap[r.ID] = r
-			if r.HospitalID > 0 {
-				recHospIDs = append(recHospIDs, r.HospitalID)
-			}
-		}
-		if len(recHospIDs) > 0 {
-			var hosps []model.Hospital
-			repository.DB.Where("id IN ?", recHospIDs).Find(&hosps)
-			for _, h := range hosps {
-				hospMap[h.ID] = h
-			}
+	for _, r := range recMap {
+		if r.HospitalID > 0 {
+			hospIDs = append(hospIDs, r.HospitalID)
 		}
 	}
+	hospMap := loadHospitalsBatch(hospIDs)
 
 	for i := range list {
 		if doc, ok := docMap[list[i].DoctorID]; ok {
@@ -905,36 +951,59 @@ func (ctrl *AccessController) ListAuthorizations(c *gin.Context) {
 	}
 	query.Order("id desc").Find(&list)
 
+	docIDs := make([]uint64, 0, len(list))
+	hospIDs := make([]uint64, 0, len(list))
+	recIDs := make([]uint64, 0, len(list))
+
+	for _, a := range list {
+		if a.AuthTargetType == "DOCTOR" && a.AuthTargetID > 0 {
+			docIDs = append(docIDs, a.AuthTargetID)
+		} else if a.AuthTargetType == "HOSPITAL" && a.AuthTargetID > 0 {
+			hospIDs = append(hospIDs, a.AuthTargetID)
+		}
+		if a.RecordID > 0 {
+			recIDs = append(recIDs, a.RecordID)
+		}
+	}
+
+	docMap := loadUsersBatch(docIDs)
+	recMap := loadRecordsBatch(recIDs)
+
+	for _, d := range docMap {
+		if d.HospitalID > 0 {
+			hospIDs = append(hospIDs, d.HospitalID)
+		}
+	}
+	for _, r := range recMap {
+		if r.HospitalID > 0 {
+			hospIDs = append(hospIDs, r.HospitalID)
+		}
+	}
+	hospMap := loadHospitalsBatch(hospIDs)
+
 	for i := range list {
 		if list[i].AuthTargetType == "ALL_DOCTORS" {
 			list[i].TargetName = "全体执业医生 (全联盟公开)"
 		} else if list[i].AuthTargetType == "DOCTOR" {
-			var doc model.User
-			if err := repository.DB.First(&doc, list[i].AuthTargetID).Error; err == nil {
+			if doc, ok := docMap[list[i].AuthTargetID]; ok {
 				hospSuffix := ""
-				if doc.HospitalID > 0 {
-					var hosp model.Hospital
-					if err := repository.DB.First(&hosp, doc.HospitalID).Error; err == nil {
-						hospSuffix = " (" + hosp.Name + ")"
-					}
+				if hosp, hOk := hospMap[doc.HospitalID]; hOk && hosp.Name != "" {
+					hospSuffix = " (" + hosp.Name + ")"
 				}
 				list[i].TargetName = doc.RealName + " 医生" + hospSuffix
 			}
 		} else if list[i].AuthTargetType == "HOSPITAL" {
-			var hosp model.Hospital
-			if err := repository.DB.First(&hosp, list[i].AuthTargetID).Error; err == nil {
+			if hosp, ok := hospMap[list[i].AuthTargetID]; ok {
 				list[i].TargetName = hosp.Name
 			}
 		}
 
 		if list[i].RecordID > 0 {
-			var rec model.MedicalRecord
-			if err := repository.DB.First(&rec, list[i].RecordID).Error; err == nil {
+			if rec, ok := recMap[list[i].RecordID]; ok {
 				list[i].RecordNo = rec.RecordNo
 				list[i].RecordDiagnosis = rec.Diagnosis
 				list[i].RecordDepartment = rec.DepartmentName
-				var hosp model.Hospital
-				if err := repository.DB.First(&hosp, rec.HospitalID).Error; err == nil {
+				if hosp, ok := hospMap[rec.HospitalID]; ok {
 					list[i].RecordHospitalName = hosp.Name
 				}
 			}
@@ -1537,7 +1606,7 @@ func (ctrl *AccessController) UnlockByKey(c *gin.Context) {
 		return
 	}
 	// 校验图形防爆破验证码
-	if gin.Mode() != gin.TestMode && req.CaptchaToken != "TEST_BYPASS" {
+	if gin.Mode() != gin.TestMode {
 		if ok, errMsg := captcha.VerifyCaptcha(req.CaptchaToken, req.CaptchaAnswer); !ok {
 			c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: errMsg})
 			return
@@ -1547,6 +1616,14 @@ func (ctrl *AccessController) UnlockByKey(c *gin.Context) {
 	var rec model.MedicalRecord
 	if err := repository.DB.First(&rec, req.RecordID).Error; err != nil {
 		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "目标病历档案不存在"})
+		return
+	}
+
+	if locked, rem := checkKeyUnlockLocked(doctorID, rec.PatientID); locked {
+		c.JSON(http.StatusTooManyRequests, model.Response{
+			Code:    429,
+			Message: fmt.Sprintf("针对该患者的调阅密钥连续核验失败已达上限，安全防暴破锁定中（剩余 %d 分钟）", rem),
+		})
 		return
 	}
 
@@ -1561,13 +1638,22 @@ func (ctrl *AccessController) UnlockByKey(c *gin.Context) {
 
 	inputKey := strings.TrimSpace(req.MedicalKey)
 	if !service.VerifyMedicalKey(inputKey, patient.UserNo, patient.MedicalKeyHash, patient.MedicalKey) {
+		failCnt := recordKeyUnlockResult(doctorID, patient.ID, false)
 		service.DefaultAuditService.Log(doctorID, "KEY_UNLOCK_FAILED", "RECORD", rec.RecordNo, doctor.HospitalID, "INTERCEPTED", "HIGH", c.ClientIP())
+		if failCnt >= 5 {
+			c.JSON(http.StatusTooManyRequests, model.Response{
+				Code:    429,
+				Message: "连续密钥错误已达 5 次，已触发防暴破安全保护，锁定该患者的密钥解锁通道 15 分钟",
+			})
+			return
+		}
 		c.JSON(http.StatusForbidden, model.Response{
 			Code:    403,
 			Message: "患者授权密钥校验失败，密码不正确！请由患者在个人中心核实或重新设置调阅密钥",
 		})
 		return
 	}
+	recordKeyUnlockResult(doctorID, patient.ID, true)
 
 	// 密钥核验通过：生成即时生效的授权凭证
 	days := req.Days
@@ -1668,9 +1754,7 @@ func (ctrl *AccessController) SetRecordAccessPolicy(c *gin.Context) {
 
 	if req.PolicyType == "ALL_DOCTORS" {
 		// 先撤销旧的单份活跃授权
-		repository.DB.Model(&model.Authorization{}).
-			Where("patient_id = ? AND scope_type = 'SINGLE' AND record_id = ? AND status = 'ACTIVE'", patientID, recordID).
-			Update("status", "REVOKED")
+		revokeActiveAuthorizationsWithChainSync(patientID, "SINGLE", recordID)
 
 		randBytes := make([]byte, 3)
 		_, _ = rand.Read(randBytes)
@@ -1720,9 +1804,7 @@ func (ctrl *AccessController) SetRecordAccessPolicy(c *gin.Context) {
 		}
 
 		// 先撤销旧的单份活跃授权
-		repository.DB.Model(&model.Authorization{}).
-			Where("patient_id = ? AND scope_type = 'SINGLE' AND record_id = ? AND status = 'ACTIVE'", patientID, recordID).
-			Update("status", "REVOKED")
+		revokeActiveAuthorizationsWithChainSync(patientID, "SINGLE", recordID)
 
 		randBytes := make([]byte, 3)
 		_, _ = rand.Read(randBytes)
@@ -1772,9 +1854,7 @@ func (ctrl *AccessController) SetRecordAccessPolicy(c *gin.Context) {
 		}
 
 		// 先撤销旧的单份活跃授权
-		repository.DB.Model(&model.Authorization{}).
-			Where("patient_id = ? AND scope_type = 'SINGLE' AND record_id = ? AND status = 'ACTIVE'", patientID, recordID).
-			Update("status", "REVOKED")
+		revokeActiveAuthorizationsWithChainSync(patientID, "SINGLE", recordID)
 
 		randBytes := make([]byte, 3)
 		_, _ = rand.Read(randBytes)
@@ -1818,9 +1898,7 @@ func (ctrl *AccessController) SetRecordAccessPolicy(c *gin.Context) {
 		})
 	} else if req.PolicyType == "PRIVATE" {
 		// 撤销对该病历的所有单份活跃授权
-		repository.DB.Model(&model.Authorization{}).
-			Where("patient_id = ? AND scope_type = 'SINGLE' AND record_id = ? AND status = 'ACTIVE'", patientID, recordID).
-			Update("status", "REVOKED")
+		revokeActiveAuthorizationsWithChainSync(patientID, "SINGLE", recordID)
 
 		randBytes := make([]byte, 3)
 		_, _ = rand.Read(randBytes)
@@ -1888,9 +1966,7 @@ func (ctrl *AccessController) BatchSetAccessPolicy(c *gin.Context) {
 
 	if req.PolicyType == "ALL_DOCTORS" {
 		// 撤销旧的全局策略
-		repository.DB.Model(&model.Authorization{}).
-			Where("patient_id = ? AND scope_type = 'ALL' AND status = 'ACTIVE'", patientID).
-			Update("status", "REVOKED")
+		revokeActiveAuthorizationsWithChainSync(patientID, "ALL", 0)
 
 		randBytes := make([]byte, 3)
 		_, _ = rand.Read(randBytes)
@@ -1939,9 +2015,7 @@ func (ctrl *AccessController) BatchSetAccessPolicy(c *gin.Context) {
 			return
 		}
 
-		repository.DB.Model(&model.Authorization{}).
-			Where("patient_id = ? AND scope_type = 'ALL' AND status = 'ACTIVE'", patientID).
-			Update("status", "REVOKED")
+		revokeActiveAuthorizationsWithChainSync(patientID, "ALL", 0)
 
 		randBytes := make([]byte, 3)
 		_, _ = rand.Read(randBytes)
@@ -1990,9 +2064,7 @@ func (ctrl *AccessController) BatchSetAccessPolicy(c *gin.Context) {
 			return
 		}
 
-		repository.DB.Model(&model.Authorization{}).
-			Where("patient_id = ? AND scope_type = 'ALL' AND status = 'ACTIVE'", patientID).
-			Update("status", "REVOKED")
+		revokeActiveAuthorizationsWithChainSync(patientID, "ALL", 0)
 
 		randBytes := make([]byte, 3)
 		_, _ = rand.Read(randBytes)
@@ -2035,9 +2107,7 @@ func (ctrl *AccessController) BatchSetAccessPolicy(c *gin.Context) {
 			Data:    auth,
 		})
 	} else if req.PolicyType == "PRIVATE" {
-		repository.DB.Model(&model.Authorization{}).
-			Where("patient_id = ? AND scope_type = 'ALL' AND status = 'ACTIVE'", patientID).
-			Update("status", "REVOKED")
+		revokeActiveAuthorizationsWithChainSync(patientID, "ALL", 0)
 
 		service.DefaultAuditService.Log(patientID, "REVOKE_ALL_VISIBILITY", "ALL_RECORDS", "ALL", 0, "SUCCESS", "LOW", c.ClientIP())
 		c.JSON(http.StatusOK, model.Response{

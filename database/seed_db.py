@@ -12,16 +12,293 @@ MedTrust 医疗区块链系统全面多维种子数据生成脚本
 
 import pymysql
 
+# 0. 数据库环境自检与建库建表 (一站式初始化)
 conn = pymysql.connect(
     host='127.0.0.1',
     user='root',
     password='123456',
-    database='medtrust',
     port=3306,
     autocommit=True,
     charset='utf8mb4'
 )
 cur = conn.cursor()
+cur.execute('CREATE DATABASE IF NOT EXISTS medtrust DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;')
+cur.execute('USE medtrust;')
+
+tables = [
+"""
+CREATE TABLE IF NOT EXISTS users (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '用户主键',
+  user_no VARCHAR(64) NOT NULL COMMENT '用户业务编号',
+  username VARCHAR(50) NOT NULL COMMENT '登录账号名',
+  password_hash VARCHAR(255) NOT NULL COMMENT 'bcrypt密码哈希',
+  real_name VARCHAR(50) NOT NULL COMMENT '用户真实姓名',
+  role VARCHAR(20) NOT NULL COMMENT '角色: doctor, patient, admin, supervisor',
+  hospital_id BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '所属机构ID',
+  department_id BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '所属科室ID',
+  title VARCHAR(50) NOT NULL DEFAULT '' COMMENT '医生职称',
+  phone VARCHAR(20) NOT NULL DEFAULT '' COMMENT '联系电话',
+  id_card VARCHAR(20) NOT NULL DEFAULT '' COMMENT '居民身份证号',
+  avatar LONGTEXT NULL,
+  medical_key VARCHAR(64) NOT NULL DEFAULT '',
+  medical_key_hash VARCHAR(128) NOT NULL DEFAULT '',
+  must_change_pwd TINYINT(1) NOT NULL DEFAULT 0,
+  failed_login_count INT NOT NULL DEFAULT 0,
+  locked_until DATETIME NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'NORMAL' COMMENT '状态: NORMAL, RESTRICTED, DISABLED',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_username (username),
+  UNIQUE KEY uk_user_no (user_no),
+  KEY idx_hosp_dept (hospital_id, department_id),
+  KEY idx_phone (phone),
+  KEY idx_id_card (id_card)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+""",
+"""
+CREATE TABLE IF NOT EXISTS hospitals (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  hospital_no VARCHAR(32) NOT NULL,
+  name VARCHAR(100) NOT NULL,
+  level VARCHAR(20) NOT NULL DEFAULT '三甲',
+  address VARCHAR(255) NOT NULL DEFAULT '',
+  status TINYINT NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_hospital_no (hospital_no)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+""",
+"""
+CREATE TABLE IF NOT EXISTS departments (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  dept_no VARCHAR(32) NOT NULL,
+  hospital_id BIGINT UNSIGNED NOT NULL,
+  name VARCHAR(64) NOT NULL,
+  description VARCHAR(255) NOT NULL DEFAULT '',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_hospital_id (hospital_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+""",
+"""
+CREATE TABLE IF NOT EXISTS medical_records (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  record_no VARCHAR(64) NOT NULL,
+  patient_id BIGINT UNSIGNED NOT NULL,
+  doctor_id BIGINT UNSIGNED NOT NULL,
+  hospital_id BIGINT UNSIGNED NOT NULL,
+  data_type VARCHAR(32) NOT NULL,
+  onset_time VARCHAR(50) NOT NULL DEFAULT '',
+  duration VARCHAR(50) NOT NULL DEFAULT '',
+  symptoms TEXT NULL,
+  etiology TEXT NULL,
+  treatment_plan TEXT NULL,
+  vital_signs VARCHAR(255) NOT NULL DEFAULT '',
+  diagnosis TEXT NULL,
+  encounter_type VARCHAR(32) NOT NULL DEFAULT 'OUTPATIENT',
+  department_name VARCHAR(64) NOT NULL DEFAULT '',
+  status VARCHAR(32) NOT NULL DEFAULT 'COMPLETED',
+  chief_complaint TEXT NULL,
+  present_illness TEXT NULL,
+  initial_diagnosis TEXT NULL,
+  diagnostic_basis TEXT NULL,
+  need_exam TINYINT(1) NOT NULL DEFAULT 0,
+  exam_items VARCHAR(255) NOT NULL DEFAULT '',
+  exam_reason TEXT NULL,
+  exam_result TEXT NULL,
+  exam_doctor VARCHAR(64) NOT NULL DEFAULT '',
+  exam_time VARCHAR(50) NOT NULL DEFAULT '',
+  idempotency_key VARCHAR(128) NOT NULL DEFAULT '',
+  sync_status VARCHAR(32) NOT NULL DEFAULT 'COMPLETED',
+  sync_error TEXT NULL,
+  retry_count INT NOT NULL DEFAULT 0,
+  fabric_tx_id VARCHAR(128) NOT NULL DEFAULT '',
+  block_height BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_record_no (record_no),
+  KEY idx_patient_id (patient_id),
+  KEY idx_doctor_hosp (doctor_id, hospital_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+""",
+"""
+CREATE TABLE IF NOT EXISTS medical_files (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  record_id BIGINT UNSIGNED NOT NULL,
+  file_name VARCHAR(255) NOT NULL,
+  file_type VARCHAR(32) NOT NULL,
+  file_size BIGINT UNSIGNED NOT NULL,
+  ipfs_cid VARCHAR(128) NOT NULL,
+  file_hash VARCHAR(64) NOT NULL,
+  encrypted_dek TEXT NULL,
+  iv_nonce VARCHAR(64) NOT NULL DEFAULT '',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_record_id (record_id),
+  KEY idx_ipfs_cid (ipfs_cid)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+""",
+"""
+CREATE TABLE IF NOT EXISTS medical_exam_orders (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  order_no VARCHAR(64) NOT NULL,
+  record_id BIGINT UNSIGNED NOT NULL,
+  patient_id BIGINT UNSIGNED NOT NULL,
+  doctor_id BIGINT UNSIGNED NOT NULL,
+  hospital_id BIGINT UNSIGNED NOT NULL,
+  department_name VARCHAR(64) NOT NULL DEFAULT '',
+  exam_item VARCHAR(128) NOT NULL,
+  exam_reason TEXT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+  technician_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  technician_name VARCHAR(64) NOT NULL DEFAULT '',
+  exam_result TEXT NULL,
+  exam_conclusion TEXT NULL,
+  executed_at DATETIME NULL,
+  report_file_name VARCHAR(255) NOT NULL DEFAULT '',
+  report_file_type VARCHAR(32) NOT NULL DEFAULT '',
+  ipfs_cid VARCHAR(128) NOT NULL DEFAULT '',
+  file_hash VARCHAR(64) NOT NULL DEFAULT '',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_order_no (order_no),
+  KEY idx_record_id (record_id),
+  KEY idx_patient_id (patient_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+""",
+"""
+CREATE TABLE IF NOT EXISTS authorizations (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  auth_no VARCHAR(64) NOT NULL,
+  patient_id BIGINT UNSIGNED NOT NULL,
+  auth_target_type VARCHAR(20) NOT NULL,
+  auth_target_id BIGINT UNSIGNED NOT NULL,
+  scope_type VARCHAR(20) NOT NULL,
+  record_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  start_time DATETIME NOT NULL,
+  end_time DATETIME NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+  fabric_tx_id VARCHAR(128) NOT NULL DEFAULT '',
+  revoke_error TEXT NULL,
+  operator_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_auth_no (auth_no),
+  KEY idx_pat_status (patient_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+""",
+"""
+CREATE TABLE IF NOT EXISTS access_requests (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  request_no VARCHAR(64) NOT NULL,
+  doctor_id BIGINT UNSIGNED NOT NULL,
+  patient_id BIGINT UNSIGNED NOT NULL,
+  record_id BIGINT UNSIGNED NOT NULL,
+  source_hospital_id BIGINT UNSIGNED NOT NULL,
+  target_hospital_id BIGINT UNSIGNED NOT NULL,
+  purpose VARCHAR(255) NOT NULL,
+  risk_score INT NOT NULL,
+  risk_level VARCHAR(20) NOT NULL,
+  decision VARCHAR(50) NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+  scope_type VARCHAR(20) NOT NULL DEFAULT 'SINGLE',
+  days INT NOT NULL DEFAULT 7,
+  expire_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_request_no (request_no)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+""",
+"""
+CREATE TABLE IF NOT EXISTS emergency_access_events (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  event_no VARCHAR(64) NOT NULL,
+  doctor_id BIGINT UNSIGNED NOT NULL,
+  patient_id BIGINT UNSIGNED NOT NULL,
+  record_id BIGINT UNSIGNED NOT NULL,
+  source_hospital_id BIGINT UNSIGNED NOT NULL,
+  target_hospital_id BIGINT UNSIGNED NOT NULL,
+  emergency_reason VARCHAR(50) NOT NULL,
+  description TEXT NOT NULL,
+  doctor_confirmed TINYINT NOT NULL DEFAULT 1,
+  patient_feedback VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+  patient_comment TEXT NULL,
+  audit_status VARCHAR(30) NOT NULL DEFAULT 'PENDING_AUDIT',
+  supervisor_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  audit_comment TEXT NULL,
+  punishment VARCHAR(20) NOT NULL DEFAULT 'NONE',
+  fabric_tx_id VARCHAR(128) NOT NULL DEFAULT '',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_event_no (event_no),
+  KEY idx_doc_pat (doctor_id, patient_id),
+  KEY idx_audit_status (audit_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+""",
+"""
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  log_id VARCHAR(64) NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  operation_type VARCHAR(50) NOT NULL,
+  target_type VARCHAR(50) NOT NULL,
+  target_id VARCHAR(64) NOT NULL,
+  hospital_id BIGINT UNSIGNED NOT NULL,
+  result VARCHAR(20) NOT NULL,
+  risk_level VARCHAR(20) NOT NULL DEFAULT 'LOW',
+  risk_score INT NOT NULL DEFAULT 0,
+  source VARCHAR(50) NOT NULL DEFAULT 'WEB',
+  reason TEXT NULL,
+  ip_address VARCHAR(50) NOT NULL DEFAULT '',
+  user_agent VARCHAR(255) NOT NULL DEFAULT '',
+  fabric_tx_id VARCHAR(128) NOT NULL DEFAULT '',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_log_id (log_id),
+  KEY idx_user_op (user_id, operation_type),
+  KEY idx_hospital_time (hospital_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+""",
+"""
+CREATE TABLE IF NOT EXISTS risk_records (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  access_request_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  access_frequency INT NOT NULL DEFAULT 0,
+  time_risk INT NOT NULL DEFAULT 0,
+  behavior_risk INT NOT NULL DEFAULT 0,
+  total_score INT NOT NULL DEFAULT 0,
+  anomaly_flag TINYINT NOT NULL DEFAULT 0,
+  analysis_result VARCHAR(255) NOT NULL DEFAULT '',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_access_request_id (access_request_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+""",
+"""
+CREATE TABLE IF NOT EXISTS blockchain_transactions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  business_type VARCHAR(50) NOT NULL,
+  business_id VARCHAR(64) NOT NULL,
+  tx_id VARCHAR(128) NOT NULL,
+  block_no BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  channel_name VARCHAR(64) NOT NULL DEFAULT 'medicalchannel',
+  chaincode_name VARCHAR(64) NOT NULL DEFAULT 'medical_contract',
+  status VARCHAR(20) NOT NULL DEFAULT 'VALID',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_tx_id (tx_id),
+  KEY idx_business (business_type, business_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+"""
+]
+
+for t in tables:
+    cur.execute(t)
 
 # 1. 预置医疗机构
 hospitals = [

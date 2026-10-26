@@ -53,7 +53,11 @@ func (r *UserRepository) UpdateStatus(id uint64, status string) error {
 	if DB == nil {
 		return errors.New("database not initialized")
 	}
-	return DB.Model(&model.User{}).Where("id = ?", id).Update("status", status).Error
+	err := DB.Model(&model.User{}).Where("id = ?", id).Update("status", status).Error
+	if err == nil {
+		InvalidateUserStatus(id)
+	}
+	return err
 }
 
 func (r *UserRepository) ListUsers(role, keyword string, hospitalID uint64) ([]model.User, error) {

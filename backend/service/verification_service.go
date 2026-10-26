@@ -83,26 +83,55 @@ func (s *VerificationService) Verify(recordID uint64, clientIP ...string) (*Veri
 	}
 
 	localFileHash := ""
-	if len(record.Files) > 0 {
-		localFileHash = record.Files[len(record.Files)-1].FileHash
-	}
-	if chainFileHash == "" {
-		chainFileHash = localFileHash
+	stage1Pass := true
+	stage1Detail := "该病历无独立二进制附件"
+
+	if primaryFile := SelectPrimaryMedicalFile(&record); primaryFile != nil {
+		if cid == "" {
+			cid = primaryFile.IPFSCID
+		}
+		if chainFileHash == "" {
+			chainFileHash = primaryFile.FileHash
+		}
+		if primaryFile.IPFSCID != "" {
+			_, decryptedHash, decErr := DefaultMedicalService.DecryptFileAndComputeHash(&record, primaryFile)
+			if decErr != nil {
+				stage1Pass = false
+				localFileHash = "AES_GCM_TAG_OR_IPFS_ERR"
+				stage1Detail = fmt.Sprintf("【严重告警】从 IPFS 节点拉取加密块或 AES-256-GCM 认证标签校验失败 (%v)，密文可能已被篡改或破坏", decErr)
+				record.IsTampered = true
+				record.Verified = false
+			} else {
+				localFileHash = decryptedHash
+				stage1Pass = (chainFileHash != "" && localFileHash == chainFileHash)
+				if stage1Pass {
+					stage1Detail = "已从 IPFS 节点拉取密文块并通过 AES-256-GCM 认证标签与 AAD 校验，解密明文计算的 SHA-256 指纹与链上登记 FileHash 完全吻合"
+				} else {
+					stage1Detail = "【严重告警】IPFS 解密明文计算的 SHA-256 指纹与链上登记 FileHash 不匹配，附件可能遭篡改替换"
+					record.IsTampered = true
+					record.Verified = false
+				}
+			}
+		} else {
+			localFileHash = primaryFile.FileHash
+			stage1Pass = (localFileHash == chainFileHash)
+			if stage1Pass {
+				stage1Detail = "附件与医学影像二进制明文计算的 SHA-256 指纹与链上登记 FileHash 完全吻合"
+			} else {
+				stage1Detail = "附件指纹不匹配，可能存在离线修改或篡改替换"
+				record.IsTampered = true
+				record.Verified = false
+			}
+		}
 	}
 
-	// 阶段 1: 附件与影像 SHA-256 物理指纹验真
-	stage1Pass := (localFileHash == "" && chainFileHash == "") || (localFileHash == chainFileHash)
+	// 阶段 1: 附件与影像 SHA-256 物理指纹验真 (真实 IPFS 密文拉取 + AES-256-GCM 解密验签)
 	stage1 := VerificationStageItem{
-		StageName: "阶段一：附件/影像 SHA-256 物理指纹验真",
+		StageName: "阶段一：IPFS 密文拉取与 AES-256-GCM 原始文件完整性校验",
 		Passed:    stage1Pass,
 		LocalVal:  localFileHash,
 		ChainVal:  chainFileHash,
-		Detail: func() string {
-			if stage1Pass {
-				return "附件与医学影像二进制明文计算的 SHA-256 指纹与链上登记 FileHash 完全吻合"
-			}
-			return "附件指纹不匹配，可能存在离线修改或篡改替换"
-		}(),
+		Detail:    stage1Detail,
 	}
 
 	// 阶段 2: 结构化病历 Merkle 综合摘要验真

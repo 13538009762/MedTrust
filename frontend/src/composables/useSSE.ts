@@ -88,7 +88,7 @@ export function useSSE() {
         if (!reconnectTimer) {
           reconnectTimer = setTimeout(() => {
             reconnectTimer = null
-            const currentToken = sessionStorage.getItem('token')
+            const currentToken = sessionStorage.getItem('medtrust_token') || sessionStorage.getItem('token')
             if (currentToken) {
               connect(currentToken)
             }

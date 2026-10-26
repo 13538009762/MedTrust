@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-CHANNEL_NAME="medicalchannel"
-CC_NAME="medical_contract"
+CHANNEL_NAME="medchannel"
+CC_NAME="medical"
 CC_VERSION="1.0"
 CC_SEQUENCE=1
 

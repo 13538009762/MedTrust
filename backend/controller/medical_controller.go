@@ -322,22 +322,6 @@ func (ctrl *MedicalController) Download(c *gin.Context) {
 	c.Data(http.StatusOK, "application/pdf", pdfBytes)
 }
 
-func maskPhone(phone string) string {
-	runes := []rune(phone)
-	if len(runes) <= 7 {
-		return phone
-	}
-	return string(runes[:3]) + "****" + string(runes[len(runes)-4:])
-}
-
-func maskIDCard(idCard string) string {
-	runes := []rune(idCard)
-	if len(runes) <= 10 {
-		return idCard
-	}
-	return string(runes[:6]) + "********" + string(runes[len(runes)-4:])
-}
-
 // ListPatients 供医生选择患者或通过姓名/手机号/身份证号检索患者
 func (ctrl *MedicalController) ListPatients(c *gin.Context) {
 	keyword := c.Query("keyword")
@@ -773,6 +757,25 @@ func (ctrl *MedicalController) GetPatientInfectionRisks(c *gin.Context) {
 	if role != "doctor" && role != "supervisor" && role != "patient" {
 		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "权限不足，禁止访问"})
 		return
+	}
+
+	// 若调用者为医生，必须校验其对该患者是否拥有至少一份合法授权或本院经治病历，防止未授权外院医生越权探测传染病隐私
+	if role == "doctor" {
+		recs, _ := service.DefaultMedicalService.GetRecords(patientID, 0, 0, 0, currentUserID, false, "", "")
+		hasAnyAccess := false
+		for _, r := range recs {
+			if r.HasAccess {
+				hasAnyAccess = true
+				break
+			}
+		}
+		if !hasAnyAccess {
+			c.JSON(http.StatusForbidden, model.Response{
+				Code:    403,
+				Message: "权限拦截 (403 Forbidden): 未取得该患者的跨院授权或本院诊疗关系，禁止查询患者传染病隐私信息",
+			})
+			return
+		}
 	}
 
 	alert, err := service.GetInfectionService().AnalyzePatientRisks(patientID)

@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"fmt"
 	"context"
 	"log"
 	"sync"
@@ -97,5 +98,74 @@ func IsTokenBlacklisted(tokenStr string) bool {
 func CloseRedis() {
 	if RDB != nil {
 		_ = RDB.Close()
+	}
+}
+
+const UserStatusCachePrefix = "user:status:"
+
+// CacheUserStatus 将用户状态写入多级缓存 (Redis 分布式 + MemoryCache 本地内存容灾)
+func CacheUserStatus(userID uint64, status string, ttl time.Duration) {
+	if userID == 0 || status == "" {
+		return
+	}
+	if ttl <= 0 {
+		ttl = 60 * time.Second
+	}
+	key := fmt.Sprintf("%s%d", UserStatusCachePrefix, userID)
+
+	// 1. 本地内存双写容灾
+	DefaultCache.Set(key, status, ttl)
+
+	// 2. 若 Redis 可用，写入 Redis
+	if redisAvailable && RDB != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+		_ = RDB.Set(ctx, key, status, ttl).Err()
+	}
+}
+
+// GetUserStatus 从多级缓存获取用户账号状态 (优先本地内存，次查 Redis，大幅降低高频查库压力)
+func GetUserStatus(userID uint64) (string, bool) {
+	if userID == 0 {
+		return "", false
+	}
+	key := fmt.Sprintf("%s%d", UserStatusCachePrefix, userID)
+
+	// 1. 本地内存快速命中 (微秒级)
+	if val, ok := DefaultCache.Get(key); ok {
+		if s, ok := val.(string); ok {
+			return s, true
+		}
+	}
+
+	// 2. 查询 Redis 分布式缓存
+	if redisAvailable && RDB != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		defer cancel()
+		val, err := RDB.Get(ctx, key).Result()
+		if err == nil && val != "" {
+			DefaultCache.Set(key, val, 60*time.Second)
+			return val, true
+		}
+	}
+
+	return "", false
+}
+
+// InvalidateUserStatus 主动使指定用户的状态缓存失效 (写后失效，保证状态秒级强一致性)
+func InvalidateUserStatus(userID uint64) {
+	if userID == 0 {
+		return
+	}
+	key := fmt.Sprintf("%s%d", UserStatusCachePrefix, userID)
+
+	// 1. 清理本地内存缓存
+	DefaultCache.Delete(key)
+
+	// 2. 清理 Redis 缓存
+	if redisAvailable && RDB != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+		_ = RDB.Del(ctx, key).Err()
 	}
 }

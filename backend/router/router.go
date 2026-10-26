@@ -121,6 +121,14 @@ func SetupRouter() *gin.Engine {
 			authGroup.GET("/system/hospitals", controller.DefaultSystemController.ListHospitals)
 			authGroup.GET("/system/departments", controller.DefaultSystemController.ListDepartments)
 			authGroup.GET("/system/doctors", controller.DefaultSystemController.ListDoctors)
+
+			// 医疗机构与科室全生命周期管理
+			authGroup.POST("/system/hospitals", middleware.RequireRoles("admin"), controller.DefaultSystemController.CreateHospital)
+			authGroup.PUT("/system/hospitals/:id", middleware.RequireRoles("admin"), controller.DefaultSystemController.UpdateHospital)
+			authGroup.PUT("/system/hospitals/:id/status", middleware.RequireRoles("admin"), controller.DefaultSystemController.UpdateHospitalStatus)
+			authGroup.POST("/system/departments", middleware.RequireRoles("admin"), controller.DefaultSystemController.CreateDepartment)
+			authGroup.PUT("/system/departments/:id", middleware.RequireRoles("admin"), controller.DefaultSystemController.UpdateDepartment)
+			authGroup.DELETE("/system/departments/:id", middleware.RequireRoles("admin"), controller.DefaultSystemController.DeleteDepartment)
 		}
 	}
 

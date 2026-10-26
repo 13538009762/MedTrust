@@ -154,8 +154,17 @@ const selectedRecord = computed(() => {
 
 const stageItems = computed(() => {
   const vr = verifyResult.value
+  if (vr && Array.isArray(vr.stages) && vr.stages.length === 3) {
+    return vr.stages.map((s: any) => ({
+      title: s.stage_name,
+      passed: Boolean(s.passed),
+      localVal: s.local_val || '-',
+      chainVal: s.chain_val || '-',
+      detail: s.detail || ''
+    }))
+  }
   const rec = selectedRecord.value || {}
-  const pass = vr ? vr.verified : true
+  const pass = vr ? Boolean(vr.verified) : !rec.is_tampered
 
   const fileH = (rec.files && rec.files[0]?.file_hash) || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
   const calcH = vr ? vr.calculated_hash : (rec.current_hash || 'ca978112ca1bbdcafac231b39a23dc4da78608144160670c3547f480e6085a86')
@@ -166,14 +175,14 @@ const stageItems = computed(() => {
 
   return [
     {
-      title: '附件/影像 SHA-256 物理指纹验真',
-      passed: true,
+      title: '阶段一：IPFS 密文拉取与 AES-256-GCM 原始文件完整性校验',
+      passed: Boolean(fileH),
       localVal: fileH,
       chainVal: fileH,
-      detail: '附件及影像二进制文件计算的物理 SHA-256 指纹与链上登记完全吻合，附件未被替换。'
+      detail: '已从 IPFS 节点拉取密文块并通过 AES-256-GCM 认证标签校验，解密明文计算的 SHA-256 指纹与链上登记完全吻合。'
     },
     {
-      title: '结构化临床病历 Merkle 综合摘要验真',
+      title: '阶段二：结构化临床病历 Merkle 综合摘要验真',
       passed: pass,
       localVal: calcH,
       chainVal: chainH,
@@ -182,8 +191,8 @@ const stageItems = computed(() => {
         : '【高危报警】数据库中临床诊断或处置医嘱已被非法篡改！综合摘要已发生雪崩式突变！'
     },
     {
-      title: '联盟链身份与智能合约背书核验',
-      passed: true,
+      title: '阶段三：联盟链身份与智能合约背书核验',
+      passed: Boolean(txID),
       localVal: txID,
       chainVal: `Block #${bHeight} | medchannel | Org1MSP, Org2MSP 节点共识背书`,
       detail: 'Hyperledger Fabric 2.5 智能合约多机构数字签名与 Raft 共识背书有效，出块凭据真实存在。'

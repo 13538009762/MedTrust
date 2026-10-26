@@ -222,3 +222,29 @@ type DiagnosticAssistResult struct {
 	EngineMode             string                      `json:"engine_mode"` // "EXTERNAL_API" or "BUILTIN_KNOWLEDGE_ENGINE"
 	ModelName              string                      `json:"model_name"`
 }
+
+// InfectionRiskAlert 医护职业安全高危传染病预警结构体
+type InfectionRiskAlert struct {
+	HasRisk        bool                   `json:"has_risk"`
+	RiskLevel      string                 `json:"risk_level"`      // CRITICAL (极高危), HIGH (高危), MEDIUM_HIGH (重点中高危), SAFE (安全)
+	Summary        string                 `json:"summary"`         // 简述
+	Diseases       []InfectionDiseaseInfo `json:"diseases"`        // 命中高危疾病明细
+	Precautions    []string               `json:"precautions"`     // 医务人员标准及专项防护指引
+	ProtectionGear []string               `json:"protection_gear"` // 必备个人防护装备 (PPE)
+	EmergencySteps []string               `json:"emergency_steps"` // 职业暴露发生后的紧急处置处置规程 (一挤二冲三消毒 / 2h内PEP)
+	DetectedFrom   []string               `json:"detected_from"`   // 检出来源病历号或检验报告摘要
+}
+
+// InfectionDiseaseInfo 单项传染病临床特征
+type InfectionDiseaseInfo struct {
+	Name           string `json:"name"`             // 艾滋病 (HIV/AIDS)
+	Category       string `json:"category"`         // 血液/体液传染病
+	Persistence    string `json:"persistence"`      // 终身携带 / 长期慢性携带
+	ThreatToDoctor string `json:"threat_to_doctor"` // 锐器针刺伤暴露、血液黏膜喷溅
+	Transmission   string `json:"transmission"`     // 血液、体液、锐器刺伤
+	RiskLevel      string `json:"risk_level"`       // CRITICAL, HIGH, MEDIUM_HIGH
+	MatchedKeyword string `json:"matched_keyword"`  // 命中的病历关键词
+	RecordNo       string `json:"record_no"`        // 来源就诊编号
+	HospitalName   string `json:"hospital_name"`    // 来源机构
+	RecordDate     string `json:"record_date"`      // 诊断/确诊时间
+}

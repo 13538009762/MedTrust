@@ -26,10 +26,18 @@ func TestVerification_AuthenticRecordPasses(t *testing.T) {
 	blockchain.InitBlockchainService("../ledger_data", blockchain.FabricGatewayConfig{Mode: "local"})
 	service.InitMedicalService(cfg.IPFS.APIURL, "../ipfs_storage")
 
-	// 创建可信病历并上链
+	// 创建可信病历并执行真实 AES-256-GCM 加密与 IPFS 密文存储
 	recordNo := fmt.Sprintf("REC_VERIFY_%d", time.Now().UnixNano())
 	fileData := []byte("可信病历存证数据")
-	fileHash := crypto.CalculateSHA256(fileData)
+	masterKey := cfg.GetAESMasterKey()
+	cipherData, encDEK, ivNonce, fileHash, err := crypto.EncryptMedicalFile(fileData, 1001, recordNo, masterKey)
+	if err != nil {
+		t.Fatalf("EncryptMedicalFile failed: %v", err)
+	}
+	cid, err := service.DefaultMedicalService.GetIPFSService().Add(cipherData)
+	if err != nil {
+		t.Fatalf("IPFS Add failed: %v", err)
+	}
 
 	rec := model.MedicalRecord{
 		RecordNo:       recordNo,
@@ -47,13 +55,15 @@ func TestVerification_AuthenticRecordPasses(t *testing.T) {
 	defer repository.DB.Delete(&rec)
 
 	f := model.MedicalFile{
-		RecordID:  rec.ID,
-		FileName:  "verify_cert.pdf",
-		FileType:  "pdf",
-		FileSize:  uint64(len(fileData)),
-		IPFSCID:   "QmVerifyTestCID123456",
-		FileHash:  fileHash,
-		CreatedAt: time.Now(),
+		RecordID:     rec.ID,
+		FileName:     "verify_cert.pdf",
+		FileType:     "pdf",
+		FileSize:     uint64(len(fileData)),
+		IPFSCID:      cid,
+		EncryptedDEK: encDEK,
+		IVNonce:      ivNonce,
+		FileHash:     fileHash,
+		CreatedAt:    time.Now(),
 	}
 	repository.DB.Create(&f)
 	defer repository.DB.Delete(&f)
@@ -107,6 +117,16 @@ func TestVerification_AuthenticRecordPasses(t *testing.T) {
 	}
 	if !restoreRes.Verified {
 		t.Fatalf("数据恢复后预期 Verified=true，但仍为 false")
+	}
+
+	// 4. 测试 IPFS 密文或 DEK 被篡改：第一阶段 AES-256-GCM 验签必须拦截报警
+	repository.DB.Model(&f).Update("encrypted_dek", "dGFtcGVyZWRfZGVrX2Jhc2U2NF9pbnZhbGlkX3RhZw==")
+	ipfsTamperRes, err := service.DefaultVerificationService.Verify(rec.ID)
+	if err != nil {
+		t.Fatalf("Verify after IPFS/DEK tamper failed: %v", err)
+	}
+	if ipfsTamperRes.Verified || (len(ipfsTamperRes.Stages) > 0 && ipfsTamperRes.Stages[0].Passed) {
+		t.Fatalf("IPFS 密文/DEK 被篡改后预期 Verified=false 且 Stage1.Passed=false，但返回 Verified=%v", ipfsTamperRes.Verified)
 	}
 }
 

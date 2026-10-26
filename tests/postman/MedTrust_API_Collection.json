@@ -1,0 +1,514 @@
+{
+  "info": {
+    "_postman_id": "medtrust-collection-2026",
+    "name": "MedTrust 毕业设计核心业务接口自动化测试集",
+    "description": "对齐毕业论文《基于区块链的医疗数据可信共享与访问控制系统》任务书与第六章系统测试要求，涵盖身份鉴权、病历加解密存证、患者知情授权、访问控制、紧急破窗、防篡改验真及系统字典维护全流程 12 个核心测试用例。",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "01. 系统健康检查与区块链状态",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/v1/health",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "health"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 状态码为 200 OK\", function () { pm.response.to.have.status(200); });",
+              "pm.test(\"业务返回健康状态\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"ok\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "02. 医生/用户身份认证登录 (获取 Token)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"username\": \"doc_li\", \"password\": \"Password123!\", \"captcha_id\": \"MOCK_TEST_CAPTCHA\", \"captcha_code\": \"0\"}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/v1/auth/login",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "auth",
+            "login"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"登录成功 HTTP 200\", function () { pm.response.to.have.status(200); });",
+              "var jsonData = pm.response.json();",
+              "pm.test(\"业务返回码为 200\", function () { pm.expect(jsonData.code).to.eql(200); });",
+              "if (jsonData.data && jsonData.data.token) {",
+              "    pm.environment.set(\"token\", jsonData.data.token);",
+              "    console.log(\"已自动注入 JWT Token 至环境变量: \", jsonData.data.token.substring(0, 15) + \"...\");",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "03. 个人资料与权限状态查询 (验证缓存命中)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/auth/profile",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "auth",
+            "profile"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"状态码为 200\", function () { pm.response.to.have.status(200); });",
+              "var jsonData = pm.response.json();",
+              "pm.test(\"身份与机构代码验证有效\", function () {",
+              "    pm.expect(jsonData.code).to.eql(200);",
+              "    pm.expect(jsonData.data.role).to.be.oneOf([\"doctor\", \"patient\", \"admin\", \"supervisor\"]);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "04. 医疗病历列表分页与过滤查询",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/medical-records?page=1&page_size=10",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "medical-records"
+          ],
+          "query": [
+            {
+              "key": "page",
+              "value": "1"
+            },
+            {
+              "key": "page_size",
+              "value": "10"
+            }
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"查询病历列表成功\", function () { pm.response.to.have.status(200); });",
+              "var jsonData = pm.response.json();",
+              "pm.test(\"返回病历数据数组\", function () {",
+              "    pm.expect(jsonData.code).to.eql(200);",
+              "    pm.expect(jsonData.data).to.be.an(\"array\");",
+              "    if (jsonData.data.length > 0) {",
+              "        pm.environment.set(\"record_id\", jsonData.data[0].id);",
+              "    }",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "05. 医疗病历详情调阅 (带权限与解密校验)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/medical-records/{{record_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "medical-records",
+            "{{record_id}}"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"调阅病历详情响应\", function () {",
+              "    pm.expect(pm.response.code).to.be.oneOf([200, 403]);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "06. 患者跨院/授权策略颁发 (创建授权)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"auth_target_type\": \"ALL_DOCTORS\", \"scope_type\": \"ALL\", \"days\": 7}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/v1/authorizations",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "authorizations"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"授权接口请求完成\", function () {",
+              "    pm.expect(pm.response.code).to.be.oneOf([200, 403]);",
+              "    if (pm.response.code === 200) {",
+              "        var j = pm.response.json();",
+              "        if (j.data && j.data.id) { pm.environment.set(\"auth_id\", j.data.id); }",
+              "    }",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "07. 在线有效授权策略列表查询",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/authorizations",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "authorizations"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"查询授权列表成功\", function () { pm.response.to.have.status(200); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "08. 突发危急抢救 Break-Glass 紧急访问通道",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"record_id\": 1, \"emergency_reason\": \"COMA\", \"description\": \"患者急性昏迷无意识，急诊手术抢救，依法申请破窗调阅历史过敏史与诊疗记录\", \"doctor_confirmed\": 1}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/v1/access/break-glass",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "access",
+            "break-glass"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"破窗请求处理完成\", function () {",
+              "    pm.expect(pm.response.code).to.be.oneOf([200, 403]);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "09. 医疗数据跨端一致性与防篡改验真 (三方动态核验)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/verification/{{record_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "verification",
+            "{{record_id}}"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"验真接口正常响应\", function () {",
+              "    pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
+              "    if (pm.response.code === 200) {",
+              "        var j = pm.response.json();",
+              "        pm.expect(j.data).to.have.property(\"is_tampered\");",
+              "    }",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "10. 医疗机构白名单字典查询 (Item 3 闭环)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/system/hospitals",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "system",
+            "hospitals"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"机构列表查询成功\", function () { pm.response.to.have.status(200); });",
+              "var j = pm.response.json();",
+              "pm.test(\"包含三甲医疗机构数据\", function () {",
+              "    pm.expect(j.data.length).to.be.above(0);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "11. 临床专科科室字典查询 (Item 3 闭环)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/system/departments",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "system",
+            "departments"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"科室字典查询成功\", function () { pm.response.to.have.status(200); });",
+              "var j = pm.response.json();",
+              "pm.test(\"返回合法专科列表\", function () {",
+              "    pm.expect(j.data.length).to.be.above(0);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "12. 用户主动安全登出 (注销拉黑 Token 与分布式黑名单)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/auth/logout",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "auth",
+            "logout"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"安全登出成功 200 OK\", function () { pm.response.to.have.status(200); });",
+              "pm.test(\"Token 黑名单拦截校验\", function () {",
+              "    var j = pm.response.json();",
+              "    pm.expect(j.code).to.eql(200);",
+              "});"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

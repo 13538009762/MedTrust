@@ -500,14 +500,7 @@ func (ctrl *SupervisorController) AuthFunnel(c *gin.Context) {
 
 // ListBlockchainTransactions 获取区块链浏览器存证交易列表 (支撑监管端区块链浏览器真实流水)
 func (ctrl *SupervisorController) ListBlockchainTransactions(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 20
-	}
+	page, pageSize, offset := parsePagination(c, 20)
 
 	businessType := c.Query("business_type")
 	txID := c.Query("tx_id")
@@ -528,7 +521,7 @@ func (ctrl *SupervisorController) ListBlockchainTransactions(c *gin.Context) {
 	query.Count(&total)
 
 	var list []model.BlockchainTransaction
-	query.Order("id desc").Offset((page - 1) * pageSize).Limit(pageSize).Find(&list)
+	query.Order("id desc").Offset(offset).Limit(pageSize).Find(&list)
 
 	c.JSON(http.StatusOK, model.Response{
 		Code:    200,

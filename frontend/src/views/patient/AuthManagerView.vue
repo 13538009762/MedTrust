@@ -25,7 +25,7 @@
       <div class="mkb-right">
         <div class="mkb-key-display">
           <span class="mkb-key-label">当前专属密钥：</span>
-          <code class="mkb-key-code">{{ showKeyPlain ? (auth.user?.medical_key || '123456') : '••••••' }}</code>
+          <code class="mkb-key-code">{{ showKeyPlain ? (auth.user?.medical_key || '123456 (SHA-256加盐保护)') : '••••••' }}</code>
           <el-button
             link
             type="primary"
@@ -909,6 +909,7 @@ async function handleSaveMedicalKey() {
       ElMessage.success(res.message || '病历调阅专属密钥已成功更新！')
       if (auth.user) {
         auth.user.medical_key = medicalKeyForm.value.new_key
+        sessionStorage.setItem('medtrust_user', JSON.stringify(auth.user))
       }
       medicalKeyVisible.value = false
     }

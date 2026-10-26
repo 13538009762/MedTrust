@@ -360,19 +360,20 @@
           </div>
         </el-tab-pane>
 
-        <!-- 维度 4: 建议处置方案与规范处方 -->
-        <el-tab-pane label="建议处置方案与用药" name="treatment">
+        <!-- 维度 4: 既往处置追溯与接诊核查线索（严格遵循非诊断、非处方决策合规红线） -->
+        <el-tab-pane label="既往处置追溯与核查线索" name="treatment">
           <div class="tab-pane-box">
             <div class="treatment-overview-card mb-3">
               <div class="toc-header">
-                <span class="toc-title">AI 规范化综合诊疗处置建议</span>
+                <span class="toc-title">既往跨院处置记录归纳与接诊核查要点（仅供病历文书整理参考，AI 不下达诊断或处方）</span>
                 <el-button
-                  type="success"
+                  type="primary"
+                  plain
                   size="small"
                   :icon="Select"
                   @click="adoptTreatment(diagnosticResult.recommended_treatment)"
                 >
-                  一键载入至处方方案
+                  引用既往处置摘要至病史备注
                 </el-button>
               </div>
               <div class="toc-text font-mono" style="white-space: pre-wrap;">
@@ -380,10 +381,10 @@
               </div>
             </div>
 
-            <!-- 推荐处方清单表 -->
+            <!-- 既往用药记录摘录表 -->
             <div class="rx-recommend-table-box mb-3">
               <div class="rtt-header">
-                <span>💊 推荐对症药物清单：</span>
+                <span>💊 既往已授权病历记载药物摘录（仅供防重复用药与禁忌核对，非 AI 处方建议）：</span>
               </div>
               <el-table
                 :data="diagnosticResult.recommended_treatment?.prescriptions || []"
@@ -391,9 +392,9 @@
                 border
                 class="rx-table"
               >
-                <el-table-column prop="category" label="用药分类" width="140" />
-                <el-table-column prop="drug_name" label="推荐药品及规格" min-width="220" />
-                <el-table-column prop="usage" label="用法用量指引" min-width="220" />
+                <el-table-column prop="category" label="既往用药分类" width="140" />
+                <el-table-column prop="drug_name" label="历史病历记载药品及规格" min-width="220" />
+                <el-table-column prop="usage" label="历史记录用法与核对提示" min-width="220" />
               </el-table>
             </div>
 
@@ -605,7 +606,7 @@ function adoptSOAP(soap: any) {
 
 function adoptTreatment(treatment: any) {
   emit('adopt-treatment', treatment)
-  ElMessage.success('已载入推荐处方方案')
+  ElMessage.success('已引用既往处置摘要供医师核对参考')
 }
 
 function adoptAllToRecord() {
@@ -614,10 +615,10 @@ function adoptAllToRecord() {
     return
   }
   emit('adopt-soap', diagnosticResult.value.soap_summary)
-  if (diagnosticResult.value.treatment_recommendations?.length) {
-    emit('adopt-treatment', diagnosticResult.value.treatment_recommendations[0])
+  if (diagnosticResult.value.recommended_treatment) {
+    emit('adopt-treatment', diagnosticResult.value.recommended_treatment)
   }
-  ElMessage.success('已采纳跨院 SOAP 结构化摘要与用药线索至当前就诊病历草稿')
+  ElMessage.success('已采纳跨院 SOAP 结构化摘要与既往用药线索至当前病历草稿')
   visible.value = false
 }
 

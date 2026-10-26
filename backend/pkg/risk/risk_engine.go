@@ -25,6 +25,7 @@ type RiskEngine struct {
 	highThreshold   int
 	accessWindow    []AccessRecordItem
 	historyProvider AccessHistoryProvider
+	nowFunc         func() time.Time
 	mu              sync.Mutex
 }
 
@@ -40,6 +41,12 @@ func NewRiskEngine(low, high int) *RiskEngine {
 		highThreshold: high,
 		accessWindow:  make([]AccessRecordItem, 0),
 	}
+}
+
+func (e *RiskEngine) SetClock(fn func() time.Time) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.nowFunc = fn
 }
 
 func (e *RiskEngine) SetHistoryProvider(p AccessHistoryProvider) {
@@ -74,6 +81,9 @@ func (e *RiskEngine) Evaluate(doctorID, patientID uint64, isCrossHospital, hasCo
 	defer e.mu.Unlock()
 
 	now := time.Now()
+	if e.nowFunc != nil {
+		now = e.nowFunc()
+	}
 	cutoff := now.Add(-10 * time.Minute)
 	valid := make([]AccessRecordItem, 0)
 	for _, item := range e.accessWindow {

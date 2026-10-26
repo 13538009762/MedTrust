@@ -19,15 +19,12 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// 1. 初始化数据库与自动迁移
-	db, err := repository.InitDB()
+	// 1. 初始化数据库与自动迁移（内部已完成幂等标准测试种子数据注入）
+	_, err = repository.InitDB()
 	if err != nil {
 		log.Fatalf("Failed to init DB: %v", err)
 	}
 	fmt.Println("[MedTrust] MySQL Database Connected & AutoMigrated Successfully")
-
-	// 显式执行标准测试种子数据注入
-	repository.SeedInitialData(db)
 
 	// 注册区块链底层存证交易与本地数据双写记录器 (支持论文 4.3.2 节 blockchain_transactions)
 	blockchain.TxRecorder = func(bType, bID, txID string, blockNo uint64, channel, cc, status string) {

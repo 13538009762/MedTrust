@@ -277,9 +277,11 @@ func (s *FabricGatewayService) CommitAsset(assetType, assetID string, payload ma
 	var args []string
 
 	switch assetType {
-	case "MEDICAL_RECORD":
+	case "MEDICAL_RECORD", "MEDICAL_ASSET":
 		recordID := assetID
 		if r, ok := payload["record_no"].(string); ok && r != "" {
+			recordID = r
+		} else if r, ok := payload["record_id"].(string); ok && r != "" {
 			recordID = r
 		}
 		patientID := fmt.Sprintf("%v", payload["patient_id"])
@@ -314,32 +316,51 @@ func (s *FabricGatewayService) CommitAsset(assetType, assetID string, payload ma
 		methodName = "CreateMedicalAsset"
 		args = []string{string(assetBytes)}
 
-	case "AUTHORIZATION":
+	case "AUTHORIZATION", "AUTHORIZATION_KEY", "AUTH_RECORD":
 		methodName = "CreateAuthorization"
 		patientID := fmt.Sprintf("%v", payload["patient_id"])
 		doctorID := fmt.Sprintf("%v", payload["doctor_id"])
+		if doctorID == "" || doctorID == "<nil>" {
+			doctorID = fmt.Sprintf("%v", payload["target_id"])
+		}
 		hospID := fmt.Sprintf("%v", payload["hospital_id"])
 		scope := fmt.Sprintf("%v", payload["scope"])
+		if scope == "" || scope == "<nil>" {
+			scope = fmt.Sprintf("%v", payload["scope_type"])
+		}
 		expireTime := fmt.Sprintf("%v", payload["expire_time"])
+		if expireTime == "" || expireTime == "<nil>" {
+			expireTime = fmt.Sprintf("%v", payload["end_time"])
+		}
 		status := fmt.Sprintf("%v", payload["status"])
+		if status == "" || status == "<nil>" {
+			status = "ACTIVE"
+		}
 		args = []string{assetID, patientID, doctorID, hospID, scope, expireTime, status}
 
-	case "REVOKE_AUTH":
+	case "REVOKE_AUTH", "AUTH_REVOKE":
 		methodName = "RevokeAuthorization"
 		args = []string{assetID}
 
-	case "AUDIT":
+	case "AUDIT", "AUDIT_LOG", "AUDIT_RECORD":
 		methodName = "CreateAuditLog"
 		userID := fmt.Sprintf("%v", payload["user_id"])
 		action := fmt.Sprintf("%v", payload["op_type"])
+		if action == "" || action == "<nil>" {
+			action = fmt.Sprintf("%v", payload["action"])
+		}
 		targetID := fmt.Sprintf("%v", payload["target_id"])
 		riskLevel := fmt.Sprintf("%v", payload["risk_level"])
 		args = []string{assetID, userID, action, targetID, riskLevel, nowStr}
 
-	case "EMERGENCY_ACCESS", "EMERGENCY_RECORD":
+	case "EMERGENCY", "EMERGENCY_ACCESS", "EMERGENCY_RECORD":
 		methodName = "CreateEmergencyRecord"
+		eventNo := fmt.Sprintf("%v", payload["event_no"])
+		if eventNo == "" || eventNo == "<nil>" {
+			eventNo = assetID
+		}
 		rec := EmergencyAccessRecord{
-			EventNo:     fmt.Sprintf("%v", payload["event_no"]),
+			EventNo:     eventNo,
 			DoctorID:    fmt.Sprintf("%v", payload["doctor_id"]),
 			PatientID:   fmt.Sprintf("%v", payload["patient_id"]),
 			RecordID:    fmt.Sprintf("%v", payload["record_id"]),
@@ -358,10 +379,16 @@ func (s *FabricGatewayService) CommitAsset(assetType, assetID string, payload ma
 		jsonBytes, _ := json.Marshal(rec)
 		args = []string{string(jsonBytes)}
 
-	case "EMERGENCY_AUDIT":
+	case "EMERGENCY_AUDIT", "EMERGENCY_STATUS":
 		methodName = "UpdateEmergencyStatus"
 		eventNo := fmt.Sprintf("%v", payload["event_no"])
+		if eventNo == "" || eventNo == "<nil>" {
+			eventNo = assetID
+		}
 		auditStatus := fmt.Sprintf("%v", payload["audit_status"])
+		if auditStatus == "" || auditStatus == "<nil>" {
+			auditStatus = fmt.Sprintf("%v", payload["status"])
+		}
 		supervisorID := fmt.Sprintf("%v", payload["supervisor_id"])
 		comment := fmt.Sprintf("%v", payload["comment"])
 		punishment := fmt.Sprintf("%v", payload["punishment"])
@@ -369,6 +396,9 @@ func (s *FabricGatewayService) CommitAsset(assetType, assetID string, payload ma
 
 	default:
 		methodName = "CreateAuditRecord"
+		if _, ok := payload["log_id"]; !ok || fmt.Sprintf("%v", payload["log_id"]) == "" {
+			payload["log_id"] = assetID
+		}
 		jsonBytes, _ := json.Marshal(payload)
 		args = []string{string(jsonBytes)}
 	}
