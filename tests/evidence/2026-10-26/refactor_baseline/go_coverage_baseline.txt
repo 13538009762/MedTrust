@@ -1,0 +1,12 @@
+﻿ok  	medtrust-backend/pkg/blockchain	(cached)	coverage: 12.2% of statements
+ok  	medtrust-backend/pkg/captcha	(cached)	coverage: 79.8% of statements
+ok  	medtrust-backend/pkg/crypto	(cached)	coverage: 75.5% of statements
+	medtrust-backend/pkg/ipfs		coverage: 0.0% of statements
+ok  	medtrust-backend/pkg/pdf	1.650s	coverage: 95.8% of statements
+ok  	medtrust-backend/pkg/risk	(cached)	coverage: 93.9% of statements
+	medtrust-backend/pkg/sse		coverage: 0.0% of statements
+ok  	medtrust-backend/service	12.130s	coverage: 34.5% of statements
+ok  	medtrust-backend/controller	23.428s	coverage: 22.2% of statements
+	medtrust-backend/middleware		coverage: 0.0% of statements
+	medtrust-backend/repository		coverage: 0.0% of statements
+ok  	medtrust-backend/router	5.392s	coverage: 98.9% of statements
