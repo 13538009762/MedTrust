@@ -962,7 +962,7 @@
     </el-drawer>
 
     <!-- AI 跨期全景病历关联辅助推演工作台弹窗 -->
-    <AIDiagnosticModal
+    <AiDiagnosticDialog
       v-model="aiDiagnosticVisible"
       :patient="selectedPatient"
       :current-symptoms="''"
@@ -1011,7 +1011,7 @@ import {
 } from '@element-plus/icons-vue'
 import api from '../../api/client'
 import { useAuthStore } from '../../stores/auth'
-import AIDiagnosticModal from '../../components/AIDiagnosticModal.vue'
+import AiDiagnosticDialog from '../../components/AiDiagnosticDialog.vue'
 
 const auth = useAuthStore()
 const route = useRoute()

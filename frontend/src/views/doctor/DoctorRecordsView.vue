@@ -1860,7 +1860,7 @@
     </el-dialog>
 
     <!-- 跨院既往病史 SOAP 简明汇总与隐匿线索提取弹窗 -->
-    <AIDiagnosticModal
+    <AiDiagnosticDialog
       v-model="aiDiagnosticVisible"
       :patient="selectedPatientInfo"
       :current-symptoms="initForm.chief_complaint"
@@ -1971,7 +1971,7 @@ import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import api from '../../api/client'
 import { useAuthStore } from '../../stores/auth'
 import TreatmentPlanEditor from '../../components/TreatmentPlanEditor.vue'
-import AIDiagnosticModal from '../../components/AIDiagnosticModal.vue'
+import AiDiagnosticDialog from '../../components/AiDiagnosticDialog.vue'
 import { MagicStick } from '@element-plus/icons-vue'
 import InfectionSafetyAlert from '../../components/InfectionSafetyAlert.vue'
 import { scanTextForInfections } from '../../utils/infectionGuard'

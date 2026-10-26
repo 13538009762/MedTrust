@@ -9,7 +9,7 @@ docker ps | findstr "peer0.org1.example.com" >nul 2>&1
 if %errorlevel% equ 0 goto FABRIC_OK
 
 echo    [TIP] Fabric 容器集群未运行，正在启动区块链网络 [唤醒 Docker Desktop]...
-start "MedTrust Blockchain Network" cmd /c "%~dp0scripts\start-fabric.bat"
+start "MedTrust Blockchain Network" cmd /c "%~dp0scripts\start_fabric.bat"
 goto STEP_SERVICES
 
 :FABRIC_OK

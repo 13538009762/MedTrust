@@ -2031,7 +2031,7 @@
     </el-dialog>
 
     <!-- AI 跨期全景病程与疾病关联推演工作台弹窗 -->
-    <AIDiagnosticModal
+    <AiDiagnosticDialog
       v-model="crossAIDiagnosticVisible"
       :patient="crossTargetPatient"
       :current-symptoms="''"
@@ -2091,7 +2091,7 @@ import api from '../../api/client'
 import { useAuthStore } from '../../stores/auth'
 import { parseMedicalExamResult, highlightText, type ParsedMedicalReport } from '../../utils/medicalReportParser'
 import InfectionSafetyAlert from '../../components/InfectionSafetyAlert.vue'
-import AIDiagnosticModal from '../../components/AIDiagnosticModal.vue'
+import AiDiagnosticDialog from '../../components/AiDiagnosticDialog.vue'
 import { MagicStick } from '@element-plus/icons-vue'
 
 const windowWidth = ref(window.innerWidth)

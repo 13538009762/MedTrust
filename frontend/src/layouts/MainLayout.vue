@@ -224,7 +224,7 @@
       <AiAssistantDialog />
 
       <!-- 业务场景演练向导大弹窗 -->
-      <DefenseDemoGuideModal v-model="defenseModalVisible" />
+      <DefenseDemoGuideDialog v-model="defenseModalVisible" />
     </el-container>
   </el-container>
 </template>
@@ -235,7 +235,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { Expand, Fold, SwitchButton } from '@element-plus/icons-vue'
 import { useAuthStore } from '../stores/auth'
 import AiAssistantDialog from '../components/AiAssistantDialog.vue'
-import DefenseDemoGuideModal from '../components/DefenseDemoGuideModal.vue'
+import DefenseDemoGuideDialog from '../components/DefenseDemoGuideDialog.vue'
 import api from '../api/client'
 import { useSSE } from '../composables/useSSE'
 
