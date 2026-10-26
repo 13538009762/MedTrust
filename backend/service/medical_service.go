@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"gorm.io/gorm"
 	"medtrust-backend/config"
 	"medtrust-backend/model"
 	"medtrust-backend/pkg/blockchain"
@@ -83,10 +84,20 @@ type UploadRecordParams struct {
 	ExamDoctor       string
 	ExamTime         string
 	ClientIP         string
+	IdempotencyKey   string
 }
 
-// UploadRecord 录入就诊事件并在本地完成 AES-256-GCM 加密，存入 IPFS，上链锚定存证
+// UploadRecord 录入就诊事件并在本地完成 AES-256-GCM 加密，存入 IPFS，上链锚定存证 (具备幂等拦截与 DB.Transaction 强原子事务保护)
 func (s *MedicalService) UploadRecord(p UploadRecordParams) (*model.MedicalRecord, error) {
+	// 0. 幂等性校验拦截 (防止网络抖动并发重复录入相同就诊事件)
+	if p.IdempotencyKey != "" && repository.DB != nil {
+		var existing model.MedicalRecord
+		if err := repository.DB.Where("idempotency_key = ?", p.IdempotencyKey).Preload("Files").First(&existing).Error; err == nil && existing.ID > 0 {
+			log.Printf("[MedicalService] ⚠️ 触发幂等拦截: IdempotencyKey=%s, 复用既有就诊记录 ID=%d, RecordNo=%s", p.IdempotencyKey, existing.ID, existing.RecordNo)
+			return &existing, nil
+		}
+	}
+
 	var doc model.User
 	if err := repository.DB.First(&doc, p.DoctorID).Error; err != nil {
 		return nil, fmt.Errorf("医生不存在: %w", err)
@@ -210,15 +221,12 @@ func (s *MedicalService) UploadRecord(p UploadRecordParams) (*model.MedicalRecor
 		ExamResult:       p.ExamResult,
 		ExamDoctor:       p.ExamDoctor,
 		ExamTime:         p.ExamTime,
+		IdempotencyKey:   p.IdempotencyKey,
 		SyncStatus:       SyncStatusCompleted,
 		CreatedAt:        time.Now(),
 	}
-	if err := repository.DB.Create(&record).Error; err != nil {
-		return nil, err
-	}
 
 	fileRecord := model.MedicalFile{
-		RecordID:     record.ID,
 		FileName:     p.FileName,
 		FileType:     p.FileType,
 		FileSize:     uint64(len(p.FileData)),
@@ -228,9 +236,22 @@ func (s *MedicalService) UploadRecord(p UploadRecordParams) (*model.MedicalRecor
 		IVNonce:      ivNonce,
 		CreatedAt:    time.Now(),
 	}
-	if err := repository.DB.Create(&fileRecord).Error; err != nil {
-		return nil, fmt.Errorf("保存病历附件记录失败: %w", err)
+
+	// 5. 使用关系型数据库事务 (ACID) 强原子落库，确保病历主表与附件表原子一致，任何失败全量回滚
+	err = repository.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&record).Error; err != nil {
+			return fmt.Errorf("创建病历数据库记录失败: %w", err)
+		}
+		fileRecord.RecordID = record.ID
+		if err := tx.Create(&fileRecord).Error; err != nil {
+			return fmt.Errorf("保存病历附件记录失败: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
+
 	record.Files = []model.MedicalFile{fileRecord}
 	// 严格遵循链下密文存储规范，服务端本地磁盘零明文落地，数据均以 AES-256-GCM 密文托管于 IPFS
 	uploadIP := p.ClientIP
@@ -610,8 +631,15 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 	query := repository.DB.Model(&model.MedicalRecord{}).Preload("Files")
 
 	var currentUser model.User
+	var currentUserDeptName string
 	if currentUserID > 0 {
 		_ = repository.DB.First(&currentUser, currentUserID)
+		if currentUser.DepartmentID > 0 {
+			var dept model.Department
+			if err := repository.DB.First(&dept, currentUser.DepartmentID).Error; err == nil {
+				currentUserDeptName = dept.Name
+			}
+		}
 	}
 
 	// 预加载当前医生的活跃授权与破窗记录 (仅当前调用者为医生角色时)
@@ -692,20 +720,75 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 		return nil, err
 	}
 
+	// 核心性能治理：预加载并建立映射表，彻底根除循环内部 3N+1 数据库往返查询 (O(N) 降至 O(1))
+	patIDMap := make(map[uint64]bool)
+	docIDMap := make(map[uint64]bool)
+	hospIDMap := make(map[uint64]bool)
+
+	for _, r := range list {
+		if r.PatientID > 0 {
+			patIDMap[r.PatientID] = true
+		}
+		if r.DoctorID > 0 {
+			docIDMap[r.DoctorID] = true
+		}
+		if r.HospitalID > 0 {
+			hospIDMap[r.HospitalID] = true
+		}
+	}
+	for _, a := range patientAuths {
+		if a.AuthTargetType == "DOCTOR" && a.AuthTargetID > 0 {
+			docIDMap[a.AuthTargetID] = true
+		} else if a.AuthTargetType == "HOSPITAL" && a.AuthTargetID > 0 {
+			hospIDMap[a.AuthTargetID] = true
+		}
+	}
+
+	userMap := make(map[uint64]model.User)
+	hospMap := make(map[uint64]model.Hospital)
+
+	allUserIDs := make([]uint64, 0, len(patIDMap)+len(docIDMap))
+	for id := range patIDMap {
+		allUserIDs = append(allUserIDs, id)
+	}
+	for id := range docIDMap {
+		if !patIDMap[id] {
+			allUserIDs = append(allUserIDs, id)
+		}
+	}
+	if len(allUserIDs) > 0 {
+		var users []model.User
+		if err := repository.DB.Where("id IN ?", allUserIDs).Find(&users).Error; err == nil {
+			for _, u := range users {
+				userMap[u.ID] = u
+			}
+		}
+	}
+
+	allHospIDs := make([]uint64, 0, len(hospIDMap))
+	for id := range hospIDMap {
+		allHospIDs = append(allHospIDs, id)
+	}
+	if len(allHospIDs) > 0 {
+		var hosps []model.Hospital
+		if err := repository.DB.Where("id IN ?", allHospIDs).Find(&hosps).Error; err == nil {
+			for _, h := range hosps {
+				hospMap[h.ID] = h
+			}
+		}
+	}
+
 	// 补充外联展示信息与区块链实时动态核验及权限标记
 	for i := range list {
-		var pat model.User
-		if err := repository.DB.First(&pat, list[i].PatientID).Error; err == nil {
+		if pat, ok := userMap[list[i].PatientID]; ok {
 			list[i].PatientName = pat.RealName
 			list[i].PatientIDCard = pat.IDCard
 			list[i].PatientPhone = pat.Phone
 		}
-		var doc model.User
-		if err := repository.DB.First(&doc, list[i].DoctorID).Error; err == nil {
+		if doc, ok := userMap[list[i].DoctorID]; ok {
 			list[i].DoctorName = doc.RealName
 		}
-		var hosp model.Hospital
-		if err := repository.DB.First(&hosp, list[i].HospitalID).Error; err == nil {
+		if hosp, ok := hospMap[list[i].HospitalID]; ok {
 			list[i].HospitalName = hosp.Name
 		}
 
@@ -744,16 +827,14 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 						targetName = "全体医生"
 						summary = "全体医生可见 (本单公开)"
 					} else if singleAuth.AuthTargetType == "HOSPITAL" {
-						var hosp model.Hospital
-						if err := repository.DB.First(&hosp, singleAuth.AuthTargetID).Error; err == nil && hosp.Name != "" {
+						if hosp, ok := hospMap[singleAuth.AuthTargetID]; ok && hosp.Name != "" {
 							targetName = hosp.Name
 							summary = fmt.Sprintf("仅限【%s】全体医生", hosp.Name)
 						} else {
 							summary = fmt.Sprintf("仅限医院 (ID:%d) 全体医生", singleAuth.AuthTargetID)
 						}
 					} else if singleAuth.AuthTargetType == "DOCTOR" {
-						var doc model.User
-						if err := repository.DB.First(&doc, singleAuth.AuthTargetID).Error; err == nil && doc.RealName != "" {
+						if doc, ok := userMap[singleAuth.AuthTargetID]; ok && doc.RealName != "" {
 							docName := doc.RealName
 							if !strings.HasSuffix(docName, "医生") && !strings.HasSuffix(docName, "医师") {
 								docName += " 医生"
@@ -789,16 +870,14 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 							targetName = "全体医生"
 							summary = "全体医生可见 (全网公开)"
 						} else if globalAuth.AuthTargetType == "HOSPITAL" {
-							var hosp model.Hospital
-							if err := repository.DB.First(&hosp, globalAuth.AuthTargetID).Error; err == nil && hosp.Name != "" {
+							if hosp, ok := hospMap[globalAuth.AuthTargetID]; ok && hosp.Name != "" {
 								targetName = hosp.Name
 								summary = fmt.Sprintf("仅限【%s】全体医生 (全局)", hosp.Name)
 							} else {
 								summary = fmt.Sprintf("仅限医院 (ID:%d) 全体医生", globalAuth.AuthTargetID)
 							}
 						} else if globalAuth.AuthTargetType == "DOCTOR" {
-							var doc model.User
-							if err := repository.DB.First(&doc, globalAuth.AuthTargetID).Error; err == nil && doc.RealName != "" {
+							if doc, ok := userMap[globalAuth.AuthTargetID]; ok && doc.RealName != "" {
 								docName := doc.RealName
 								if !strings.HasSuffix(docName, "医生") && !strings.HasSuffix(docName, "医师") {
 									docName += " 医生"
@@ -825,14 +904,7 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 			} else if currentUser.Role == "doctor" && list[i].HospitalID == currentUser.HospitalID {
 				// 3. 院内机构：同科室或全科综合门诊协同，或高级职称专家
 				isSameDept := currentUser.DepartmentID == 0 || list[i].DepartmentName == "" ||
-					list[i].DepartmentName == "综合门诊"
-				if !isSameDept {
-					var docDept model.Department
-					_ = repository.DB.First(&docDept, currentUser.DepartmentID)
-					if docDept.Name != "" && docDept.Name == list[i].DepartmentName {
-						isSameDept = true
-					}
-				}
+					list[i].DepartmentName == "综合门诊" || (currentUserDeptName != "" && currentUserDeptName == list[i].DepartmentName)
 				if isSameDept || currentUser.Title == "主任医师" || currentUser.Title == "副主任医师" {
 					list[i].HasAccess = true
 					list[i].AccessType = "HOSPITAL"

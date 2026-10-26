@@ -53,6 +53,7 @@ func (ctrl *MedicalController) Upload(c *gin.Context) {
 	treatmentPlan := c.PostForm("treatment_plan")
 	vitalSigns := c.PostForm("vital_signs")
 	diagnosis := c.PostForm("diagnosis")
+	idempotencyKey := c.DefaultPostForm("idempotency_key", c.GetHeader("X-Idempotency-Key"))
 
 	var fileBytes []byte
 	fileName := ""
@@ -99,6 +100,7 @@ func (ctrl *MedicalController) Upload(c *gin.Context) {
 		ExamDoctor:       examDoctor,
 		ExamTime:         examTime,
 		ClientIP:         c.ClientIP(),
+		IdempotencyKey:   idempotencyKey,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: err.Error()})
@@ -549,13 +551,13 @@ func (ctrl *MedicalController) CompleteEncounterFinal(c *gin.Context) {
 	})
 }
 
-// ViewMedicalFile 查阅病历附件或影像（支持图片/PDF在线预览，从 IPFS 拉取并在内存中动态流式解密，零磁盘落地）
-func (ctrl *MedicalController) ViewMedicalFile(c *gin.Context) {
+// retrieveAndDecryptMedicalFile 统一附件授权鉴权、IPFS 密文寻址、AES-256-GCM 动态流式解密与内容类型推断 (论文核心流式解密模型)
+func (ctrl *MedicalController) retrieveAndDecryptMedicalFile(c *gin.Context, action string) (*model.MedicalFile, *model.MedicalRecord, []byte, string, error) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	var file model.MedicalFile
 	if err := repository.DB.First(&file, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "附件文件不存在"})
-		return
+		return nil, nil, nil, "", err
 	}
 
 	var rec model.MedicalRecord
@@ -563,44 +565,47 @@ func (ctrl *MedicalController) ViewMedicalFile(c *gin.Context) {
 		_ = repository.DB.First(&rec, file.RecordID)
 	}
 
-	// 统一访问控制鉴权 (通过 DefaultAccessEngine.Evaluate 集中管控)
+	if rec.ID == 0 {
+		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "无法关联所属病历记录"})
+		return nil, nil, nil, "", fmt.Errorf("record not found")
+	}
+
 	currentUserID := c.GetUint64("user_id")
 	role := c.GetString("role")
 
-	if rec.ID > 0 {
-		decision, err := service.DefaultAccessEngine.Evaluate(service.AccessRequest{
-			UserID:      currentUserID,
-			Role:        role,
-			PatientID:   rec.PatientID,
-			RecordID:    rec.ID,
-			Action:      "VIEW",
-			Purpose:     "FILE_PREVIEW",
-			Source:      c.GetHeader("X-Source"),
-			IPAddress:   c.ClientIP(),
-			UserAgent:   c.Request.UserAgent(),
-			IsEmergency: false,
+	purpose := "FILE_PREVIEW"
+	if action == "DOWNLOAD" {
+		purpose = "FILE_DOWNLOAD"
+	}
+
+	decision, err := service.DefaultAccessEngine.Evaluate(service.AccessRequest{
+		UserID:      currentUserID,
+		Role:        role,
+		PatientID:   rec.PatientID,
+		RecordID:    rec.ID,
+		Action:      action,
+		Purpose:     purpose,
+		Source:      c.GetHeader("X-Source"),
+		IPAddress:   c.ClientIP(),
+		UserAgent:   c.Request.UserAgent(),
+		IsEmergency: false,
+	})
+	if err != nil || !decision.Allowed {
+		c.JSON(http.StatusForbidden, model.Response{
+			Code:    403,
+			Message: fmt.Sprintf("医疗附件调阅拦截 (403 Forbidden): %s", decision.Reason),
+			Data:    decision,
 		})
-		if err != nil || !decision.Allowed {
-			c.JSON(http.StatusForbidden, model.Response{
-				Code:    403,
-				Message: fmt.Sprintf("医疗附件调阅拦截 (403 Forbidden): %s", decision.Reason),
-				Data:    decision,
-			})
-			return
-		}
-	} else {
-		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "无法关联所属病历记录"})
-		return
+		return nil, nil, nil, "", fmt.Errorf("access denied")
 	}
 
 	if role == "doctor" {
 		service.DefaultAccessEngine.RecordSuccessfulAccess(currentUserID, rec.PatientID)
 	}
 
-	// 1. 优先从 IPFS 分布式节点拉取 AES-256-GCM 密文并在内存动态解密
+	var plainData []byte
 	if file.IPFSCID != "" {
 		if cipherPack, err := service.DefaultMedicalService.GetIPFSData(file.IPFSCID); err == nil && len(cipherPack) > 0 {
-			var plainData []byte
 			var decErr error
 			if file.EncryptedDEK != "" && file.IVNonce != "" {
 				masterKey := config.AppConfig.GetAESMasterKey()
@@ -611,104 +616,70 @@ func (ctrl *MedicalController) ViewMedicalFile(c *gin.Context) {
 					plainData, decErr = crypto.DecryptRecordFile(cipherPack, rec.PatientID, "")
 				}
 			}
-			if decErr == nil && len(plainData) > 0 {
-				ext := strings.ToLower(file.FileType)
-				contentType := "application/octet-stream"
-				switch ext {
-				case "png":
-					contentType = "image/png"
-				case "jpg", "jpeg":
-					contentType = "image/jpeg"
-				case "gif":
-					contentType = "image/gif"
-				case "webp":
-					contentType = "image/webp"
-				case "svg":
-					contentType = "image/svg+xml"
-				case "pdf":
-					contentType = "application/pdf"
-				}
-				c.Header("Content-Type", contentType)
-				c.Header("Content-Disposition", fmt.Sprintf("inline; filename*=UTF-8''%s", url.QueryEscape(file.FileName)))
-				c.Data(http.StatusOK, contentType, plainData)
-				return
+			if decErr != nil {
+				plainData = nil
 			}
 		}
 	}
 
-	// 2. 密文未就绪或初始模板记录时，以医学切片/报告动态流式渲染兜底
-	ctrl.serveMockMedicalImage(c, &file)
+	ext := strings.ToLower(file.FileType)
+	contentType := "application/octet-stream"
+	switch ext {
+	case "png":
+		contentType = "image/png"
+	case "jpg", "jpeg":
+		contentType = "image/jpeg"
+	case "gif":
+		contentType = "image/gif"
+	case "webp":
+		contentType = "image/webp"
+	case "svg":
+		contentType = "image/svg+xml"
+	case "pdf":
+		contentType = "application/pdf"
+	}
+
+	return &file, &rec, plainData, contentType, nil
+}
+
+// ViewMedicalFile 查阅病历附件或影像（支持图片/PDF在线预览，从 IPFS 拉取并在内存中动态流式解密，零磁盘落地）
+func (ctrl *MedicalController) ViewMedicalFile(c *gin.Context) {
+	file, _, plainData, contentType, err := ctrl.retrieveAndDecryptMedicalFile(c, "VIEW")
+	if err != nil {
+		return
+	}
+
+	if len(plainData) > 0 {
+		c.Header("Content-Type", contentType)
+		c.Header("Content-Disposition", fmt.Sprintf("inline; filename*=UTF-8''%s", url.QueryEscape(file.FileName)))
+		c.Data(http.StatusOK, contentType, plainData)
+		return
+	}
+
+	// 密文未就绪或初始模板记录时，以医学切片/报告动态流式渲染兜底
+	ctrl.serveMockMedicalImage(c, file)
 }
 
 // DownloadMedicalFile 下载病历附件 (内存动态解密流式传输)
 func (ctrl *MedicalController) DownloadMedicalFile(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	var file model.MedicalFile
-	if err := repository.DB.First(&file, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "附件文件不存在"})
+	file, rec, plainData, _, err := ctrl.retrieveAndDecryptMedicalFile(c, "DOWNLOAD")
+	if err != nil {
 		return
 	}
 
-	var rec model.MedicalRecord
-	if file.RecordID > 0 {
-		_ = repository.DB.First(&rec, file.RecordID)
-	}
-
-	currentUserID := c.GetUint64("user_id")
-	role := c.GetString("role")
-
-	// 统一访问控制鉴权 (通过 DefaultAccessEngine.Evaluate 集中管控)
-	if rec.ID > 0 {
-		decision, err := service.DefaultAccessEngine.Evaluate(service.AccessRequest{
-			UserID:      currentUserID,
-			Role:        role,
-			PatientID:   rec.PatientID,
-			RecordID:    rec.ID,
-			Action:      "DOWNLOAD",
-			Purpose:     "FILE_DOWNLOAD",
-			Source:      c.GetHeader("X-Source"),
-			IPAddress:   c.ClientIP(),
-			UserAgent:   c.Request.UserAgent(),
-			IsEmergency: false,
-		})
-		if err != nil || !decision.Allowed {
-			c.JSON(http.StatusForbidden, model.Response{
-				Code:    403,
-				Message: fmt.Sprintf("医疗附件下载拦截 (403 Forbidden): %s", decision.Reason),
-				Data:    decision,
-			})
-			return
-		}
-	} else if role == "patient" {
-		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "无法关联所属病历记录"})
+	if len(plainData) > 0 {
+		encodedFileName := url.QueryEscape(file.FileName)
+		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"; filename*=UTF-8''%s", encodedFileName, encodedFileName))
+		c.Header("Content-Type", "application/octet-stream")
+		c.Data(http.StatusOK, "application/octet-stream", plainData)
 		return
 	}
 
-	if role == "doctor" {
-		service.DefaultAccessEngine.RecordSuccessfulAccess(currentUserID, rec.PatientID)
+	if rec != nil && rec.ID > 0 {
+		c.Redirect(http.StatusFound, fmt.Sprintf("/api/v1/medical-records/%d/download", rec.ID))
+		return
 	}
-
-	if file.IPFSCID != "" {
-		if cipherPack, err := service.DefaultMedicalService.GetIPFSData(file.IPFSCID); err == nil && len(cipherPack) > 0 {
-			var plainData []byte
-			var decErr error
-			if file.EncryptedDEK != "" && file.IVNonce != "" {
-				masterKey := config.AppConfig.GetAESMasterKey()
-				plainData, decErr = crypto.DecryptMedicalFile(cipherPack, file.EncryptedDEK, file.IVNonce, rec.PatientID, rec.RecordNo, masterKey)
-			} else {
-				plainData, decErr = crypto.DecryptRecordFile(cipherPack, rec.PatientID, rec.RecordNo)
-			}
-			if decErr == nil && len(plainData) > 0 {
-				encodedFileName := url.QueryEscape(file.FileName)
-				c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"; filename*=UTF-8''%s", encodedFileName, encodedFileName))
-				c.Header("Content-Type", "application/octet-stream")
-				c.Data(http.StatusOK, "application/octet-stream", plainData)
-				return
-			}
-		}
-	}
-
-	c.Redirect(http.StatusFound, fmt.Sprintf("/api/v1/medical-records/%d/download", file.RecordID))
+	ctrl.serveMockMedicalImage(c, file)
 }
 
 func (ctrl *MedicalController) serveMockMedicalImage(c *gin.Context, file *model.MedicalFile) {

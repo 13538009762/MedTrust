@@ -48,9 +48,6 @@ func NewKuboLiveClient(apiURL, storageDir string) *KuboLiveClient {
 }
 
 func (c *KuboLiveClient) Add(cipherBytes []byte) (string, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	var b bytes.Buffer
 	w := multipart.NewWriter(&b)
 	fw, err := w.CreateFormFile("file", "encrypted_record.bin")
@@ -62,18 +59,22 @@ func (c *KuboLiveClient) Add(cipherBytes []byte) (string, error) {
 		if reqErr == nil {
 			req.Header.Set("Content-Type", w.FormDataContentType())
 			resp, doErr := c.client.Do(req)
-			if doErr == nil && resp.StatusCode == http.StatusOK {
+			if doErr == nil {
 				defer resp.Body.Close()
-				bodyBytes, readErr := io.ReadAll(resp.Body)
-				if readErr == nil {
-					var addResp ipfsAddResponse
-					if jErr := json.Unmarshal(bodyBytes, &addResp); jErr == nil && addResp.Hash != "" {
-						realCID := addResp.Hash
-						localPath := filepath.Join(c.storageDir, realCID)
-						_ = os.WriteFile(localPath, cipherBytes, 0644)
-						log.Printf("[IPFS-Live] 成功写入真实 IPFS 节点，CID: %s", realCID)
-						return realCID, nil
+				if resp.StatusCode == http.StatusOK {
+					bodyBytes, readErr := io.ReadAll(resp.Body)
+					if readErr == nil {
+						var addResp ipfsAddResponse
+						if jErr := json.Unmarshal(bodyBytes, &addResp); jErr == nil && addResp.Hash != "" {
+							realCID := addResp.Hash
+							localPath := filepath.Join(c.storageDir, realCID)
+							_ = os.WriteFile(localPath, cipherBytes, 0644)
+							log.Printf("[IPFS-Live] 成功写入真实 IPFS 节点，CID: %s", realCID)
+							return realCID, nil
+						}
 					}
+				} else {
+					log.Printf("[IPFS-Live] 节点返回非 200 状态码 (%d)，自动降级", resp.StatusCode)
 				}
 			}
 		}
@@ -85,9 +86,6 @@ func (c *KuboLiveClient) Add(cipherBytes []byte) (string, error) {
 }
 
 func (c *KuboLiveClient) Cat(cid string) ([]byte, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
 	localPath := filepath.Join(c.storageDir, cid)
 	if data, err := os.ReadFile(localPath); err == nil && len(data) > 0 {
 		return data, nil
@@ -95,16 +93,18 @@ func (c *KuboLiveClient) Cat(cid string) ([]byte, error) {
 
 	reqURL := fmt.Sprintf("%s/api/v0/cat?arg=%s", c.apiURL, cid)
 	resp, err := c.client.Post(reqURL, "", nil)
-	if err == nil && resp.StatusCode == http.StatusOK {
+	if err == nil {
 		defer resp.Body.Close()
-		remoteData, readErr := io.ReadAll(resp.Body)
-		if readErr == nil && len(remoteData) > 0 {
-			_ = os.WriteFile(localPath, remoteData, 0644)
-			return remoteData, nil
+		if resp.StatusCode == http.StatusOK {
+			remoteData, readErr := io.ReadAll(resp.Body)
+			if readErr == nil && len(remoteData) > 0 {
+				_ = os.WriteFile(localPath, remoteData, 0644)
+				return remoteData, nil
+			}
 		}
 	}
 
-	return nil, fmt.Errorf("IPFS CID %s 数据未找到", cid)
+	return (&LocalMockIPFSClient{storageDir: c.storageDir}).Cat(cid)
 }
 
 func (c *KuboLiveClient) PutData(ciphertext []byte) (string, error) {

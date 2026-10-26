@@ -683,6 +683,31 @@ type BreakGlassRequest struct {
 	DoctorConfirmed interface{} `json:"doctor_confirmed"`
 }
 
+func formatEmergencyEventResponse(ev *model.EmergencyAccessEvent, rec *model.MedicalRecord) gin.H {
+	return gin.H{
+		"id":                 ev.ID,
+		"event_no":           ev.EventNo,
+		"doctor_id":          ev.DoctorID,
+		"patient_id":         ev.PatientID,
+		"record_id":          ev.RecordID,
+		"source_hospital_id": ev.SourceHospitalID,
+		"target_hospital_id": ev.TargetHospitalID,
+		"emergency_reason":   ev.EmergencyReason,
+		"description":        ev.Description,
+		"doctor_confirmed":   ev.DoctorConfirmed,
+		"patient_feedback":   ev.PatientFeedback,
+		"patient_comment":    ev.PatientComment,
+		"audit_status":       ev.AuditStatus,
+		"supervisor_id":      ev.SupervisorID,
+		"audit_comment":      ev.AuditComment,
+		"fabric_tx_id":       ev.FabricTxID,
+		"created_at":         ev.CreatedAt,
+		"updated_at":         ev.UpdatedAt,
+		"event":              *ev,
+		"record":             rec,
+	}
+}
+
 // BreakGlass 医生发起紧急抢救调阅
 func (ctrl *AccessController) BreakGlass(c *gin.Context) {
 	doctorID := c.GetUint64("user_id")
@@ -732,28 +757,7 @@ func (ctrl *AccessController) BreakGlass(c *gin.Context) {
 		c.JSON(http.StatusOK, model.Response{
 			Code:    200,
 			Message: "该病历在 1 小时内已处于有效急救破窗授权状态，直接复用既有紧急调阅凭证放行",
-			Data: gin.H{
-				"id":                 existingEvent.ID,
-				"event_no":           existingEvent.EventNo,
-				"doctor_id":          existingEvent.DoctorID,
-				"patient_id":         existingEvent.PatientID,
-				"record_id":          existingEvent.RecordID,
-				"source_hospital_id": existingEvent.SourceHospitalID,
-				"target_hospital_id": existingEvent.TargetHospitalID,
-				"emergency_reason":   existingEvent.EmergencyReason,
-				"description":        existingEvent.Description,
-				"doctor_confirmed":   existingEvent.DoctorConfirmed,
-				"patient_feedback":   existingEvent.PatientFeedback,
-				"patient_comment":    existingEvent.PatientComment,
-				"audit_status":       existingEvent.AuditStatus,
-				"supervisor_id":      existingEvent.SupervisorID,
-				"audit_comment":      existingEvent.AuditComment,
-				"fabric_tx_id":       existingEvent.FabricTxID,
-				"created_at":         existingEvent.CreatedAt,
-				"updated_at":         existingEvent.UpdatedAt,
-				"event":              existingEvent,
-				"record":             fullRecord,
-			},
+			Data:    formatEmergencyEventResponse(&existingEvent, fullRecord),
 		})
 		return
 	}
@@ -783,28 +787,7 @@ func (ctrl *AccessController) BreakGlass(c *gin.Context) {
 	c.JSON(http.StatusOK, model.Response{
 		Code:    200,
 		Message: "紧急访问申请已核准放行，生成待审核事件单并全量存证",
-		Data: gin.H{
-			"id":                 event.ID,
-			"event_no":           event.EventNo,
-			"doctor_id":          event.DoctorID,
-			"patient_id":         event.PatientID,
-			"record_id":          event.RecordID,
-			"source_hospital_id": event.SourceHospitalID,
-			"target_hospital_id": event.TargetHospitalID,
-			"emergency_reason":   event.EmergencyReason,
-			"description":        event.Description,
-			"doctor_confirmed":   event.DoctorConfirmed,
-			"patient_feedback":   event.PatientFeedback,
-			"patient_comment":    event.PatientComment,
-			"audit_status":       event.AuditStatus,
-			"supervisor_id":      event.SupervisorID,
-			"audit_comment":      event.AuditComment,
-			"fabric_tx_id":       event.FabricTxID,
-			"created_at":         event.CreatedAt,
-			"updated_at":         event.UpdatedAt,
-			"event":              event,
-			"record":             fullRecord,
-		},
+		Data:    formatEmergencyEventResponse(event, fullRecord),
 	})
 }
 
