@@ -28,7 +28,17 @@ var DefaultMedicalService *MedicalService
 func InitMedicalService(args ...string) {
 	mode := "live"
 	apiURL := "http://127.0.0.1:5001"
-	storageDir := "./ipfs_storage"
+	storageDir := "./data/ipfs_storage"
+
+	if config.AppConfig.IPFS.Mode != "" {
+		mode = config.AppConfig.IPFS.Mode
+	}
+	if config.AppConfig.IPFS.APIURL != "" {
+		apiURL = config.AppConfig.IPFS.APIURL
+	}
+	if config.AppConfig.IPFS.StorageDir != "" {
+		storageDir = config.AppConfig.IPFS.StorageDir
+	}
 
 	if len(args) == 1 {
 		mode = args[0]
@@ -48,7 +58,19 @@ func InitMedicalService(args ...string) {
 
 func (s *MedicalService) GetIPFSService() ipfs.IPFSService {
 	if s == nil || s.ipfsService == nil {
-		return ipfs.NewIPFSService("http://127.0.0.1:5001", "./ipfs_storage")
+		storageDir := "./data/ipfs_storage"
+		apiURL := "http://127.0.0.1:5001"
+		mode := "live"
+		if config.AppConfig.IPFS.Mode != "" {
+			mode = config.AppConfig.IPFS.Mode
+		}
+		if config.AppConfig.IPFS.APIURL != "" {
+			apiURL = config.AppConfig.IPFS.APIURL
+		}
+		if config.AppConfig.IPFS.StorageDir != "" {
+			storageDir = config.AppConfig.IPFS.StorageDir
+		}
+		return ipfs.CreateIPFSService(mode, apiURL, storageDir)
 	}
 	return s.ipfsService
 }

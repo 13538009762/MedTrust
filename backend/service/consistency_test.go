@@ -23,8 +23,10 @@ func TestConsistency_StateMachineAndReconciliation(t *testing.T) {
 		t.Fatalf("Init DB failed: %v", err)
 	}
 
-	blockchain.InitBlockchainService("../ledger_data", blockchain.FabricGatewayConfig{Mode: "local"})
-	service.InitMedicalService(cfg.IPFS.APIURL, "../ipfs_storage")
+	tempLedger := t.TempDir()
+	tempIPFS := t.TempDir()
+	blockchain.InitBlockchainService(tempLedger, blockchain.FabricGatewayConfig{Mode: "local"})
+	service.InitMedicalService(cfg.IPFS.APIURL, tempIPFS)
 	service.InitAccessEngine(cfg.Risk.LowThreshold, cfg.Risk.HighThreshold)
 
 	// 创建测试医生与患者

@@ -69,11 +69,15 @@ func TestCleanRealIPFSStorage(t *testing.T) {
 	}
 	repository.SeedInitialData(db)
 
-	config.AppConfig.IPFS.StorageDir = "../data/ipfs_storage"
+	simulatedDir := t.TempDir()
+	config.AppConfig.IPFS.StorageDir = simulatedDir
+	_ = os.WriteFile(filepath.Join(simulatedDir, ".gitkeep"), []byte(""), 0644)
+	_ = os.WriteFile(filepath.Join(simulatedDir, "QmSimulatedOrphanFile987654321"), []byte("orphan"), 0644)
+
 	cleaned, bytesFreed, err := service.CleanOrphanedIPFSFiles()
 	if err != nil {
-		t.Fatalf("真实存储目录清理出错: %v", err)
+		t.Fatalf("存储目录清理出错: %v", err)
 	}
-	t.Logf("✅ 真实 IPFS 存储目录已清理: 清理文件数=%d, 释放空间=%.2f MB", cleaned, float64(bytesFreed)/(1024*1024))
+	t.Logf("✅ 存储目录清理测试完成: 清理文件数=%d, 释放空间=%d 字节", cleaned, bytesFreed)
 }
 

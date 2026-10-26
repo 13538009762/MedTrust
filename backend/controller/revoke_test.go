@@ -139,7 +139,7 @@ func TestRevocationConsistency_FabricFailureAndIdempotency(t *testing.T) {
 	if originalBlockchain != nil {
 		blockchain.DefaultService = originalBlockchain
 	} else {
-		blockchain.InitBlockchainService("../ledger_data", blockchain.FabricGatewayConfig{Mode: "local"})
+		blockchain.InitBlockchainService(filepath.Join(t.TempDir(), "ledger_data"), blockchain.FabricGatewayConfig{Mode: "local"})
 	}
 
 	// 5.1 正常撤销流程 (ACTIVE -> REVOKED)
@@ -199,7 +199,7 @@ func TestRevocationConsistency_FabricFailureAndIdempotency(t *testing.T) {
 func TestBatchRetryFailedRevocations(t *testing.T) {
 	_, _ = config.LoadConfig("../config/config.yaml")
 	_, _ = repository.InitDB()
-	blockchain.InitBlockchainService("../ledger_data", blockchain.FabricGatewayConfig{Mode: "local"})
+	blockchain.InitBlockchainService(filepath.Join(t.TempDir(), "ledger_data"), blockchain.FabricGatewayConfig{Mode: "local"})
 
 	patient := model.User{
 		UserNo:   "PAT_BATCH_RETRY",

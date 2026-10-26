@@ -23,8 +23,10 @@ func TestVerification_AuthenticRecordPasses(t *testing.T) {
 		t.Fatalf("Init DB failed: %v", err)
 	}
 
-	blockchain.InitBlockchainService("../ledger_data", blockchain.FabricGatewayConfig{Mode: "local"})
-	service.InitMedicalService(cfg.IPFS.APIURL, "../ipfs_storage")
+	tempLedger := t.TempDir()
+	tempIPFS := t.TempDir()
+	blockchain.InitBlockchainService(tempLedger, blockchain.FabricGatewayConfig{Mode: "local"})
+	service.InitMedicalService(cfg.IPFS.APIURL, tempIPFS)
 
 	// 创建可信病历并执行真实 AES-256-GCM 加密与 IPFS 密文存储
 	recordNo := fmt.Sprintf("REC_VERIFY_%d", time.Now().UnixNano())
@@ -140,8 +142,10 @@ func TestVerification_MissingLedgerAsset(t *testing.T) {
 		t.Fatalf("Init DB failed: %v", err)
 	}
 
-	blockchain.InitBlockchainService("../ledger_data", blockchain.FabricGatewayConfig{Mode: "local"})
-	service.InitMedicalService(cfg.IPFS.APIURL, "../ipfs_storage")
+	tempLedger := t.TempDir()
+	tempIPFS := t.TempDir()
+	blockchain.InitBlockchainService(tempLedger, blockchain.FabricGatewayConfig{Mode: "local"})
+	service.InitMedicalService(cfg.IPFS.APIURL, tempIPFS)
 
 	// 创建未上链的孤立病历
 	orphanRec := model.MedicalRecord{
