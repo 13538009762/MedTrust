@@ -1,0 +1,10 @@
+# Auto-detect text files and normalize line endings
+* text=auto
+
+# Windows batch files must always use CRLF to avoid cmd.exe parse drift and mojibake
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Shell scripts must always use LF
+*.sh text eol=lf

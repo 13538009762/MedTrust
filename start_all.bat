@@ -34,11 +34,11 @@ ping 127.0.0.1 -n 4 >nul
 start http://localhost:5173/login
 echo.
 echo 系统登录预置账号提示：
-echo • 医院A李建国医生: doc_a / 123456
-echo • 医院B王明德医生: doc_b / 123456
-echo • 患者张三:        pat_zhang / 123456
-echo • 卫健监管专员:    supervisor / 123456
-echo • 系统管理员:      admin / 123456
+echo [1] 医院A (总院区) 李建国医生: doc_li / 123456
+echo [2] 医院B (分院区) 王明德医生: doc_wang / 123456
+echo [3] 就诊患者 张三:            pat_zhang / 123456
+echo [4] 卫健监管专员 陈建华:      supervisor / 123456
+echo [5] 平台系统管理员:           admin / 123456
 echo ==============================================================================
 echo 按任意键关闭本启动主控台（后台服务将继续在各自独立窗口运行）...
 pause >nul
