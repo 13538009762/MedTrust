@@ -46,10 +46,10 @@ func InitLedger(ledgerDir string) *MockLedgerService {
 func InitBlockchainService(ledgerDir string, fabricCfg FabricGatewayConfig) BlockchainService {
 	mock := InitLedger(ledgerDir)
 
-	// 优先读取环境变量 BLOCKCHAIN_MODE (支持 fabric 或 mock)
-	mode := strings.ToLower(os.Getenv("BLOCKCHAIN_MODE"))
+	// 优先以入参指定的模式为准，未指定时再降级读取环境变量 BLOCKCHAIN_MODE
+	mode := strings.ToLower(fabricCfg.Mode)
 	if mode == "" {
-		mode = strings.ToLower(fabricCfg.Mode)
+		mode = strings.ToLower(os.Getenv("BLOCKCHAIN_MODE"))
 	}
 	if mode == "" {
 		if fabricCfg.Enabled {

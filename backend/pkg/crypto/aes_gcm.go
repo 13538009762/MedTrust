@@ -213,3 +213,47 @@ func DecryptMedicalFile(cipherData []byte, encryptedDEK string, ivBase64 string,
 	}
 	return plainData, nil
 }
+
+// RewrapDEK 用新主密钥重新封装旧主密钥加密的 DEK (信封加密密匙轮转，零密文搬运热轮换)
+func RewrapDEK(oldEncryptedDEK string, oldMasterKey, newMasterKey []byte) (string, error) {
+	if len(oldMasterKey) != 32 || len(newMasterKey) != 32 {
+		return "", errors.New("master keys must be exactly 32 bytes for AES-256")
+	}
+	sealedDEK, err := base64.StdEncoding.DecodeString(oldEncryptedDEK)
+	if err != nil || len(sealedDEK) < 12 {
+		return "", errors.New("invalid encrypted DEK: decode failed or length < 12")
+	}
+
+	// 1. 使用旧主密钥解开 DEK
+	oldBlock, err := aes.NewCipher(oldMasterKey)
+	if err != nil {
+		return "", fmt.Errorf("init old cipher failed: %w", err)
+	}
+	oldGCM, err := cipher.NewGCM(oldBlock)
+	if err != nil {
+		return "", fmt.Errorf("init old gcm failed: %w", err)
+	}
+	dekNonce := sealedDEK[:12]
+	dek, err := oldGCM.Open(nil, dekNonce, sealedDEK[12:], nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to unseal DEK with old master key: %w", err)
+	}
+
+	// 2. 生成全新 12 字节 Nonce 并用新主密钥重新封装 DEK
+	newBlock, err := aes.NewCipher(newMasterKey)
+	if err != nil {
+		return "", fmt.Errorf("init new cipher failed: %w", err)
+	}
+	newGCM, err := cipher.NewGCM(newBlock)
+	if err != nil {
+		return "", fmt.Errorf("init new gcm failed: %w", err)
+	}
+	newNonce := make([]byte, 12)
+	if _, err = io.ReadFull(rand.Reader, newNonce); err != nil {
+		return "", fmt.Errorf("generate new nonce failed: %w", err)
+	}
+	newSealedDEK := newGCM.Seal(newNonce, newNonce, dek, nil)
+
+	return base64.StdEncoding.EncodeToString(newSealedDEK), nil
+}
+

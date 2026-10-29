@@ -10,6 +10,6 @@
 | **TC-MAT-05** | 跨院无授权夜间调阅 | `23:00 | 跨院:true | 授权:false | F1:0 | F2:0` | **65** | `HIGH` | `NEED_BREAK_GLASS` | 0 µs | **PASS** |
 | **TC-MAT-06** | 突发急诊危重救治 | `03:00 | 跨院:true | 授权:false | F1:0 | F2:0` | **0** | `EMERGENCY` | `BREAK_GLASS_ALLOWED` | 0 µs | **PASS** |
 | **TC-MAT-07** | 同患者短时高频访问 | `15:00 | 跨院:false | 授权:true | F1:4 | F2:0` | **25** | `LOW` | `ALLOWED` | 0 µs | **PASS** |
-| **TC-MAT-08** | 密集批量跨患者调阅 | `20:00 | 跨院:true | 授权:true | F1:0 | F2:6` | **55** | `MEDIUM` | `PENDING_CONFIRM` | 0 µs | **PASS** |
+| **TC-MAT-08** | 密集批量跨患者调阅 | `20:00 | 跨院:true | 授权:true | F1:0 | F2:6` | **55** | `MEDIUM` | `PENDING_CONFIRM` | 745 µs | **PASS** |
 | **TC-MAT-09** | 受限医生跨院访问 | `14:00 | 跨院:true | 授权:true | F1:0 | F2:0` | **45** | `MEDIUM` | `REJECTED` | 0 µs | **PASS** |
 | **TC-MAT-10** | 封禁医生访问拦截 | `10:00 | 跨院:false | 授权:true | F1:0 | F2:0` | **0** | `LOW` | `REJECTED` | 0 µs | **PASS** |

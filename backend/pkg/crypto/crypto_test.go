@@ -139,6 +139,57 @@ func TestEncryptDecryptMedicalFile_Success(t *testing.T) {
 	}
 }
 
+func TestRewrapDEK_Success(t *testing.T) {
+	oldKey := []byte("old-secret-key-12345678901234567")[:32]
+	newKey := []byte("new-secret-key-abcdefghijklmnopq")[:32]
+	plain := []byte("密钥轮转测试：在不重新下载和加密 IPFS 原始密文的前提下，完成 DEK 重包装。")
+	patientID := uint64(8888)
+	recordNo := "REC-REKEY-2026-001"
+
+	// 1. 使用旧主密钥加密
+	cipherData, oldEncDEK, ivNonce, _, err := EncryptMedicalFile(plain, patientID, recordNo, oldKey)
+	if err != nil {
+		t.Fatalf("使用旧密钥加密失败: %v", err)
+	}
+
+	// 2. 确认旧主密钥可正常解密
+	decOld, err := DecryptMedicalFile(cipherData, oldEncDEK, ivNonce, patientID, recordNo, oldKey)
+	if err != nil || !bytes.Equal(decOld, plain) {
+		t.Fatalf("旧密钥解密验证失败: %v", err)
+	}
+
+	// 3. 执行 DEK 重包装
+	newEncDEK, err := RewrapDEK(oldEncDEK, oldKey, newKey)
+	if err != nil {
+		t.Fatalf("RewrapDEK 失败: %v", err)
+	}
+	if newEncDEK == oldEncDEK {
+		t.Fatalf("重包装后密文应与旧密文不同 (随机 Nonce)")
+	}
+
+	// 4. 用新主密钥成功解密原始密文
+	decNew, err := DecryptMedicalFile(cipherData, newEncDEK, ivNonce, patientID, recordNo, newKey)
+	if err != nil {
+		t.Fatalf("使用新密钥和新封装 DEK 解密失败: %v", err)
+	}
+	if !bytes.Equal(decNew, plain) {
+		t.Fatalf("新密钥解密内容不一致: got %s, want %s", string(decNew), string(plain))
+	}
+
+	// 5. 反向校验：用旧主密钥解新封装 DEK 应失败
+	_, err = DecryptMedicalFile(cipherData, newEncDEK, ivNonce, patientID, recordNo, oldKey)
+	if err == nil {
+		t.Fatalf("预期使用旧主密钥解新 DEK 报错，但未报错")
+	}
+
+	// 6. 错误密钥尝试 RewrapDEK 应失败
+	wrongKey := []byte("wrong-secret-key-123456789012345")[:32]
+	_, err = RewrapDEK(oldEncDEK, wrongKey, newKey)
+	if err == nil {
+		t.Fatalf("预期使用错误旧密钥解封装 DEK 报错，但未报错")
+	}
+}
+
 func BenchmarkEncryptRecordFile(b *testing.B) {
 	data := bytes.Repeat([]byte("A"), 1024*64) // 64KB 典型结构化病历与检验报告
 	patientID := uint64(2001)

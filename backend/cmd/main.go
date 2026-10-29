@@ -19,6 +19,11 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("Config security validation failed: %v", err)
+	}
+	fmt.Printf("[MedTrust] Configuration validated successfully (Mode: %s)\n", cfg.AppEnv)
+
 	// 1. 初始化数据库与自动迁移（内部已完成幂等标准测试种子数据注入）
 	_, err = repository.InitDB()
 	if err != nil {
