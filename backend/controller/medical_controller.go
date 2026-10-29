@@ -15,6 +15,7 @@ import (
 	"medtrust-backend/model"
 	"medtrust-backend/pkg/crypto"
 	"medtrust-backend/pkg/pdf"
+	"medtrust-backend/pkg/security"
 	"medtrust-backend/repository"
 	"medtrust-backend/service"
 )
@@ -59,11 +60,16 @@ func (ctrl *MedicalController) Upload(c *gin.Context) {
 	fileName := ""
 	fileType := "pdf"
 
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 50<<20)
 	file, header, err := c.Request.FormFile("file")
 	if err == nil && file != nil {
 		defer file.Close()
 		fb, readErr := io.ReadAll(file)
 		if readErr == nil && len(fb) > 0 {
+			if valErr := security.ValidateMedicalFile(header.Filename, fb); valErr != nil {
+				c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "文件安全校验未通过: " + valErr.Error()})
+				return
+			}
 			fileBytes = fb
 			fileName = header.Filename
 			if ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(fileName)), "."); ext != "" {
@@ -468,11 +474,16 @@ func (ctrl *MedicalController) CompleteExamOrder(c *gin.Context) {
 	fileName := ""
 	fileType := "jpg"
 
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 50<<20)
 	file, header, err := c.Request.FormFile("file")
 	if err == nil && file != nil {
 		defer file.Close()
 		fb, readErr := io.ReadAll(file)
 		if readErr == nil && len(fb) > 0 {
+			if valErr := security.ValidateMedicalFile(header.Filename, fb); valErr != nil {
+				c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "文件安全校验未通过: " + valErr.Error()})
+				return
+			}
 			fileBytes = fb
 			fileName = header.Filename
 			fileType = strings.ToLower(strings.TrimPrefix(filepath.Ext(fileName), "."))

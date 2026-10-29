@@ -183,6 +183,7 @@ func (ctrl *AuthController) UpdateAvatar(c *gin.Context) {
 }
 
 func (ctrl *AuthController) UploadAvatar(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 5<<20)
 	userID := c.GetUint64("user_id")
 	file, err := c.FormFile("avatar")
 	if err != nil {
