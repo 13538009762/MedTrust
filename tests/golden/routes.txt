@@ -56,6 +56,7 @@ POST    /api/v1/auth/ticket
 POST    /api/v1/authorizations
 POST    /api/v1/authorizations/:id/retry-revoke
 POST    /api/v1/authorizations/retry-failed-revokes
+POST    /api/v1/csp-report
 POST    /api/v1/emergency-events/:event_no/feedback
 POST    /api/v1/encounters/:id/complete
 POST    /api/v1/encounters/initial

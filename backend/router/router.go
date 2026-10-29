@@ -10,6 +10,7 @@ import (
 func SetupRouter() *gin.Engine {
 	r := gin.Default()
 	r.Use(middleware.CORSMiddleware())
+	r.Use(middleware.SecurityHeadersMiddleware())
 
 	r.GET("/api/v1/health", func(c *gin.Context) {
 		c.JSON(200, model.Response{Code: 200, Message: "MedTrust Blockchain Backend Gateway is Running", Data: nil})
@@ -17,6 +18,11 @@ func SetupRouter() *gin.Engine {
 
 	v1 := r.Group("/api/v1")
 	{
+		// 接收浏览器 CSP 违规上报
+		v1.POST("/csp-report", func(c *gin.Context) {
+			c.Status(204)
+		})
+
 		// 认证模块 (公开)
 		v1.GET("/auth/captcha", controller.DefaultAuthController.GetCaptcha)
 		v1.POST("/auth/login", controller.DefaultAuthController.Login)
