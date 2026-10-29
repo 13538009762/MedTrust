@@ -33,7 +33,6 @@ func (ctrl *NotificationController) Stream(c *gin.Context) {
 	c.Writer.Header().Set("Cache-Control", "no-cache")
 	c.Writer.Header().Set("Connection", "keep-alive")
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
-	c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 
 	// 订阅用户通知通道
 	ch := sse.Default.Subscribe(userID)
