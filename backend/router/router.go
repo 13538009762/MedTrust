@@ -1,6 +1,8 @@
 package router
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"medtrust-backend/controller"
 	"medtrust-backend/middleware"
@@ -23,10 +25,10 @@ func SetupRouter() *gin.Engine {
 			c.Status(204)
 		})
 
-		// 认证模块 (公开)
+		// 认证模块 (公开，挂载防爆破限流保护)
 		v1.GET("/auth/captcha", controller.DefaultAuthController.GetCaptcha)
-		v1.POST("/auth/login", controller.DefaultAuthController.Login)
-		v1.POST("/auth/register", controller.DefaultAuthController.Register)
+		v1.POST("/auth/login", middleware.RateLimitMiddleware(30, time.Minute), controller.DefaultAuthController.Login)
+		v1.POST("/auth/register", middleware.RateLimitMiddleware(10, time.Minute), controller.DefaultAuthController.Register)
 
 		// 区块链网络状态 (公开可查)
 		v1.GET("/system/blockchain/status", controller.DefaultSystemController.GetBlockchainStatus)
