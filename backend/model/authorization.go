@@ -18,6 +18,7 @@ type Authorization struct {
 	Status         string    `gorm:"size:32;default:'ACTIVE';index:idx_patient_target" json:"status"` // ACTIVE, REVOKED, REVOKE_PENDING, FABRIC_REVOKED
 	FabricTxID     string    `gorm:"size:128;default:''" json:"fabric_tx_id"`
 	RevokeTxID     string    `gorm:"size:128;default:''" json:"revoke_tx_id,omitempty"`
+	RevokeReason   string    `gorm:"size:255;default:''" json:"revoke_reason,omitempty"`
 	RevokeError    string    `gorm:"size:255;default:''" json:"revoke_error,omitempty"`
 	OperatorID     uint64    `gorm:"default:0" json:"operator_id,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`

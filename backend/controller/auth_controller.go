@@ -15,6 +15,7 @@ import (
 	"medtrust-backend/middleware"
 	"medtrust-backend/model"
 	"medtrust-backend/pkg/captcha"
+	"medtrust-backend/pkg/security"
 	"medtrust-backend/repository"
 	"medtrust-backend/service"
 )
@@ -80,12 +81,19 @@ func (ctrl *AuthController) Login(c *gin.Context) {
 		return
 	}
 
+	weakWarning := security.IsWeakPassword(req.Password)
+	// 在 demo 模式下不强制阻断改密，保障答辩演示与多角色无缝切换
+	if !config.AppConfig.IsProduction() && user != nil {
+		user.MustChangePwd = false
+	}
+
 	c.JSON(http.StatusOK, model.Response{
 		Code:    200,
 		Message: "登录成功",
 		Data: gin.H{
-			"token": token,
-			"user":  user,
+			"token":                 token,
+			"user":                  user,
+			"weak_password_warning": weakWarning,
 		},
 	})
 }
@@ -112,6 +120,11 @@ func (ctrl *AuthController) Register(c *gin.Context) {
 	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "参数错误，请完整填写真实姓名、身份证号、手机号、账号名及密码"})
+		return
+	}
+
+	if err := security.ValidatePasswordStrength(req.Password); err != nil {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "密码强度不足: " + err.Error()})
 		return
 	}
 
@@ -241,6 +254,11 @@ func (ctrl *AuthController) ChangePassword(c *gin.Context) {
 	var req ChangePasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "请输入原密码与新密码"})
+		return
+	}
+
+	if err := security.ValidatePasswordStrength(req.NewPassword); err != nil {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "新密码强度不足: " + err.Error()})
 		return
 	}
 

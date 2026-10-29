@@ -13,6 +13,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"medtrust-backend/model"
 	"medtrust-backend/pkg/blockchain"
+	"medtrust-backend/pkg/security"
 	"medtrust-backend/repository"
 	"medtrust-backend/service"
 )
@@ -169,9 +170,11 @@ func (ctrl *SystemController) CreateUser(c *gin.Context) {
 	if pwd == "" {
 		pwd = service.GenerateSecureRandomPassword(10)
 		isRandomTemp = true
-	} else if len(pwd) < 6 {
-		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "密码长度至少需要 6 个字符"})
-		return
+	} else {
+		if err := security.ValidatePasswordStrength(pwd); err != nil {
+			c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "密码强度不足: " + err.Error()})
+			return
+		}
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(pwd), bcrypt.DefaultCost)
