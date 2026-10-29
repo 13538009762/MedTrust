@@ -35,31 +35,13 @@
               </template>
             </el-input>
           </div>
-
-          <div class="quick-candidates">
-            <span class="candidate-label">快捷定位：</span>
-            <div class="candidate-chips-wrap">
-              <button
-                v-for="cand in candidatePatients"
-                :key="cand.id"
-                type="button"
-                :class="['candidate-chip-btn', { active: selectedPatient?.id === cand.id }]"
-                @click="selectPatient(cand)"
-              >
-                <span class="chip-avatar">{{ cand.real_name ? cand.real_name.charAt(0) : '患' }}</span>
-                <span class="chip-name">{{ cand.real_name }}</span>
-                <span class="chip-meta">{{ cand.gender || '男' }} · {{ cand.age }}岁</span>
-                <span v-if="hasRealAllergy(cand)" class="chip-alert-badge" title="有过敏史">过敏</span>
-              </button>
-            </div>
-          </div>
         </div>
       </div>
     </div>
 
     <!-- 若未选定患者时的空态指引 -->
     <div v-if="!selectedPatient && !searching" class="empty-patient-guide">
-      <el-empty description="请在上方输入患者姓名或身份证号，或点击“快捷定位”选择患者">
+      <el-empty description="输入患者姓名、身份证号、手机号或患者编号定位患者">
         <template #image>
           <div class="empty-icon-wrap">
             <el-icon :size="64" color="#059669"><Search /></el-icon>
@@ -415,7 +397,7 @@
           <!-- 病历档案表格 (带内部视口滚动与冻结表头) -->
           <el-table
             ref="recordsTableRef"
-            :data="filteredPatientRecords"
+            :data="pagedPatientRecords"
             v-loading="loadingRecords"
             stripe
             style="width: 100%"
@@ -424,7 +406,7 @@
             row-key="id"
             @selection-change="handleSelectionChange"
           >
-            <el-table-column type="selection" width="50" align="center" :selectable="isRecordSelectable" />
+            <el-table-column type="selection" width="50" align="center" :selectable="isRecordSelectable" :reserve-selection="true" />
 
             <el-table-column prop="record_no" label="就诊编号" width="185">
               <template #default="{ row }">
@@ -575,14 +557,25 @@
             </el-table-column>
           </el-table>
 
-          <!-- 表格底部汇总信息 -->
+          <!-- 表格底部汇总与分页 -->
           <div class="table-card-footer">
             <span class="tcf-stats text-muted">
-              当前显示 {{ filteredPatientRecords.length }} / {{ patientRecords.length }} 份病历档案
+              共检索到 {{ filteredPatientRecords.length }} 份病历 (全网 {{ patientRecords.length }} 份)
               <span v-if="selectedRecordRows.length > 0" class="text-primary font-bold ml-2">
                 · 已勾选 {{ selectedRecordRows.length }} 份
               </span>
             </span>
+            <div class="tcf-pagination">
+              <el-pagination
+                v-model:current-page="recordCurrentPage"
+                v-model:page-size="recordPageSize"
+                :page-sizes="[10, 20, 50]"
+                :total="filteredPatientRecords.length"
+                layout="total, sizes, prev, pager, next, jumper"
+                background
+                size="small"
+              />
+            </div>
             <div class="tcf-right">
               <el-button v-if="selectedRecordRows.length > 0" size="small" text type="primary" @click="clearSelection">
                 清除勾选
@@ -782,7 +775,7 @@
     <el-dialog
       v-model="emergencyDialogVisible"
       title="【急救绿色通道】紧急破窗调阅知情存证声明"
-      width="640px"
+      width="680px"
       append-to-body
       class="break-glass-dialog"
     >
@@ -804,7 +797,7 @@
           </el-form-item>
 
           <el-form-item label="急危重症抢救原因分类" required>
-            <el-radio-group v-model="emergencyForm.emergencyReason">
+            <el-radio-group v-model="emergencyForm.emergencyReason" class="emergency-reason-group">
               <el-radio-button label="COMA">深度昏迷 / 意识障碍</el-radio-button>
               <el-radio-button label="CRITICAL">多发严重创伤 / 创伤休克</el-radio-button>
               <el-radio-button label="RESCUE">突发急性心梗 / 心脏骤停抢救</el-radio-button>
@@ -822,7 +815,7 @@
           </el-form-item>
 
           <div class="legal-disclaimer-box">
-            <el-checkbox v-model="emergencyForm.doctorConfirmed">
+            <el-checkbox v-model="emergencyForm.doctorConfirmed" class="disclaimer-checkbox">
               <span class="disclaimer-text">
                 本人作为主管执业医师已充分了解《医师法》及医疗数据安全规范，承诺所填写抢救原由完全属实，自愿承担法律责任，知晓本次调阅事件将同步广播上链并通知医保监管中心。
               </span>
@@ -831,15 +824,17 @@
         </el-form>
       </div>
       <template #footer>
-        <el-button @click="emergencyDialogVisible = false">取消放弃</el-button>
-        <el-button
-          type="danger"
-          :disabled="!emergencyForm.doctorConfirmed"
-          :loading="submittingEmergency"
-          @click="submitEmergencyAccess"
-        >
-          立即破窗解锁全部病历 (24小时绿色通道生效)
-        </el-button>
+        <div class="dialog-footer-actions">
+          <el-button @click="emergencyDialogVisible = false">取消放弃</el-button>
+          <el-button
+            type="danger"
+            :disabled="!emergencyForm.doctorConfirmed"
+            :loading="submittingEmergency"
+            @click="submitEmergencyAccess"
+          >
+            立即破窗解锁全部病历 (24小时绿色通道生效)
+          </el-button>
+        </div>
       </template>
     </el-dialog>
 
@@ -974,7 +969,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 
@@ -1035,13 +1030,15 @@ const searching = ref(false)
 const candidatePatients = ref<any[]>([])
 const selectedPatient = ref<any | null>(null)
 
-// 病历状态
+// 病历状态与分页
 const patientRecords = ref<any[]>([])
 const loadingRecords = ref(false)
 const recordFilter = ref('ALL')
 const recordSearchText = ref('')
 const recordsTableRef = ref<any>(null)
 const selectedRecordRows = ref<any[]>([])
+const recordCurrentPage = ref(1)
+const recordPageSize = ref(10)
 
 // 弹窗状态
 const allConsentDialogVisible = ref(false)
@@ -1156,6 +1153,15 @@ const filteredPatientRecords = computed(() => {
   })
 })
 
+const pagedPatientRecords = computed(() => {
+  const start = (recordCurrentPage.value - 1) * recordPageSize.value
+  return filteredPatientRecords.value.slice(start, start + recordPageSize.value)
+})
+
+watch([recordFilter, recordSearchText], () => {
+  recordCurrentPage.value = 1
+})
+
 function getHospitalName(id: number) {
   return hospitals.value[id] || `医疗机构 #${id}`
 }
@@ -1247,6 +1253,7 @@ async function handleSearch() {
 // 选中目标患者
 async function selectPatient(patient: any) {
   selectedPatient.value = patient
+  recordCurrentPage.value = 1
   clearSelection()
   await fetchPatientRecords(patient.id)
 }
@@ -1425,3 +1432,103 @@ onUnmounted(() => {
 </script>
 
 <style scoped src="./PatientEmergencySearchView.css"></style>
+
+<style>
+/* 破窗弹窗全局渗透样式，确保 append-to-body 传送门下类名与复选框换行 100% 生效 */
+.break-glass-dialog .el-dialog__body {
+  padding: 20px 24px !important;
+  overflow-x: hidden !important;
+}
+
+.break-glass-dialog .emergency-reason-group {
+  display: grid !important;
+  grid-template-columns: repeat(2, 1fr) !important;
+  gap: 10px !important;
+  width: 100% !important;
+}
+
+.break-glass-dialog .emergency-reason-group .el-radio-button {
+  width: 100% !important;
+  margin: 0 !important;
+}
+
+.break-glass-dialog .emergency-reason-group .el-radio-button__inner {
+  width: 100% !important;
+  border: 1px solid #dcdfe6 !important;
+  border-radius: 6px !important;
+  box-shadow: none !important;
+  padding: 10px 12px !important;
+  font-size: 13px !important;
+  text-align: center !important;
+  transition: all 0.2s ease !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  display: block !important;
+}
+
+.break-glass-dialog .emergency-reason-group .el-radio-button__inner:hover {
+  color: #0284c7 !important;
+  border-color: #38bdf8 !important;
+}
+
+.break-glass-dialog .emergency-reason-group .el-radio-button__original-radio:checked + .el-radio-button__inner {
+  background-color: #0284c7 !important;
+  border-color: #0284c7 !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  box-shadow: 0 2px 4px rgba(2, 132, 199, 0.25) !important;
+}
+
+.break-glass-dialog .legal-disclaimer-box {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+  padding: 12px 14px !important;
+  border-radius: 8px !important;
+  margin-top: 14px !important;
+  box-sizing: border-box !important;
+  width: 100% !important;
+}
+
+.break-glass-dialog .legal-disclaimer-box .el-checkbox {
+  display: flex !important;
+  align-items: flex-start !important;
+  height: auto !important;
+  white-space: normal !important;
+  width: 100% !important;
+  margin-right: 0 !important;
+}
+
+.break-glass-dialog .legal-disclaimer-box .el-checkbox__input {
+  margin-top: 3px !important;
+  flex-shrink: 0 !important;
+}
+
+.break-glass-dialog .legal-disclaimer-box .el-checkbox__label {
+  white-space: normal !important;
+  word-break: break-all !important;
+  overflow-wrap: break-word !important;
+  line-height: 1.6 !important;
+  padding-left: 8px !important;
+  font-size: 13px !important;
+  color: #334155 !important;
+  flex: 1 !important;
+}
+
+.break-glass-dialog .disclaimer-text {
+  font-size: 13px !important;
+  color: #334155 !important;
+  line-height: 1.6 !important;
+  white-space: normal !important;
+  word-break: break-all !important;
+  overflow-wrap: break-word !important;
+  display: inline-block !important;
+}
+
+.break-glass-dialog .dialog-footer-actions {
+  display: flex !important;
+  justify-content: flex-end !important;
+  gap: 12px !important;
+  width: 100% !important;
+}
+</style>

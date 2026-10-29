@@ -10,6 +10,7 @@ import (
 	"medtrust-backend/repository"
 	"medtrust-backend/service"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -94,7 +95,8 @@ func (ctrl *AccessController) ListAuthorizations(c *gin.Context) {
 	if role == "patient" {
 		patientFilter = patientID
 	}
-	list, _ := repository.DefaultAuthPolicyRepository.ListAuthorizations(patientFilter, "")
+	statusFilter := strings.ToUpper(strings.TrimSpace(c.Query("status")))
+	list, _ := repository.DefaultAuthPolicyRepository.ListAuthorizations(patientFilter, statusFilter)
 
 	docIDs := make([]uint64, 0, len(list))
 	hospIDs := make([]uint64, 0, len(list))

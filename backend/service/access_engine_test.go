@@ -28,7 +28,8 @@ func TestAccessEngine_AuthorizationAndRiskFlow(t *testing.T) {
 		t.Fatalf("DefaultAccessEngine not initialized")
 	}
 	// 注入工作时段时钟(14:00)，避免因非工作时段(RULE-T1: <8或>=18)触发加分导致中风险拦截
-	engine.SetClock(func() time.Time { return time.Date(2026, 10, 26, 14, 0, 0, 0, time.Local) })
+	mockNow := time.Date(2026, 10, 26, 14, 0, 0, 0, time.Local)
+	engine.SetClock(func() time.Time { return mockNow })
 	defer engine.SetClock(nil)
 
 	// 准备测试数据: 医院、科室、医生、患者（赋予唯一 HospitalNo 防止唯一索引冲突）
@@ -139,8 +140,8 @@ func TestAccessEngine_AuthorizationAndRiskFlow(t *testing.T) {
 		AuthTargetID:   docB.ID,
 		ScopeType:      "SINGLE",
 		RecordID:       record.ID,
-		StartTime:      time.Now().Add(-24 * time.Hour),
-		EndTime:        time.Now().Add(48 * time.Hour),
+		StartTime:      mockNow.Add(-24 * time.Hour),
+		EndTime:        mockNow.Add(48 * time.Hour),
 		Status:         "ACTIVE",
 		CreatedAt:      time.Now(),
 	}

@@ -87,3 +87,121 @@ defineEmits<{
   (e: 'download', recordId?: number): void
 }>()
 </script>
+
+<style scoped>
+.integrity-body {
+  min-height: 200px;
+}
+.result-banner {
+  display: flex;
+  align-items: center;
+  padding: 14px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+.result-banner.is-verified {
+  background: #ecfdf5;
+  border: 1px solid #10b981;
+  color: #065f46;
+}
+.result-banner.is-tampered {
+  background: #fef2f2;
+  border: 1px solid #ef4444;
+  color: #991b1b;
+}
+.banner-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+.banner-sub {
+  font-size: 12px;
+  margin-top: 4px;
+  opacity: 0.85;
+}
+.hash-compare-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.hash-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.hash-card-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 6px;
+}
+.hash-val {
+  display: block;
+  font-family: 'Consolas', monospace;
+  font-size: 11px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 6px 8px;
+  word-break: break-all;
+  color: #0f172a;
+}
+.hash-card-desc {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 4px;
+}
+.verify-stages-box {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.stages-header {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 8px;
+}
+.stage-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px dashed #f1f5f9;
+}
+.stage-item:last-child {
+  border-bottom: none;
+}
+.stage-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1e293b;
+}
+.stage-detail {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 2px;
+}
+.chain-meta-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 11px;
+  color: #475569;
+  line-height: 1.8;
+}
+.mono {
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+.bold {
+  font-weight: 700;
+}
+.mt-3 {
+  margin-top: 12px;
+}
+.mr-3 {
+  margin-right: 12px;
+}
+</style>

@@ -142,6 +142,15 @@ func TestE2E_AcceptanceFlow(t *testing.T) {
 	var fileHash string
 	var testEventNo string
 
+	t.Cleanup(func() {
+		if createdRecordID != 0 {
+			repository.DB.Where("record_id = ?", createdRecordID).Delete(&model.MedicalFile{})
+			repository.DB.Where("record_id = ?", createdRecordID).Delete(&model.Authorization{})
+			repository.DB.Where("record_id = ?", createdRecordID).Delete(&model.EmergencyAccessEvent{})
+			repository.DB.Where("id = ?", createdRecordID).Delete(&model.MedicalRecord{})
+		}
+	})
+
 	// -------------------------------------------------------------
 	// Test 1: 加密与上链闭环
 	// doc_li 上传患者张三病历文件 -> 检查 ipfs_storage/ 下生成的文件确保无法作为明文读取 -> 检查返回的 ipfs_cid, file_hash, fabric_tx_id 非空

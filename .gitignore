@@ -51,6 +51,9 @@ Thumbs.db
 *.sln
 *.sw?
 scratch/
+.env
+.env*.local
+!.env.example
 backend/data/uploads/*
 !backend/data/uploads/.gitkeep
 backend/data/ipfs_storage/*

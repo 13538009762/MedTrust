@@ -2407,7 +2407,7 @@ const filteredResults = computed(() => {
 })
 
 const currentPage = ref(1)
-const pageSize = ref(15)
+const pageSize = ref(10)
 
 const paginatedResults = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value

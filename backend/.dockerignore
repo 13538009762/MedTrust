@@ -1,0 +1,6 @@
+medtrust_backend
+medtrust_backend.exe
+.git
+.vscode
+*.log
+data/

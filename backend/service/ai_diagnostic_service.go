@@ -59,7 +59,7 @@ func (s *AIDiagnosticService) AnalyzePatientDiagnosticCorrelation(doctorID uint6
 	var candidateRecords []model.MedicalRecord
 	var candidateIDs []uint64
 	for _, r := range allRecords {
-		if r.HasAccess || r.HospitalID == doctor.HospitalID {
+		if r.HasAccess {
 			candidateRecords = append(candidateRecords, r)
 			candidateIDs = append(candidateIDs, r.ID)
 		}
@@ -79,9 +79,15 @@ func (s *AIDiagnosticService) AnalyzePatientDiagnosticCorrelation(doctorID uint6
 		}
 	}
 
-	// 3. 查询患者关联的历史医技检查申请单与化验结果
+	// 3. 查询患者关联的历史医技检查申请单与化验结果 (严格限定于已获授权病历范围)
+	var allExamOrders []model.MedicalExamOrder
+	repository.DB.Where("patient_id = ?", req.PatientID).Order("id asc").Find(&allExamOrders)
 	var examOrders []model.MedicalExamOrder
-	repository.DB.Where("patient_id = ?", req.PatientID).Order("id asc").Find(&examOrders)
+	for _, o := range allExamOrders {
+		if validSet[o.RecordID] {
+			examOrders = append(examOrders, o)
+		}
+	}
 
 	// 按就诊时间先后排序建立时间轴
 	sort.Slice(authorizedRecords, func(i, j int) bool {
@@ -334,11 +340,11 @@ func (s *AIDiagnosticService) ValidateAuthorizedRecordScope(doctorID, patientID 
 			continue
 		}
 
-		// 2. 跨院病历：核验患者显式授权 (Consent)
+		// 2. 跨院病历：核验患者显式授权 (Consent: 支持按医生、按医院或全体医生开放)
 		var authCount int64
 		repository.DB.Model(&model.Authorization{}).Where(
-			"patient_id = ? AND auth_target_id = ? AND auth_target_type = 'DOCTOR' AND status = 'ACTIVE' AND start_time <= ? AND end_time >= ? AND (scope_type = 'ALL' OR (scope_type = 'SINGLE' AND record_id = ?))",
-			patientID, doctorID, now, now, rid,
+			"patient_id = ? AND ((auth_target_type = 'DOCTOR' AND auth_target_id = ?) OR (auth_target_type = 'HOSPITAL' AND auth_target_id = ?) OR auth_target_type = 'ALL_DOCTORS') AND status = 'ACTIVE' AND start_time <= ? AND end_time >= ? AND (scope_type = 'ALL' OR (scope_type = 'SINGLE' AND record_id = ?))",
+			patientID, doctorID, doctor.HospitalID, now, now, rid,
 		).Count(&authCount)
 		if authCount > 0 {
 			validatedIDs = append(validatedIDs, rid)

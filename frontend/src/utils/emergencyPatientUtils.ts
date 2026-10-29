@@ -11,12 +11,11 @@ export function hasRealAllergy(candOrAllergies?: any): boolean {
     return hasRealAllergy(candOrAllergies.allergies)
   }
   const t = String(candOrAllergies).trim()
-  if (!t) return false
-  const safeKeywords = ['未发现', '暂未', '无', '暂无', '未见', '阴性', '否认', '未报告']
-  if (safeKeywords.some(kw => t.includes(kw))) {
-    return false
-  }
-  return true
+  if (!t || t === '-' || t.toLowerCase() === 'none') return false
+  const clauses = t.split(/[,，;；。]/).map(s => s.trim()).filter(Boolean)
+  if (clauses.length === 0) return false
+  const exactSafePattern = /^(无|暂无|阴性|未见|未发现|否认|未报告|无过敏.*|无药物过敏.*|暂无.*|未发现.*|暂未.*|未见.*|否认.*|未报告.*)$/
+  return clauses.some(clause => !exactSafePattern.test(clause))
 }
 
 export function formatProtectionLevel(alert?: any): string {

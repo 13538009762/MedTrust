@@ -76,7 +76,17 @@ func (ctrl *SupervisorController) Overview(c *gin.Context) {
 
 func (ctrl *SupervisorController) ListEmergencyEvents(c *gin.Context) {
 	status := c.Query("status")
-	list, _ := repository.DefaultEmergencyRepository.ListEventsWithFilter(status)
+	role := c.GetString("role")
+	userID := c.GetUint64("user_id")
+	rawList, _ := repository.DefaultEmergencyRepository.ListEventsWithFilter(status)
+
+	var list []model.EmergencyAccessEvent
+	for _, ev := range rawList {
+		if role == "patient" && ev.PatientID != userID {
+			continue
+		}
+		list = append(list, ev)
+	}
 
 	for i := range list {
 		if doc, err := repository.DefaultUserRepository.FindByID(list[i].DoctorID); err == nil {

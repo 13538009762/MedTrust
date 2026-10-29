@@ -101,5 +101,17 @@ func LoadConfig(path string) (*Config, error) {
 	if v := os.Getenv("AI_MODEL"); v != "" {
 		AppConfig.AI.Model = v
 	}
+	if v := os.Getenv("REDIS_ADDR"); v != "" {
+		AppConfig.Redis.Addr = v
+	}
+	if v := os.Getenv("FABRIC_PEER_ENDPOINT"); v != "" {
+		AppConfig.Blockchain.Fabric.PeerEndpoint = v
+	}
+	if v := os.Getenv("IPFS_API_URL"); v != "" {
+		AppConfig.IPFS.APIURL = v
+	}
+	if v := os.Getenv("BLOCKCHAIN_MODE"); v != "" {
+		AppConfig.Blockchain.Mode = v
+	}
 	return &AppConfig, nil
 }

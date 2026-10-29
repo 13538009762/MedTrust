@@ -85,7 +85,7 @@
       </div>
 
       <!-- 病历表格 -->
-      <el-table :data="filteredRecords" v-loading="loading" stripe class="doctor-records-table" style="width: 100%">
+      <el-table :data="pagedRecords" v-loading="loading" stripe class="doctor-records-table" style="width: 100%">
         <el-table-column prop="record_no" label="就诊编号" width="190">
           <template #default="{ row }">
             <span class="mono font-bold" style="white-space: nowrap;">{{ row.record_no }}</span>
@@ -196,6 +196,22 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <!-- 表格分页控制 (一页最多显示10行) -->
+      <div class="table-pagination-wrapper">
+        <span class="pagination-info text-muted">
+          共 {{ filteredRecords.length }} 条就诊记录，当前第 {{ currentPage }} / {{ Math.max(1, Math.ceil(filteredRecords.length / pageSize)) }} 页
+        </span>
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :page-sizes="[10, 20, 50]"
+          :total="filteredRecords.length"
+          layout="total, sizes, prev, pager, next, jumper"
+          background
+          size="default"
+        />
+      </div>
     </el-card>
     </div>
 
@@ -2244,6 +2260,9 @@ const waitingExamCount = computed(() => records.value.filter(r => r.status === '
 const examCompletedCount = computed(() => records.value.filter(r => r.status === 'EXAM_COMPLETED' || r.status === 'INITIAL_DIAGNOSIS').length)
 const completedCount = computed(() => records.value.filter(r => r.status === 'COMPLETED').length)
 
+const currentPage = ref(1)
+const pageSize = ref(10)
+
 const filteredRecords = computed(() => {
   let list = records.value
   if (activeStatusFilter.value !== 'ALL') {
@@ -2265,6 +2284,15 @@ const filteredRecords = computed(() => {
     )
   }
   return list
+})
+
+const pagedRecords = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredRecords.value.slice(start, start + pageSize.value)
+})
+
+watch([activeStatusFilter, searchKeyword], () => {
+  currentPage.value = 1
 })
 
 const defaultPatientNames = ['陈晨', '李四', '王秀英', '赵建平', '钱小芳', '孙明浩', '周桂珍', '张三']
@@ -2292,7 +2320,15 @@ async function fetchRecords() {
   try {
     const res: any = await listRecordsApi()
     if (res.code === 200) {
-      records.value = (res.data || []).map((r: any) => {
+      const allRecords = res.data || []
+      // 过滤未取得授权的病历（未取得授权的跨院病历只在跨院查询/急救检索中展示并提供授权申请）
+      const authorizedList = allRecords.filter((r: any) => {
+        if (r.has_access === false) return false
+        if (r.access_type === 'UNAUTHORIZED') return false
+        if (typeof r.diagnosis === 'string' && r.diagnosis.includes('未授权掩码')) return false
+        return true
+      })
+      records.value = authorizedList.map((r: any) => {
         if (!r.patient_name || r.patient_name === '患者' || r.patient_name.startsWith('患者#')) {
           r.patient_name = formatPatientName(r)
         }

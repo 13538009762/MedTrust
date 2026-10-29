@@ -28,6 +28,7 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 	now := time.Now()
 	var docAuths []model.Authorization
 	var docEmgRecordIDs = make(map[uint64]bool)
+	var privateRecordIDs = make(map[uint64]bool)
 	var authRecordIDs []uint64
 	var authPatientIDs []uint64
 	var patientAuths []model.Authorization
@@ -36,8 +37,16 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 		repository.DB.Where("(auth_target_type = 'DOCTOR' AND auth_target_id = ?) OR (auth_target_type = 'HOSPITAL' AND auth_target_id = ?) OR auth_target_type = 'ALL_DOCTORS'", currentUserID, currentUser.HospitalID).
 			Where("status = 'ACTIVE' AND start_time <= ? AND end_time >= ?", now, now).Find(&docAuths)
 
+		var privAuths []model.Authorization
+		repository.DB.Where("scope_type = 'SINGLE' AND auth_target_type = 'PRIVATE' AND status = 'ACTIVE' AND start_time <= ? AND end_time >= ?", now, now).Find(&privAuths)
+		for _, pa := range privAuths {
+			if pa.RecordID > 0 {
+				privateRecordIDs[pa.RecordID] = true
+			}
+		}
+
 		for _, a := range docAuths {
-			if a.ScopeType == "SINGLE" && a.RecordID > 0 {
+			if a.ScopeType == "SINGLE" && a.RecordID > 0 && !privateRecordIDs[a.RecordID] {
 				authRecordIDs = append(authRecordIDs, a.RecordID)
 			} else if a.ScopeType == "ALL" {
 				authPatientIDs = append(authPatientIDs, a.PatientID)
@@ -45,7 +54,7 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 		}
 
 		var emgs []model.EmergencyAccessEvent
-		repository.DB.Where("doctor_id = ? AND created_at >= ?", currentUserID, now.Add(-24*time.Hour)).Find(&emgs)
+		repository.DB.Where("doctor_id = ? AND created_at >= ? AND audit_status != 'CLOSED_VIOLATION' AND patient_feedback != 'OBJECTED'", currentUserID, now.Add(-24*time.Hour)).Find(&emgs)
 		for _, e := range emgs {
 			docEmgRecordIDs[e.RecordID] = true
 			authRecordIDs = append(authRecordIDs, e.RecordID)
@@ -293,12 +302,14 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 				} else {
 					hasAuth := false
 					isAllDocAuth := false
-					for _, a := range docAuths {
-						if a.PatientID == list[i].PatientID && (a.ScopeType == "ALL" || (a.ScopeType == "SINGLE" && a.RecordID == list[i].ID)) {
-							hasAuth = true
-							if a.AuthTargetType == "ALL_DOCTORS" {
-								isAllDocAuth = true
-								break
+					if !privateRecordIDs[list[i].ID] {
+						for _, a := range docAuths {
+							if a.PatientID == list[i].PatientID && (a.ScopeType == "ALL" || (a.ScopeType == "SINGLE" && a.RecordID == list[i].ID)) {
+								hasAuth = true
+								if a.AuthTargetType == "ALL_DOCTORS" {
+									isAllDocAuth = true
+									break
+								}
 							}
 						}
 					}
@@ -315,31 +326,38 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 					}
 				}
 			} else if currentUser.Role == "doctor" {
-				// 4. 跨院机构医生
-				hasAuth := false
-				isAllDocAuth := false
-				for _, a := range docAuths {
-					if a.PatientID == list[i].PatientID && (a.ScopeType == "ALL" || (a.ScopeType == "SINGLE" && a.RecordID == list[i].ID)) {
-						hasAuth = true
-						if a.AuthTargetType == "ALL_DOCTORS" {
-							isAllDocAuth = true
-							break
-						}
-					}
-				}
-				if docEmgRecordIDs[list[i].ID] {
-					list[i].HasAccess = true
-					list[i].AccessType = "BREAK_GLASS"
-				} else if hasAuth {
-					list[i].HasAccess = true
-					if isAllDocAuth {
-						list[i].AccessType = "ALL_DOCTORS"
-					} else {
-						list[i].AccessType = "AUTHORIZED"
-					}
-				} else {
+				// 4. 跨院机构医生 (若医生处于受限状态 RESTRICTED，严禁跨院调阅)
+				if currentUser.Status == "RESTRICTED" {
 					list[i].HasAccess = false
 					list[i].AccessType = "UNAUTHORIZED"
+				} else {
+					hasAuth := false
+					isAllDocAuth := false
+					if !privateRecordIDs[list[i].ID] {
+						for _, a := range docAuths {
+							if a.PatientID == list[i].PatientID && (a.ScopeType == "ALL" || (a.ScopeType == "SINGLE" && a.RecordID == list[i].ID)) {
+								hasAuth = true
+								if a.AuthTargetType == "ALL_DOCTORS" {
+									isAllDocAuth = true
+									break
+								}
+							}
+						}
+					}
+					if docEmgRecordIDs[list[i].ID] {
+						list[i].HasAccess = true
+						list[i].AccessType = "BREAK_GLASS"
+					} else if hasAuth {
+						list[i].HasAccess = true
+						if isAllDocAuth {
+							list[i].AccessType = "ALL_DOCTORS"
+						} else {
+							list[i].AccessType = "AUTHORIZED"
+						}
+					} else {
+						list[i].HasAccess = false
+						list[i].AccessType = "UNAUTHORIZED"
+					}
 				}
 			} else {
 				list[i].HasAccess = false

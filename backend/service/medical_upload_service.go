@@ -95,9 +95,16 @@ func (s *MedicalService) UploadRecord(p UploadRecordParams) (*model.MedicalRecor
 		if err := repository.DB.First(&pat, p.PatientID).Error; err == nil && pat.RealName != "" {
 			patName = pat.RealName
 		}
+		hospName := doc.HospitalName
+		if hospName == "" && doc.HospitalID > 0 {
+			var hosp model.Hospital
+			if err := repository.DB.First(&hosp, doc.HospitalID).Error; err == nil && hosp.Name != "" {
+				hospName = hosp.Name
+			}
+		}
 		pdfBytes, _ := pdf.GenerateAttestationPDF(pdf.AttestationData{
 			RecordNo:         recordNo,
-			HospitalName:     doc.HospitalName,
+			HospitalName:     hospName,
 			EncounterType:    p.EncounterType,
 			DepartmentName:   p.DepartmentName,
 			PatientName:      patName,
@@ -233,11 +240,11 @@ func ComputeRecordHash(r *model.MedicalRecord) string {
 
 	fileHash := ""
 	if len(r.Files) > 0 {
-		// 优先取规范归档凭据或最后一份生成的凭据文件
+		// 优先取最新生成的规范归档凭据或最后一份生成的凭据文件
 		fileHash = r.Files[len(r.Files)-1].FileHash
-		for _, f := range r.Files {
-			if strings.Contains(f.FileName, "归档凭据") || strings.Contains(f.FileName, r.RecordNo) {
-				fileHash = f.FileHash
+		for i := len(r.Files) - 1; i >= 0; i-- {
+			if strings.Contains(r.Files[i].FileName, "归档凭据") || strings.Contains(r.Files[i].FileName, r.RecordNo) {
+				fileHash = r.Files[i].FileHash
 				break
 			}
 		}
@@ -283,7 +290,7 @@ func SelectPrimaryMedicalFile(r *model.MedicalRecord) *model.MedicalFile {
 		return nil
 	}
 	target := &r.Files[len(r.Files)-1]
-	for i := range r.Files {
+	for i := len(r.Files) - 1; i >= 0; i-- {
 		if strings.Contains(r.Files[i].FileName, "归档凭据") || strings.Contains(r.Files[i].FileName, r.RecordNo) {
 			target = &r.Files[i]
 			break

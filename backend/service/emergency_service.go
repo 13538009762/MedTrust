@@ -117,6 +117,14 @@ func (s *EmergencyService) SubmitPatientFeedback(patientID uint64, eventNo, feed
 		return fmt.Errorf("更新事件反馈失败: %w", err)
 	}
 
+	// 若患者提出异议 (OBJECTED)，立即收回关联的 24h 紧急授权记录
+	if feedback == "OBJECTED" {
+		_ = repository.DB.Model(&model.Authorization{}).
+			Where("patient_id = ? AND auth_target_id = ? AND record_id = ? AND auth_no LIKE 'AUTH_EMG%' AND status = 'ACTIVE'",
+				event.PatientID, event.DoctorID, event.RecordID).
+			Updates(map[string]interface{}{"status": "REVOKED", "revoke_reason": "患者对破窗行为提出异议，紧急放行即时终止"}).Error
+	}
+
 	DefaultAuditService.Log(patientID, "FEEDBACK", "EVENT", eventNo, event.TargetHospitalID, "SUCCESS", "LOW", ip)
 	return nil
 }
@@ -152,6 +160,12 @@ func (s *EmergencyService) AuditEvent(supervisorID uint64, eventNo, auditStatus,
 	})
 
 	// 执行惩戒联动 (NORMAL, RESTRICTED, DISABLED)
+	if auditStatus == "CLOSED_VIOLATION" || (punishment != "" && punishment != "NORMAL") {
+		_ = repository.DB.Model(&model.Authorization{}).
+			Where("patient_id = ? AND auth_target_id = ? AND record_id = ? AND auth_no LIKE 'AUTH_EMG%' AND status = 'ACTIVE'",
+				event.PatientID, event.DoctorID, event.RecordID).
+			Updates(map[string]interface{}{"status": "REVOKED", "revoke_reason": "监管裁定违规破窗，收回紧急放行权限"}).Error
+	}
 	if punishment != "" && punishment != "NORMAL" {
 		_ = repository.DB.Model(&model.User{}).Where("id = ?", event.DoctorID).Update("status", punishment).Error
 		repository.InvalidateUserStatus(event.DoctorID)

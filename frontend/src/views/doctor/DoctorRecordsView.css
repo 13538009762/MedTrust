@@ -2857,3 +2857,21 @@
   box-shadow: 0 4px 14px rgba(124, 58, 237, 0.4);
   transform: translateY(-1px);
 }
+
+/* ── 表格翻页器美化 ────────────────────────────────── */
+.table-pagination-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px 8px 4px;
+  margin-top: 12px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.table-pagination-wrapper .pagination-info {
+  font-size: 13px;
+  color: #64748b;
+  font-weight: 500;
+}

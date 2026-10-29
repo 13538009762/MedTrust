@@ -205,7 +205,7 @@ func (r *UserRepository) ListDoctors(keyword string, hospitalID uint64) ([]model
 		query = query.Where("hospital_id = ?", hospitalID)
 	}
 	if keyword != "" {
-		query = query.Where("real_name LIKE ? OR user_no LIKE ? OR professional_title LIKE ?",
+		query = query.Where("real_name LIKE ? OR user_no LIKE ? OR title LIKE ?",
 			"%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%")
 	}
 	var doctors []model.User

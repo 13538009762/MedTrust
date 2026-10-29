@@ -1,10 +1,11 @@
 import base64
 import json
+import os
 import re
 import requests
 from typing import Dict, Any, Optional, Set
 
-GO_BACKEND_URL = "http://127.0.0.1:8080/api/v1"
+GO_BACKEND_URL = os.getenv("GO_BACKEND_URL", "http://127.0.0.1:8080/api/v1")
 
 # 严格角色-工具白名单映射 (RBAC + Tool Calling Guardrail)
 ROLE_TOOL_ALLOWLIST: Dict[str, Set[str]] = {
@@ -219,10 +220,11 @@ class ControlledMedicalTools:
         })
         return result
 
-    def analyze_audit_anomalies(self, risk_level: str = "HIGH") -> Dict[str, Any]:
+    def analyze_audit_anomalies(self, risk_level: str = "") -> Dict[str, Any]:
         """受控工具4：检索访问审计日志与异常高风险行为记录（仅监管员/患者本人可用）"""
         try:
-            resp = requests.get(f"{GO_BACKEND_URL}/audit-logs", headers=self.headers, params={"risk_level": risk_level}, timeout=10)
+            params = {"risk_level": risk_level} if risk_level else {}
+            resp = requests.get(f"{GO_BACKEND_URL}/audit-logs", headers=self.headers, params=params, timeout=10)
             result = resp.json() if resp.status_code == 200 else {"code": resp.status_code, "message": "权限拦截"}
             status_code = resp.status_code
         except Exception as e:

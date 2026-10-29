@@ -889,13 +889,21 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px 0;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 16px 6px;
   border-top: 1px solid #f1f5f9;
   margin-top: 8px;
 }
 
 .tcf-stats {
   font-size: 12px;
+  white-space: nowrap;
+}
+
+.tcf-pagination {
+  display: flex;
+  justify-content: center;
 }
 
 .tcf-right {
@@ -911,6 +919,7 @@
   border-radius: 8px;
   padding: 14px 16px;
   display: flex;
+  align-items: flex-start;
   gap: 12px;
 }
 
@@ -928,18 +937,104 @@
   line-height: 1.5;
 }
 
+/* 抢救原因单选按钮 2x2 网格美化，彻底解决换行边框异常与单项突兀问题 */
+.emergency-reason-group {
+  display: grid !important;
+  grid-template-columns: repeat(2, 1fr) !important;
+  gap: 10px !important;
+  width: 100% !important;
+}
+
+.emergency-reason-group :deep(.el-radio-button),
+.emergency-reason-group .el-radio-button {
+  width: 100% !important;
+  margin: 0 !important;
+}
+
+.emergency-reason-group :deep(.el-radio-button__inner),
+.emergency-reason-group .el-radio-button__inner {
+  width: 100% !important;
+  border: 1px solid #dcdfe6 !important;
+  border-radius: 6px !important;
+  box-shadow: none !important;
+  padding: 10px 14px !important;
+  font-size: 13px !important;
+  text-align: center !important;
+  transition: all 0.2s ease !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  display: block !important;
+}
+
+.emergency-reason-group :deep(.el-radio-button__inner:hover),
+.emergency-reason-group .el-radio-button__inner:hover {
+  color: #0284c7 !important;
+  border-color: #38bdf8 !important;
+}
+
+.emergency-reason-group :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner),
+.emergency-reason-group .el-radio-button__original-radio:checked + .el-radio-button__inner {
+  background-color: #0284c7 !important;
+  border-color: #0284c7 !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  box-shadow: 0 2px 4px rgba(2, 132, 199, 0.25) !important;
+}
+
+/* 法律免责与知情声明复选框盒子：修复超出弹窗与不换行 bug */
 .legal-disclaimer-box {
   background: #f8fafc;
   border: 1px solid #e2e8f0;
-  padding: 10px 14px;
+  padding: 12px 14px;
   border-radius: 8px;
-  margin-top: 12px;
+  margin-top: 14px;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.legal-disclaimer-box :deep(.el-checkbox),
+.legal-disclaimer-box .el-checkbox {
+  display: flex !important;
+  align-items: flex-start !important;
+  height: auto !important;
+  white-space: normal !important;
+  width: 100% !important;
+  margin-right: 0 !important;
+}
+
+.legal-disclaimer-box :deep(.el-checkbox__input),
+.legal-disclaimer-box .el-checkbox__input {
+  margin-top: 3px !important;
+  flex-shrink: 0 !important;
+}
+
+.legal-disclaimer-box :deep(.el-checkbox__label),
+.legal-disclaimer-box .el-checkbox__label {
+  white-space: normal !important;
+  word-break: break-all !important;
+  overflow-wrap: break-word !important;
+  line-height: 1.6 !important;
+  padding-left: 8px !important;
+  font-size: 13px !important;
+  color: #334155 !important;
+  flex: 1 !important;
 }
 
 .disclaimer-text {
-  font-size: 12px;
+  font-size: 13px;
   color: #334155;
-  line-height: 1.5;
+  line-height: 1.6;
+  white-space: normal !important;
+  word-break: break-all !important;
+  overflow-wrap: break-word !important;
+  display: inline-block;
+}
+
+.dialog-footer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
 }
 
 .selected-records-preview {

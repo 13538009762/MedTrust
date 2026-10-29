@@ -215,9 +215,13 @@
 }
 
 .confirm-text {
-  font-size: 12px;
+  font-size: 13px;
   color: #b91c1c;
   font-weight: 600;
+  line-height: 1.6;
+  white-space: normal;
+  word-break: break-all;
+  display: inline-block;
 }
 
 .report-header {

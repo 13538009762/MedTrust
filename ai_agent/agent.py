@@ -147,7 +147,7 @@ class MedTrustAgent:
                 risk_level = "LOW"
 
             tool_called = f"analyze_audit_anomalies(risk_level='{risk_level}')"
-            tool_result = tools.analyze_audit_anomalies(risk_level=risk_level or "HIGH")
+            tool_result = tools.analyze_audit_anomalies(risk_level=risk_level)
             if tool_result.get("code") == 200:
                 logs = tool_result.get("data", [])
                 if not logs:

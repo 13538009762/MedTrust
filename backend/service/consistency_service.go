@@ -264,9 +264,9 @@ func (s *ConsistencyService) ReconcileRecord(recordID uint64) (*model.MedicalRec
 
 	fileHash := ""
 	cid := ""
-	if len(rec.Files) > 0 {
-		fileHash = rec.Files[0].FileHash
-		cid = rec.Files[0].IPFSCID
+	if primary := SelectPrimaryMedicalFile(&rec); primary != nil {
+		fileHash = primary.FileHash
+		cid = primary.IPFSCID
 	}
 	clinicalHash := ComputeRecordHash(&rec)
 

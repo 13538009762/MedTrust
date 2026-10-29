@@ -179,9 +179,8 @@ func (ctrl *AccessController) ApplyConsent(c *gin.Context) {
 		docName = doctor.Username
 	}
 	var hospName = "外院医疗机构"
-	var hosp model.Hospital
 	if hospPtr, err := repository.DefaultHospitalRepository.FindByID(doctor.HospitalID); err == nil && hospPtr != nil && hospPtr.Name != "" {
-		hospName = hosp.Name
+		hospName = hospPtr.Name
 	}
 	sse.Default.Publish(targetPatientID, sse.NotifyEvent{
 		Type:    "access_request",
@@ -289,9 +288,8 @@ func (ctrl *AccessController) BatchApplyConsent(c *gin.Context) {
 			docName = doctor.Username
 		}
 		var hospName = "外院医疗机构"
-		var hosp model.Hospital
 		if hospPtr, err := repository.DefaultHospitalRepository.FindByID(doctor.HospitalID); err == nil && hospPtr != nil && hospPtr.Name != "" {
-			hospName = hosp.Name
+			hospName = hospPtr.Name
 		}
 		sse.Default.Publish(req.PatientID, sse.NotifyEvent{
 			Type:    "access_request",
@@ -462,6 +460,10 @@ func (ctrl *AccessController) RejectRequest(c *gin.Context) {
 		return
 	}
 	req := *reqPtr
+	if req.Status != "PENDING" {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "该申请已处理，不可重复驳回"})
+		return
+	}
 
 	req.Status = "REJECTED"
 	req.Decision = "REJECTED"

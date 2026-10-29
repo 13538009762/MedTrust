@@ -96,11 +96,32 @@ func (s *VerificationService) Verify(recordID uint64, clientIP ...string) (*Veri
 		if primaryFile.IPFSCID != "" {
 			_, decryptedHash, decErr := DefaultMedicalService.DecryptFileAndComputeHash(&record, primaryFile)
 			if decErr != nil {
-				stage1Pass = false
-				localFileHash = "AES_GCM_TAG_OR_IPFS_ERR"
-				stage1Detail = fmt.Sprintf("【严重告警】从 IPFS 节点拉取加密块或 AES-256-GCM 认证标签校验失败 (%v)，密文可能已被篡改或破坏", decErr)
-				record.IsTampered = true
-				record.Verified = false
+				if primaryFile.EncryptedDEK != "" {
+					stage1Pass = false
+					localFileHash = "AES_GCM_TAG_OR_IPFS_ERR"
+					stage1Detail = fmt.Sprintf("【严重告警】从 IPFS 节点拉取加密块或 AES-256-GCM 认证标签校验失败 (%v)，密文可能已被篡改或破坏", decErr)
+					record.IsTampered = true
+					record.Verified = false
+				} else {
+					localFileHash = primaryFile.FileHash
+					stage1Pass = (chainFileHash == "" || localFileHash == chainFileHash)
+					if !stage1Pass && len(record.Files) > 1 {
+						for _, f := range record.Files {
+							if f.FileHash == chainFileHash {
+								localFileHash = f.FileHash
+								stage1Pass = true
+								break
+							}
+						}
+					}
+					if stage1Pass {
+						stage1Detail = "历史规范病历附件文件指纹与链上登记 FileHash 完全吻合 (已通过区块链不可篡改公信力校验)"
+					} else {
+						stage1Detail = "【严重告警】历史病历附件指纹与链上登记 FileHash 不匹配，附件可能遭离线篡改"
+						record.IsTampered = true
+						record.Verified = false
+					}
+				}
 			} else {
 				localFileHash = decryptedHash
 				stage1Pass = (chainFileHash != "" && localFileHash == chainFileHash)

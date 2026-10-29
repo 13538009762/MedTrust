@@ -12,6 +12,8 @@ describe('emergencyPatientUtils unit tests', () => {
     expect(hasRealAllergy('未发现明确药物过敏史')).toBe(false)
     expect(hasRealAllergy('否认药物过敏史')).toBe(false)
     expect(hasRealAllergy('青霉素过敏')).toBe(true)
+    expect(hasRealAllergy('青霉素过敏，无头孢过敏')).toBe(true)
+    expect(hasRealAllergy('无水乙醇过敏')).toBe(true)
     expect(hasRealAllergy({ allergies: '头孢类过敏，皮疹' })).toBe(true)
     expect(hasRealAllergy({ allergies: '暂无' })).toBe(false)
     expect(hasRealAllergy({ has_allergies: true })).toBe(true)
