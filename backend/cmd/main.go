@@ -1,8 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"medtrust-backend/config"
@@ -74,9 +79,35 @@ func main() {
 	fmt.Println("[MedTrust] Fabric Ledger & IPFS Engine Initialized with Baseline Assets")
 
 	r := router.SetupRouter()
+	_ = r.SetTrustedProxies([]string{"127.0.0.1", "::1"})
+
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
-	fmt.Printf("[MedTrust] Server listening on http://127.0.0.1%s\n", addr)
-	if err := r.Run(addr); err != nil {
-		log.Fatalf("Failed to run server: %v", err)
+	srv := &http.Server{
+		Addr:           addr,
+		Handler:        r,
+		ReadTimeout:    15 * time.Second,
+		WriteTimeout:   60 * time.Second,
+		IdleTimeout:    120 * time.Second,
+		MaxHeaderBytes: 1 << 20, // 1MB HTTP 标头限制 (防 DOS)
 	}
+
+	go func() {
+		fmt.Printf("[MedTrust] Hardened HTTP Server listening on http://127.0.0.1%s\n", addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server ListenAndServe failed: %v", err)
+		}
+	}()
+
+	// 监听系统中断信号实现优雅关机 (Graceful Shutdown)
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	<-quit
+	fmt.Println("\n[MedTrust] Shutting down server gracefully...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Fatalf("Server forced to shutdown: %v", err)
+	}
+	fmt.Println("[MedTrust] Server exited cleanly.")
 }
