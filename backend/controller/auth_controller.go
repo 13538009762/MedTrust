@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"strings"
@@ -334,3 +336,45 @@ func (ctrl *AuthController) Logout(c *gin.Context) {
 		Data:    nil,
 	})
 }
+
+// CreateSSETicket 生成单次有效 (60s) 的 SSE 接入票据 (解决 URL 携带长效 JWT 导致的历史记录与日志泄露问题)
+// POST /api/v1/auth/ticket
+func (ctrl *AuthController) CreateSSETicket(c *gin.Context) {
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, model.Response{Code: 401, Message: "未授权"})
+		return
+	}
+	userID := userIDVal.(uint64)
+	userNo, _ := c.Get("user_no")
+	role, _ := c.Get("role")
+	username, _ := c.Get("username")
+	hospitalID, _ := c.Get("hospital_id")
+	departmentID, _ := c.Get("department_id")
+
+	// 生成 24 字节高熵随机票据 (48 位十六进制字符)
+	ticketBytes := make([]byte, 24)
+	if _, err := rand.Read(ticketBytes); err != nil {
+		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "生成票据失败"})
+		return
+	}
+	ticket := hex.EncodeToString(ticketBytes)
+
+	// 序列化用户上下文
+	ticketData := fmt.Sprintf("%d|%v|%v|%v|%v|%v", userID, userNo, role, username, hospitalID, departmentID)
+
+	if err := repository.StoreSSETicket(ticket, ticketData, 60*time.Second); err != nil {
+		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "保存票据失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, model.Response{
+		Code:    200,
+		Message: "创建 SSE 接入票据成功",
+		Data: gin.H{
+			"ticket":     ticket,
+			"expires_in": 60,
+		},
+	})
+}
+

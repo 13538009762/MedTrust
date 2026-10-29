@@ -349,6 +349,8 @@ function handleWindowResize() {
   }
 }
 
+let removeSSEListener: (() => void) | null = null
+
 onMounted(() => {
   handleWindowResize()
   window.addEventListener('resize', handleWindowResize)
@@ -362,7 +364,7 @@ onMounted(() => {
   }
 
   // 注册全局事件监听器：当收到新的调阅申请时，实时刷新待处理徽章
-  addSSEListener((event) => {
+  removeSSEListener = addSSEListener((event) => {
     if (event.type === 'access_request' && auth.user?.role === 'patient') {
       checkPendingConsent()
     }
@@ -371,6 +373,11 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('resize', handleWindowResize)
+  if (removeSSEListener) {
+    removeSSEListener()
+    removeSSEListener = null
+  }
+  disconnectSSE()
 })
 
 watch(() => route.path, () => {

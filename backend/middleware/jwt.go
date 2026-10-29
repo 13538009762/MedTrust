@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -43,6 +45,54 @@ func GenerateToken(u *model.User) (string, error) {
 
 func JWTAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// 1. 优先检查单次有效票据 Ticket (主要供 /notifications/stream 等 SSE 长连接接入，防御 URL 泄露 Token)
+		if ticket := c.Query("ticket"); ticket != "" {
+			if data, ok := repository.ConsumeSSETicket(ticket); ok {
+				// 单次消费成功，解析用户上下文
+				parts := strings.Split(data, "|")
+				if len(parts) >= 3 {
+					var uID uint64
+					fmt.Sscanf(parts[0], "%d", &uID)
+					uNo := parts[1]
+					uRole := parts[2]
+					uName := ""
+					var hospID, deptID uint64
+					if len(parts) >= 4 {
+						uName = parts[3]
+					}
+					if len(parts) >= 5 {
+						fmt.Sscanf(parts[4], "%d", &hospID)
+					}
+					if len(parts) >= 6 {
+						fmt.Sscanf(parts[5], "%d", &deptID)
+					}
+
+					// 检查用户封禁状态
+					if status, ok := repository.GetUserStatus(uID); ok && status == "DISABLED" {
+						c.AbortWithStatusJSON(http.StatusForbidden, model.Response{
+							Code:    403,
+							Message: "您的账号已被监管机构停用封禁，禁止继续执行系统操作",
+						})
+						return
+					}
+
+					c.Set("user_id", uID)
+					c.Set("user_no", uNo)
+					c.Set("username", uName)
+					c.Set("role", uRole)
+					c.Set("hospital_id", hospID)
+					c.Set("department_id", deptID)
+					c.Next()
+					return
+				}
+			}
+			c.AbortWithStatusJSON(http.StatusUnauthorized, model.Response{
+				Code:    401,
+				Message: "SSE 接入票据无效或已过期，请重新申请",
+			})
+			return
+		}
+
 		authHeader := c.GetHeader("Authorization")
 		tokenStr := ""
 
@@ -60,6 +110,16 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 		} else {
 			// 支持 URL Query token (供 <img> / 浏览器附件直接下载安全鉴权)
 			tokenStr = c.Query("token")
+			if tokenStr != "" && strings.HasPrefix(c.Request.URL.Path, "/api/v1/notifications/stream") {
+				if config.AppConfig.IsProduction() {
+					c.AbortWithStatusJSON(http.StatusForbidden, model.Response{
+						Code:    403,
+						Message: "生产环境禁止在 URL 中明文传递 Token 访问 SSE，请使用 POST /api/v1/auth/ticket 获取一次性 Ticket",
+					})
+					return
+				}
+				log.Printf("[Security WARNING (Demo Mode)] 检测到通过 URL 携带 JWT Token 访问 SSE: %s，建议升级为一次性 Ticket 鉴权", c.Request.URL.Path)
+			}
 		}
 
 		if tokenStr == "" {

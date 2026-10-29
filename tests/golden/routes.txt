@@ -52,6 +52,7 @@ POST    /api/v1/auth/avatar/upload
 POST    /api/v1/auth/login
 POST    /api/v1/auth/logout
 POST    /api/v1/auth/register
+POST    /api/v1/auth/ticket
 POST    /api/v1/authorizations
 POST    /api/v1/authorizations/:id/retry-revoke
 POST    /api/v1/authorizations/retry-failed-revokes

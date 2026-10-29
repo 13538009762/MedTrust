@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import { ElNotification } from 'element-plus'
 import router from '../router'
+import { createSSETicketApi } from '../api/auth'
 
 export interface SSENotifyEvent {
   type: 'access_request' | 'request_approved' | 'request_rejected' | 'break_glass' | string
@@ -37,8 +38,9 @@ export function useSSE() {
     })
   }
 
-  function connect(token: string) {
-    if (!token) return
+  async function connect(token?: string) {
+    const effectiveToken = token || sessionStorage.getItem('medtrust_token') || sessionStorage.getItem('token')
+    if (!effectiveToken) return
     if (eventSource && eventSource.readyState === EventSource.OPEN) return
 
     if (eventSource) {
@@ -48,7 +50,20 @@ export function useSSE() {
       eventSource = null
     }
 
-    const sseUrl = `http://127.0.0.1:8080/api/v1/notifications/stream?token=${encodeURIComponent(token)}`
+    let ticket = ''
+    try {
+      const res = await createSSETicketApi()
+      if (res && res.code === 200 && res.data?.ticket) {
+        ticket = res.data.ticket
+      }
+    } catch (err) {
+      console.warn('[MedTrust SSE] 获取单次 Ticket 失败，降级使用 Token 模式:', err)
+    }
+
+    const baseApi = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8080/api/v1'
+    const sseUrl = ticket
+      ? `${baseApi}/notifications/stream?ticket=${encodeURIComponent(ticket)}`
+      : `${baseApi}/notifications/stream?token=${encodeURIComponent(effectiveToken)}`
 
     try {
       eventSource = new EventSource(sseUrl)

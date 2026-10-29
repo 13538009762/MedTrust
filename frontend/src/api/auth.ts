@@ -19,6 +19,10 @@ export function logoutApi(): Promise<ApiEnvelope<any>> {
   return client.post('/auth/logout')
 }
 
+export function createSSETicketApi(): Promise<ApiEnvelope<{ ticket: string; expires_in: number }>> {
+  return client.post('/auth/ticket')
+}
+
 export function getCaptchaApi(): Promise<ApiEnvelope<CaptchaResp>> {
   return client.get('/auth/captcha')
 }

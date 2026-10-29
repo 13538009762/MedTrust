@@ -31,6 +31,7 @@ func SetupRouter() *gin.Engine {
 		authGroup.Use(middleware.JWTAuthMiddleware())
 		{
 			authGroup.POST("/auth/logout", controller.DefaultAuthController.Logout)
+			authGroup.POST("/auth/ticket", controller.DefaultAuthController.CreateSSETicket)
 			authGroup.GET("/auth/profile", controller.DefaultAuthController.Profile)
 			authGroup.PUT("/auth/profile", controller.DefaultAuthController.UpdateProfile)
 			authGroup.PUT("/auth/avatar", controller.DefaultAuthController.UpdateAvatar)

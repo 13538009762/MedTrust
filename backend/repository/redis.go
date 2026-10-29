@@ -169,3 +169,64 @@ func InvalidateUserStatus(userID uint64) {
 		_ = RDB.Del(ctx, key).Err()
 	}
 }
+
+const SSETicketPrefix = "sse:ticket:"
+
+// StoreSSETicket 将单次有效 SSE 接入票据存入缓存 (TTL 默认为 60s)
+func StoreSSETicket(ticket, data string, ttl time.Duration) error {
+	if ticket == "" || data == "" {
+		return fmt.Errorf("ticket and data cannot be empty")
+	}
+	if ttl <= 0 {
+		ttl = 60 * time.Second
+	}
+	key := SSETicketPrefix + ticket
+
+	// 1. 本地内存双写容灾
+	DefaultCache.Set(key, data, ttl)
+
+	// 2. Redis 写入
+	if redisAvailable && RDB != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+		if err := RDB.Set(ctx, key, data, ttl).Err(); err != nil {
+			log.Printf("[Redis] 写入 SSE Ticket 失败: %v, 使用内存缓存兜底", err)
+		}
+	}
+	return nil
+}
+
+// ConsumeSSETicket 原子获取并立即删除单次有效票据 (防止重放与重复使用)
+func ConsumeSSETicket(ticket string) (string, bool) {
+	if ticket == "" {
+		return "", false
+	}
+	key := SSETicketPrefix + ticket
+
+	// 1. 尝试从本地内存获取并删除
+	if val, ok := DefaultCache.Get(key); ok {
+		DefaultCache.Delete(key)
+		if redisAvailable && RDB != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+			defer cancel()
+			_ = RDB.Del(ctx, key).Err()
+		}
+		if s, ok := val.(string); ok {
+			return s, true
+		}
+	}
+
+	// 2. 若本地未命中，查询 Redis (分布式场景)
+	if redisAvailable && RDB != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+		val, err := RDB.Get(ctx, key).Result()
+		if err == nil && val != "" {
+			_ = RDB.Del(ctx, key).Err()
+			return val, true
+		}
+	}
+
+	return "", false
+}
+
