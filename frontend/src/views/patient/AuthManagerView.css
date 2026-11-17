@@ -18,7 +18,9 @@
   color: #64748b;
 }
 .box-card {
-  border-radius: 14px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  box-shadow: none;
 }
 .card-header-flex {
   display: flex;
@@ -43,20 +45,84 @@
   margin-left: 6px;
 }
 .pending-card {
-  border: 1.5px solid #fed7aa;
-  background: #fffdfa;
+  border: 1px solid #fdba74;
+  background: #ffffff;
 }
 .pending-grid {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
 }
 .pending-item-card {
-  border: 1px solid #fed7aa;
+  border: 1px solid #e2e8f0;
   background: #ffffff;
-  border-radius: 12px;
-  padding: 16px;
-  box-shadow: 0 2px 6px rgba(251, 146, 60, 0.08);
+  border-radius: 6px;
+  padding: 14px 16px;
+  box-shadow: none;
+  transition: border-color 0.2s ease;
+  position: relative;
+}
+.pending-item-card.is-selected {
+  border-color: #059669;
+  background: #f0fdf4;
+  box-shadow: none;
+}
+.pending-item-card.is-selected::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 4px;
+  background: #059669;
+  border-top-left-radius: 6px;
+  border-bottom-left-radius: 6px;
+}
+.pending-batch-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 10px 16px;
+  box-shadow: none;
+}
+.batch-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.batch-select-label {
+  font-weight: 600;
+  color: #334155;
+  font-size: 13px;
+}
+.selected-count-pill {
+  font-size: 12px;
+  color: #047857;
+  background: #d1fae5;
+  border: 1px solid #a7f3d0;
+  padding: 2px 10px;
+  border-radius: 9999px;
+  font-weight: 500;
+}
+.batch-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.toolbar-divider {
+  height: 20px;
+  margin: 0 4px;
+}
+.pi-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .pi-header {
   display: flex;
@@ -484,12 +550,13 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 50%, #d1fae5 100%);
-  border: 1.5px solid #a7f3d0;
-  border-radius: 12px;
-  padding: 16px 20px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-left: 4px solid #059669;
+  border-radius: 6px;
+  padding: 14px 18px;
   gap: 16px;
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.08);
+  box-shadow: none;
 }
 .mkb-left {
   display: flex;
@@ -498,15 +565,17 @@
   flex: 1;
 }
 .mkb-icon-wrap {
-  width: 44px;
-  height: 44px;
-  background: white;
-  border-radius: 10px;
+  width: 38px;
+  height: 38px;
+  background: #ecfdf5;
+  color: #059669;
+  border: 1px solid #a7f3d0;
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 22px;
-  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.15);
+  font-size: 18px;
+  box-shadow: none;
   flex-shrink: 0;
 }
 .mkb-title-row {
@@ -516,13 +585,13 @@
   margin-bottom: 4px;
 }
 .mkb-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
-  color: #065f46;
+  color: #0f172a;
 }
 .mkb-sub {
-  font-size: 13px;
-  color: #047857;
+  font-size: 12px;
+  color: #475569;
   margin: 0;
   line-height: 1.5;
 }
@@ -536,17 +605,17 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  background: white;
+  background: #f8fafc;
   padding: 6px 12px;
-  border-radius: 8px;
-  border: 1px solid #6ee7b7;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
 }
 .mkb-key-label {
   font-size: 12px;
-  color: #065f46;
+  color: #475569;
 }
 .mkb-key-code {
-  font-family: monospace;
+  font-family: var(--mt-font-mono, monospace);
   font-weight: bold;
   font-size: 14px;
   color: #059669;
@@ -574,9 +643,10 @@
 }
 
 .all-doctors-info-box {
-  background: linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%);
-  border: 1.5px solid #10b981;
-  border-radius: 8px;
+  background: #f0fdf4;
+  border: 1px solid #a7f3d0;
+  border-left: 3px solid #059669;
+  border-radius: 6px;
   padding: 12px 16px;
 }
 .adi-title {
@@ -712,9 +782,9 @@
 }
 
 .pdf-preview-dialog :deep(.el-dialog) {
-  border-radius: 12px;
+  border-radius: 8px;
   overflow: hidden;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
 }
 
 .pdf-preview-dialog :deep(.el-dialog__header) {

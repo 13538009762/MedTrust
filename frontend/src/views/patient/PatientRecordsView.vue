@@ -33,7 +33,7 @@
             <el-tag size="small" type="success" effect="dark" class="psc-badge">Fabric 智能合约存证</el-tag>
           </div>
           <p class="psc-desc">
-            系统默认遵循隐私最小化保护原则。若您需要跨院转诊、异地就医或联合会诊，可灵活配置病历共享权限：<strong>全面公开、指定某家医院全体医生或指定单个医生专属调阅</strong>。所有授权策略均实时固化至 Fabric 联盟链分布式账本，随时支持一键恢复私密受控。
+            系统默认遵循隐私最小化保护原则。若您需要跨院转诊、异地就医或联合会诊，可灵活配置病历共享权限：<strong>全面公开、指定某家医院全体医生或指定单个医生专属调阅</strong>。所有授权策略均实时固化至 Fabric 联盟链分布式账本，支持随时恢复私密受控。
           </p>
         </div>
       </div>
@@ -138,12 +138,8 @@
                 </el-tag>
 
                 <!-- 防篡改核验 -->
-                <el-tag v-if="rec.is_tampered" size="small" type="danger" effect="dark" class="tamper-tag-glow">
-                  存在篡改风险
-                </el-tag>
-                <el-tag v-else size="small" type="success" effect="light">
-                  链上核验通过
-                </el-tag>
+                <ChainVerifyBadge v-if="rec.is_tampered" status="tampered" label="存在篡改风险" />
+                <ChainVerifyBadge v-else status="verified" label="链上核验通过" />
 
                 <!-- 数据类型与区块高度 -->
                 <el-tag size="small" class="data-type-pill">{{ rec.data_type || 'EMR' }}</el-tag>
@@ -499,7 +495,6 @@
               <el-option label="30 天 (短期随访评估)" :value="30" />
               <el-option label="90 天 (中期慢病监测)" :value="90" />
               <el-option label="365 天 (1年长期开放，推荐)" :value="365" />
-              <el-option label="长期有效 (10年永久存证)" :value="3650" />
             </el-select>
           </el-form-item>
         </el-form>
@@ -552,7 +547,7 @@
                   <el-radio value="ALL_DOCTORS">
                     <strong style="font-size: 14.5px; color: #047857;">全部健康档案对所有医生可见 (全联盟免审直接调阅)</strong>
                   </el-radio>
-                  <el-tag size="small" type="success" effect="dark">一键公开</el-tag>
+                  <el-tag size="small" type="success" effect="dark">全网公开</el-tag>
                 </div>
                 <p class="poc-desc">
                   医联体全网所有执业医生均可直接调阅您的全部历史就诊与检查档案，适合多病共患或需要频繁跨院复诊的患者。
@@ -683,7 +678,6 @@
               <el-option label="30 天" :value="30" />
               <el-option label="90 天" :value="90" />
               <el-option label="365 天 (1年，推荐)" :value="365" />
-              <el-option label="长期有效 (10年)" :value="3650" />
             </el-select>
           </el-form-item>
         </el-form>
@@ -721,6 +715,7 @@ import {
   ArrowRight
 } from '@element-plus/icons-vue'
 import { ElMessage, ElNotification } from 'element-plus'
+import ChainVerifyBadge from '@/components/common/ChainVerifyBadge.vue'
 import { clinicalTemplates, getIcdCode } from '@/utils/clinicalTemplates'
 import {
   listHospitalsApi,
@@ -859,7 +854,7 @@ async function viewFullDetail(rec: any) {
   detailVisible.value = true
   if (selectedRec.value?.is_tampered) {
     ElNotification({
-      title: '⚠️ 病历真实性预警',
+      title: '病历真实性预警',
       message: '检测到该病历底层数据与区块链防篡改存证指纹不一致，系统已提示医疗机构复核！',
       type: 'error',
       duration: 8000

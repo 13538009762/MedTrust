@@ -1,57 +1,14 @@
 package controller
 
 import (
-	"crypto/rand"
-	"encoding/hex"
-	"fmt"
+	"errors"
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 	"medtrust-backend/model"
-	"medtrust-backend/pkg/blockchain"
 	"medtrust-backend/pkg/captcha"
-	"medtrust-backend/repository"
 	"medtrust-backend/service"
-	"net/http"
-	"strings"
-	"sync"
-	"time"
 )
-
-type keyUnlockFailState struct {
-	count       int
-	lockedUntil time.Time
-}
-
-var keyUnlockLimiter sync.Map
-
-func checkKeyUnlockLocked(doctorID, patientID uint64) (bool, int) {
-	k := fmt.Sprintf("key_unlock:%d:%d", doctorID, patientID)
-	if v, ok := keyUnlockLimiter.Load(k); ok {
-		st := v.(keyUnlockFailState)
-		if st.lockedUntil.After(time.Now()) {
-			rem := int(st.lockedUntil.Sub(time.Now()).Minutes()) + 1
-			return true, rem
-		}
-	}
-	return false, 0
-}
-
-func recordKeyUnlockResult(doctorID, patientID uint64, success bool) int {
-	k := fmt.Sprintf("key_unlock:%d:%d", doctorID, patientID)
-	if success {
-		keyUnlockLimiter.Delete(k)
-		return 0
-	}
-	st := keyUnlockFailState{count: 1}
-	if v, ok := keyUnlockLimiter.Load(k); ok {
-		prev := v.(keyUnlockFailState)
-		st.count = prev.count + 1
-	}
-	if st.count >= 5 {
-		st.lockedUntil = time.Now().Add(15 * time.Minute)
-	}
-	keyUnlockLimiter.Store(k, st)
-	return st.count
-}
 
 type UnlockPatientByKeyDTO struct {
 	PatientID     uint64 `json:"patient_id" binding:"required"`
@@ -62,7 +19,7 @@ type UnlockPatientByKeyDTO struct {
 	Days          int    `json:"days"`
 }
 
-// UnlockPatientByKey 医生在现场输入患者专属密钥，核验通过后即时解密放行该患者全套病历并固化上链
+// UnlockPatientByKey 医生在现场输入患者专属密钥，核验通过后即时解锁放行该患者全套病历并固化上链
 func (ctrl *AccessController) UnlockPatientByKey(c *gin.Context) {
 	doctorID := c.GetUint64("user_id")
 	var req UnlockPatientByKeyDTO
@@ -70,7 +27,7 @@ func (ctrl *AccessController) UnlockPatientByKey(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "参数错误：请输入患者ID与专属授权密钥"})
 		return
 	}
-	// 校验图形防爆破验证码
+	// 校验图形防分码验证码
 	if gin.Mode() != gin.TestMode {
 		if ok, errMsg := captcha.VerifyCaptcha(req.CaptchaToken, req.CaptchaAnswer); !ok {
 			c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: errMsg})
@@ -78,91 +35,20 @@ func (ctrl *AccessController) UnlockPatientByKey(c *gin.Context) {
 		}
 	}
 
-	if locked, rem := checkKeyUnlockLocked(doctorID, req.PatientID); locked {
-		c.JSON(http.StatusTooManyRequests, model.Response{
-			Code:    429,
-			Message: fmt.Sprintf("针对该患者的调阅密钥连续核验失败已达上限，安全防暴破锁定中（剩余 %d 分钟）", rem),
-		})
-		return
-	}
-
-	patientPtr, err := repository.DefaultUserRepository.FindByID(req.PatientID)
-	if err != nil || patientPtr == nil {
-		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "目标患者档案不存在"})
-		return
-	}
-	patient := *patientPtr
-
-	var doctor model.User
-	if d, err := repository.DefaultUserRepository.FindByID(doctorID); err == nil && d != nil {
-		doctor = *d
-	}
-
-	inputKey := strings.TrimSpace(req.MedicalKey)
-	if !service.VerifyMedicalKey(inputKey, patient.UserNo, patient.MedicalKeyHash, patient.MedicalKey) {
-		failCnt := recordKeyUnlockResult(doctorID, patient.ID, false)
-		service.DefaultAuditService.Log(doctorID, "KEY_UNLOCK_FAILED", "PATIENT", patient.UserNo, doctor.HospitalID, "INTERCEPTED", "HIGH", c.ClientIP())
-		if failCnt >= 5 {
-			c.JSON(http.StatusTooManyRequests, model.Response{
-				Code:    429,
-				Message: "连续密钥错误已达 5 次，已触发防暴破安全保护，锁定该患者的密钥解锁通道 15 分钟",
-			})
-			return
-		}
-		c.JSON(http.StatusForbidden, model.Response{
-			Code:    403,
-			Message: "患者授权密钥校验失败，密码不正确！请由患者在个人中心核实或重新设置调阅密钥",
-		})
-		return
-	}
-	recordKeyUnlockResult(doctorID, patient.ID, true)
-
-	// 密钥核验通过：生成对该患者全部档案全局生效的授权凭证
-	days := req.Days
-	if days <= 0 {
-		days = 7
-	}
-	startTime := time.Now()
-	endTime := startTime.Add(time.Duration(days) * 24 * time.Hour)
-
-	randBytes := make([]byte, 3)
-	_, _ = rand.Read(randBytes)
-	authNo := fmt.Sprintf("AUTH-KEY-ALL-%s-%s", startTime.Format("20060102"), hex.EncodeToString(randBytes))
-
-	txID, _, _ := blockchain.DefaultService.CommitAsset("AUTHORIZATION_KEY", authNo, map[string]interface{}{
-		"auth_no":     authNo,
-		"patient_id":  patient.ID,
-		"target_type": "DOCTOR",
-		"target_id":   doctorID,
-		"scope":       "ALL",
-		"record_id":   0,
-		"status":      "ACTIVE",
-		"timestamp":   startTime.Format(time.RFC3339),
+	auth, patient, err := service.DefaultKeyUnlockService.UnlockPatientByKey(serviceCtx(c), doctorID, service.UnlockPatientByKeyInput{
+		PatientID:  req.PatientID,
+		MedicalKey: req.MedicalKey,
+		Days:       req.Days,
 	})
-
-	auth := model.Authorization{
-		AuthNo:         authNo,
-		PatientID:      patient.ID,
-		AuthTargetType: "DOCTOR",
-		AuthTargetID:   doctorID,
-		ScopeType:      "ALL",
-		RecordID:       0,
-		StartTime:      startTime,
-		EndTime:        endTime,
-		Status:         "ACTIVE",
-		FabricTxID:     txID,
-		CreatedAt:      startTime,
+	if err != nil {
+		respondKeyUnlockError(c, err)
+		return
 	}
-	_ = repository.DefaultAuthPolicyRepository.CreateAuthorization(&auth)
-
-	service.DefaultAuditService.Log(doctorID, "KEY_UNLOCK_SUCCESS", "PATIENT", patient.UserNo, doctor.HospitalID, "SUCCESS", "LOW", c.ClientIP())
 
 	c.JSON(http.StatusOK, model.Response{
 		Code:    200,
-		Message: fmt.Sprintf("患者现场密钥核验通过！已即时解密放行「%s」名下全部历史就诊与检验影像档案，授权策略已固化上链", patient.RealName),
-		Data: gin.H{
-			"auth": auth,
-		},
+		Message: "患者现场密钥核验通过！已即时解锁放行「" + patient.RealName + "」名下全部历史就诊与检验影像档案，授权策略已固化上链",
+		Data:    gin.H{"auth": auth},
 	})
 }
 
@@ -175,7 +61,7 @@ type UnlockByKeyDTO struct {
 	Days          int    `json:"days"`
 }
 
-// UnlockByKey 医生在就诊现场输入患者病历专属密钥，核验通过后即时解密放行并存证上链
+// UnlockByKey 医生在就诊现场输入患者病历专属密钥，核验通过后即时解锁放行并存证上链
 func (ctrl *AccessController) UnlockByKey(c *gin.Context) {
 	doctorID := c.GetUint64("user_id")
 	var req UnlockByKeyDTO
@@ -183,7 +69,7 @@ func (ctrl *AccessController) UnlockByKey(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "参数错误：请输入病历ID与患者密钥"})
 		return
 	}
-	// 校验图形防爆破验证码
+	// 校验图形防分码验证码
 	if gin.Mode() != gin.TestMode {
 		if ok, errMsg := captcha.VerifyCaptcha(req.CaptchaToken, req.CaptchaAnswer); !ok {
 			c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: errMsg})
@@ -191,109 +77,37 @@ func (ctrl *AccessController) UnlockByKey(c *gin.Context) {
 		}
 	}
 
-	recPtr, err := repository.DefaultMedicalRepository.FindRecordByID(req.RecordID)
-	if err != nil || recPtr == nil {
-		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "目标病历档案不存在"})
-		return
-	}
-	rec := *recPtr
-
-	if locked, rem := checkKeyUnlockLocked(doctorID, rec.PatientID); locked {
-		c.JSON(http.StatusTooManyRequests, model.Response{
-			Code:    429,
-			Message: fmt.Sprintf("针对该患者的调阅密钥连续核验失败已达上限，安全防暴破锁定中（剩余 %d 分钟）", rem),
-		})
-		return
-	}
-
-	patientPtr, err := repository.DefaultUserRepository.FindByID(rec.PatientID)
-	if err != nil || patientPtr == nil {
-		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "患者用户档案不存在"})
-		return
-	}
-	patient := *patientPtr
-
-	var doctor model.User
-	if d, err := repository.DefaultUserRepository.FindByID(doctorID); err == nil && d != nil {
-		doctor = *d
-	}
-
-	inputKey := strings.TrimSpace(req.MedicalKey)
-	if !service.VerifyMedicalKey(inputKey, patient.UserNo, patient.MedicalKeyHash, patient.MedicalKey) {
-		failCnt := recordKeyUnlockResult(doctorID, patient.ID, false)
-		service.DefaultAuditService.Log(doctorID, "KEY_UNLOCK_FAILED", "RECORD", rec.RecordNo, doctor.HospitalID, "INTERCEPTED", "HIGH", c.ClientIP())
-		if failCnt >= 5 {
-			c.JSON(http.StatusTooManyRequests, model.Response{
-				Code:    429,
-				Message: "连续密钥错误已达 5 次，已触发防暴破安全保护，锁定该患者的密钥解锁通道 15 分钟",
-			})
-			return
-		}
-		c.JSON(http.StatusForbidden, model.Response{
-			Code:    403,
-			Message: "患者授权密钥校验失败，密码不正确！请由患者在个人中心核实或重新设置调阅密钥",
-		})
-		return
-	}
-	recordKeyUnlockResult(doctorID, patient.ID, true)
-
-	// 密钥核验通过：生成即时生效的授权凭证
-	days := req.Days
-	if days <= 0 {
-		days = 7
-	}
-	startTime := time.Now()
-	endTime := startTime.Add(time.Duration(days) * 24 * time.Hour)
-
-	randBytes := make([]byte, 3)
-	_, _ = rand.Read(randBytes)
-	authNo := fmt.Sprintf("AUTH-KEY-%s-%s", time.Now().Format("20060102"), hex.EncodeToString(randBytes))
-
-	txID, _, _ := blockchain.DefaultService.CommitAsset("AUTHORIZATION_KEY", authNo, map[string]interface{}{
-		"auth_no":     authNo,
-		"patient_id":  patient.ID,
-		"target_type": "DOCTOR",
-		"target_id":   doctorID,
-		"scope":       "SINGLE",
-		"record_id":   req.RecordID,
-		"status":      "ACTIVE",
-		"auth_method": "PATIENT_KEY_VERIFIED",
-		"timestamp":   time.Now().Format(time.RFC3339),
+	result, err := service.DefaultKeyUnlockService.UnlockByKey(serviceCtx(c), doctorID, service.UnlockByKeyInput{
+		RecordID:   req.RecordID,
+		MedicalKey: req.MedicalKey,
+		Days:       req.Days,
 	})
-
-	auth := model.Authorization{
-		AuthNo:         authNo,
-		PatientID:      patient.ID,
-		AuthTargetType: "DOCTOR",
-		AuthTargetID:   doctorID,
-		ScopeType:      "SINGLE",
-		RecordID:       req.RecordID,
-		StartTime:      startTime,
-		EndTime:        endTime,
-		Status:         "ACTIVE",
-		FabricTxID:     txID,
-		CreatedAt:      time.Now(),
-	}
-	_ = repository.DefaultAuthPolicyRepository.CreateAuthorization(&auth)
-
-	// 若有关于此病历与医生的待处理申请单，顺便标记为已核准
-	_ = repository.DefaultAuthPolicyRepository.ApprovePendingRequests(req.RecordID, doctorID)
-
-	service.DefaultAuditService.Log(doctorID, "KEY_UNLOCK_SUCCESS", "RECORD", rec.RecordNo, doctor.HospitalID, "SUCCESS", "LOW", c.ClientIP())
-
-	// 加载完整解密病历
-	fullRecord, err := service.DefaultMedicalService.GetRecordByID(req.RecordID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "解密病历失败: " + err.Error()})
+		respondKeyUnlockError(c, err)
 		return
 	}
 
 	c.JSON(http.StatusOK, model.Response{
 		Code:    200,
-		Message: "患者现场密钥核验通过！已即时解密放行该份跨院病历并完成区块链存证",
-		Data: gin.H{
-			"record": fullRecord,
-			"auth":   auth,
-		},
+		Message: "患者现场密钥核验通过！已即时解锁放行该份跨院病历并完成区块链存证",
+		Data:    gin.H{"record": result.Record, "auth": result.Auth},
 	})
+}
+
+// respondKeyUnlockError 依据领域错误类型映射 HTTP 状态码
+func respondKeyUnlockError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, service.ErrKeyVerifyFailed):
+		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: err.Error()})
+	case errors.Is(err, service.ErrKeyUnlockLimit):
+		c.JSON(http.StatusTooManyRequests, model.Response{Code: 429, Message: err.Error()})
+	case errors.Is(err, service.ErrKeyUnlockLocked):
+		c.JSON(http.StatusTooManyRequests, model.Response{Code: 429, Message: err.Error()})
+	case errors.Is(err, service.ErrPatientNotFound):
+		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "患者用户档案不存在"})
+	case errors.Is(err, service.ErrRecordNotFound):
+		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "目标病历档案不存在"})
+	default:
+		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: err.Error()})
+	}
 }

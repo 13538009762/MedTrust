@@ -11,9 +11,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"medtrust-backend/config"
 	"medtrust-backend/model"
-	"medtrust-backend/pkg/crypto"
 	"medtrust-backend/pkg/pdf"
 	"medtrust-backend/pkg/security"
 	"medtrust-backend/repository"
@@ -136,6 +134,15 @@ func (ctrl *MedicalController) List(c *gin.Context) {
 	}
 	keyword := c.Query("keyword")
 	dataType := c.Query("data_type")
+	// 分页：默认第 1 页、每页 MaxRecordPageSize 条（与上限一致，现有前端不传参时行为不变）
+	page := 1
+	if v, err := strconv.Atoi(c.Query("page")); err == nil && v > 0 {
+		page = v
+	}
+	pageSize := service.MaxRecordPageSize
+	if v, err := strconv.Atoi(c.Query("page_size")); err == nil && v > 0 {
+		pageSize = v
+	}
 
 	// 患者角色限制只能查自己的
 	role := c.GetString("role")
@@ -143,7 +150,7 @@ func (ctrl *MedicalController) List(c *gin.Context) {
 		patientID = currentUserID
 	}
 
-	list, err := service.DefaultMedicalService.GetRecords(patientID, doctorID, hospitalID, excludeHospitalID, currentUserID, onlyCrossAccessed, keyword, dataType)
+	list, err := service.DefaultMedicalService.GetRecords(patientID, doctorID, hospitalID, excludeHospitalID, currentUserID, onlyCrossAccessed, keyword, dataType, page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: err.Error()})
 		return
@@ -384,6 +391,15 @@ func (ctrl *MedicalController) ListExamOrders(c *gin.Context) {
 	userHospID := c.GetUint64("hospital_id")
 	userID := c.GetUint64("user_id")
 
+	// 零信任 IDOR 防护：患者角色只能查询本人检查单，禁止通过篡改 patient_id 横向越权
+	if role == "patient" {
+		if patientID != 0 && patientID != userID {
+			respondError(c, http.StatusForbidden, 403, "无权查看他人检查申请单")
+			return
+		}
+		patientID = userID
+	}
+
 	var hospitalID uint64
 	if role == "supervisor" || role == "admin" {
 		hospitalID, _ = strconv.ParseUint(c.Query("hospital_id"), 10, 64)
@@ -599,20 +615,8 @@ func (ctrl *MedicalController) retrieveAndDecryptMedicalFile(c *gin.Context, act
 
 	var plainData []byte
 	if file.IPFSCID != "" {
-		if cipherPack, err := service.DefaultMedicalService.GetIPFSData(file.IPFSCID); err == nil && len(cipherPack) > 0 {
-			var decErr error
-			if file.EncryptedDEK != "" && file.IVNonce != "" {
-				masterKey := config.AppConfig.GetAESMasterKey()
-				plainData, decErr = crypto.DecryptMedicalFile(cipherPack, file.EncryptedDEK, file.IVNonce, rec.PatientID, rec.RecordNo, masterKey)
-			} else {
-				plainData, decErr = crypto.DecryptRecordFile(cipherPack, rec.PatientID, rec.RecordNo)
-				if decErr != nil && file.FileName != "" {
-					plainData, decErr = crypto.DecryptRecordFile(cipherPack, rec.PatientID, "")
-				}
-			}
-			if decErr != nil {
-				plainData = nil
-			}
+		if data, _, decErr := service.DefaultMedicalService.DecryptFileAndComputeHash(&rec, &file); decErr == nil {
+			plainData = data
 		}
 	}
 
@@ -773,7 +777,7 @@ func (ctrl *MedicalController) GetPatientInfectionRisks(c *gin.Context) {
 
 	// 若调用者为医生，必须校验其对该患者是否拥有至少一份合法授权或本院经治病历，防止未授权外院医生越权探测传染病隐私
 	if role == "doctor" {
-		recs, _ := service.DefaultMedicalService.GetRecords(patientID, 0, 0, 0, currentUserID, false, "", "")
+		recs, _ := service.DefaultMedicalService.GetRecords(patientID, 0, 0, 0, currentUserID, false, "", "", 0, 0)
 		hasAnyAccess := false
 		for _, r := range recs {
 			if r.HasAccess {
@@ -782,10 +786,43 @@ func (ctrl *MedicalController) GetPatientInfectionRisks(c *gin.Context) {
 			}
 		}
 		if !hasAnyAccess {
-			c.JSON(http.StatusForbidden, model.Response{
-				Code:    403,
-				Message: "权限拦截 (403 Forbidden): 未取得该患者的跨院授权或本院诊疗关系，禁止查询患者传染病隐私信息",
+			// WP-07: 分级脱敏响应——预授权急诊分诊医生不再被 403 硬阻断，改为返回脱敏职业暴露防护等级，
+			// 既保护医护人员免遭针刺伤职业暴露，又保守患者具体病原学诊断隐私 (不泄露 HIV/梅毒等病名)
+			fullAlert, err := service.GetInfectionService().AnalyzePatientRisks(patientID)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "排查患者传染病风险失败: " + err.Error()})
+				return
+			}
+			precautionLevel := "LEVEL_1_STANDARD"
+			bannerText := "✅ 常规标准防护：按标准预防原则执行即可，暂未发现需特殊升级防护的提示"
+			if fullAlert.HasRisk {
+				precautionLevel = "LEVEL_3_BLOOD_BODY_FLUID"
+				bannerText = "⚠️ 职业暴露三级防护预警：接诊/穿刺操作请严格佩戴双层手套与护目镜（具体病原学诊断受隐私保护，需患者授权或紧急破窗后解锁）"
+			}
+			service.DefaultAuditService.LogDetailed(service.AuditEntry{
+				UserID:        currentUserID,
+				OperationType: "TRIAGE_EXPOSURE_PRECHECK",
+				TargetType:    "PATIENT",
+				TargetID:      fmt.Sprintf("%d", patientID),
+				Result:        "DEIDENTIFIED_PRECAUTION",
+				RiskLevel:     "MEDIUM",
+				Reason:        "预授权分诊医生触发职业暴露防护等级预检，已返回脱敏防护等级并隐去具体病原学诊断",
+				IPAddress:     c.ClientIP(),
+				UserAgent:     c.Request.UserAgent(),
+				Source:        "INFECTION_RISK",
 			})
+			c.JSON(http.StatusOK, model.Response{Code: 200, Message: "success", Data: model.InfectionRiskAlert{
+				HasRisk:        fullAlert.HasRisk,
+				RiskLevel:      "DEIDENTIFIED",
+				Summary:        bannerText,
+				Diseases:       nil,
+				Precautions:    nil,
+				ProtectionGear: nil,
+				EmergencySteps: nil,
+				DetectedFrom:   nil,
+				PrecautionLevel: precautionLevel,
+				BannerText:      bannerText,
+			}})
 			return
 		}
 	}

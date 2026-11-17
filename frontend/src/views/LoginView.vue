@@ -23,7 +23,7 @@
             <span>基于 Fabric 联盟链 · IPFS 密文存证 · 跨机构可信共享</span>
           </div>
           <h1 class="hero-title">
-            可信存证 · 动态访问 · <span class="text-gradient">AI 智能辅助</span>
+            可信存证 · 动态访问 · <span class="text-gradient">临床协同摘要</span>
           </h1>
           <p class="hero-subtitle">
             面向跨医院医疗协同共享场景，构建链下 IPFS 密文存储与 Fabric 账本锚定协同机制，打造轻量严密的 Break-Glass 紧急访问闭环。
@@ -66,85 +66,9 @@
                 </div>
                 <h2>欢迎登录</h2>
                 <p>基于数字身份的医疗可信访问网关</p>
-              </div>
-
-              <!-- 医联体跨机构协作通道 · 一键免密快捷登入 -->
-              <div class="demo-account-bar">
-                <div class="demo-title-row">
-                  <span class="demo-pulse-dot"></span>
-                  <span class="demo-title">医联体跨机构协作通道 · 一键免密快捷登入 (Quick Access)</span>
-                </div>
-
-                <!-- 6 大核心标准内置账号快速卡片网格 -->
-                <div class="defense-accounts-grid">
-                  <button
-                    v-for="acc in defenseAccounts"
-                    :key="acc.username"
-                    type="button"
-                    :class="['defense-acc-btn', username === acc.username ? 'active-acc' : '']"
-                    @click="fillAccount(acc.username)"
-                    :title="`${acc.name} (${acc.hospital} · ${acc.dept})`"
-                  >
-                    <div class="dab-top">
-                      <span class="dab-name">{{ acc.name }}</span>
-                      <el-tag size="small" :type="acc.tagType" effect="dark" class="dab-tag">{{ acc.roleLabel }}</el-tag>
-                    </div>
-                    <div class="dab-sub">{{ acc.dept }}</div>
-                    <div class="dab-id"><code>{{ acc.username }}</code></div>
-                  </button>
-                </div>
-
-                <!-- 可折叠展开更多辅助测试账号 -->
-                <div class="extra-accounts-wrapper">
-                  <div class="extra-toggle" @click="showExtraAccounts = !showExtraAccounts">
-                    <span>{{ showExtraAccounts ? '收起协作医疗机构与医技账号' : '切换更多协作医疗机构与医技检查中心账号' }}</span>
-                    <el-icon class="extra-arrow" :class="{ 'is-open': showExtraAccounts }"><ArrowDown /></el-icon>
-                  </div>
-                  <div v-show="showExtraAccounts" class="extra-accounts-content">
-                    <div class="demo-tabs">
-                      <button
-                        type="button"
-                        :class="['demo-tab-item', activeDemoHosp === 'HOSP_A' ? 'active' : '']"
-                        @click="activeDemoHosp = 'HOSP_A'"
-                      >第一医院</button>
-                      <button
-                        type="button"
-                        :class="['demo-tab-item', activeDemoHosp === 'HOSP_B' ? 'active' : '']"
-                        @click="activeDemoHosp = 'HOSP_B'"
-                      >第二医院</button>
-                      <button
-                        type="button"
-                        :class="['demo-tab-item', activeDemoHosp === 'HOSP_C' ? 'active' : '']"
-                        @click="activeDemoHosp = 'HOSP_C'"
-                      >第三医院</button>
-                      <button
-                        type="button"
-                        :class="['demo-tab-item', activeDemoHosp === 'OTHERS' ? 'active' : '']"
-                        @click="activeDemoHosp = 'OTHERS'"
-                      >患者/监管</button>
-                    </div>
-
-                    <div v-if="activeDemoHosp === 'HOSP_A'" class="demo-buttons">
-                      <el-button size="small" type="primary" plain @click="fillAccount('doc_li')">李主任 (心内科)</el-button>
-                      <el-button size="small" type="warning" plain @click="fillAccount('tech_lab_a')">李主管 (检验科)</el-button>
-                      <el-button size="small" type="warning" plain @click="fillAccount('tech_pacs_a')">王医生 (影像科)</el-button>
-                    </div>
-                    <div v-else-if="activeDemoHosp === 'HOSP_B'" class="demo-buttons">
-                      <el-button size="small" type="primary" plain @click="fillAccount('doc_wang')">王医生 (心内科)</el-button>
-                      <el-button size="small" type="warning" plain @click="fillAccount('doc_chen')">陈医生 (急诊科)</el-button>
-                      <el-button size="small" type="warning" plain @click="fillAccount('tech_lab_b')">刘主管 (检验科)</el-button>
-                    </div>
-                    <div v-else-if="activeDemoHosp === 'HOSP_C'" class="demo-buttons">
-                      <el-button size="small" type="primary" plain @click="fillAccount('doc_c')">陈医生 (神经内科)</el-button>
-                      <el-button size="small" type="warning" plain @click="fillAccount('tech_lab_c')">孙主管 (检验科)</el-button>
-                    </div>
-                    <div v-else class="demo-buttons">
-                      <el-button size="small" type="success" plain @click="fillAccount('pat_zhang')">患者张伟/张三</el-button>
-                      <el-button size="small" type="success" plain @click="fillAccount('pat_qian')">患者钱小芳</el-button>
-                      <el-button size="small" type="info" plain @click="fillAccount('sup_zhao')">监管赵主任</el-button>
-                      <el-button size="small" type="danger" plain @click="fillAccount('admin')">系统管理员</el-button>
-                    </div>
-                  </div>
+                <div class="security-badges-row">
+                  <span class="sec-badge"><el-icon><CircleCheck /></el-icon> 密码学可信鉴权</span>
+                  <span class="sec-badge"><el-icon><KeyIcon /></el-icon> X.509 机构认证</span>
                 </div>
               </div>
 
@@ -152,9 +76,10 @@
                 <el-form-item>
                   <el-input
                     v-model="username"
-                    placeholder="请输入用户名 (如 doc_a, pat_zhang)"
+                    placeholder="请输入账号名 / 执业医生证号 / 档案账号"
                     :prefix-icon="User"
                     size="large"
+                    clearable
                   />
                 </el-form-item>
 
@@ -162,9 +87,10 @@
                   <el-input
                     v-model="password"
                     type="password"
-                    placeholder="请输入密码 (预置 123456)"
+                    placeholder="请输入系统登录密码"
                     :prefix-icon="Lock"
                     size="large"
+                    show-password
                   />
                 </el-form-item>
 
@@ -172,7 +98,7 @@
                   <div class="captcha-wrapper">
                     <el-input
                       v-model="captchaAnswer"
-                      placeholder="请输入安全计算验证码"
+                      placeholder="请输入图形安全计算验证码"
                       :prefix-icon="Finished"
                       size="large"
                       class="captcha-input"
@@ -190,13 +116,18 @@
                   </div>
                 </el-form-item>
 
+                <div class="form-aux-row">
+                  <el-checkbox v-model="rememberUsername" size="small">记住账号</el-checkbox>
+                  <el-link type="info" :underline="false" class="forgot-link" @click="handleForgotPwd">忘记密码 / 资质申诉？</el-link>
+                </div>
+
                 <el-button
                   type="primary"
                   class="login-btn"
                   :loading="loading"
                   native-type="submit"
                 >
-                  进 入 系 统
+                  安 全 登 录
                 </el-button>
               </form>
 
@@ -325,17 +256,18 @@
 import { ref, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { 
-  User, Lock, Lock as KeyIcon, CircleCheck, Share, MagicStick, 
-  CreditCard, Iphone, Edit, ArrowDown, Finished, Loading, Refresh
+  User, Lock, Lock as KeyIcon, CircleCheck, Share,
+  CreditCard, Iphone, Edit, Finished, Loading, Refresh
 } from '@element-plus/icons-vue'
-import { ElMessage, ElNotification } from 'element-plus'
+import { ElMessage, ElNotification, ElMessageBox } from 'element-plus'
 import { getCaptchaApi, loginApi, registerApi } from '../api'
 import { useAuthStore } from '../stores/auth'
 
 const mode = ref<'login' | 'register'>('login')
-const username = ref('doc_li')
-const password = ref('123456')
+const username = ref('')
+const password = ref('')
 const loading = ref(false)
+const rememberUsername = ref(false)
 const captchaImg = ref('')
 const captchaToken = ref('')
 const captchaAnswer = ref('')
@@ -358,52 +290,17 @@ async function fetchCaptcha() {
   }
 }
 const regLoading = ref(false)
-const activeDemoHosp = ref('HOSP_A')
-const showExtraAccounts = ref(false)
 
 const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
 
-// 医联体跨机构协作通道内置核心账号
-const defenseAccounts = [
-  { username: 'doc_li', name: '李建国主任', roleLabel: '总院区 (Org1)', tagType: 'primary', hospital: '广州第一附属医院', dept: '心内科' },
-  { username: 'doc_wang', name: '王明德医生', roleLabel: '分院区 (Org2)', tagType: 'primary', hospital: '深圳中心医院', dept: '心内科' },
-  { username: 'doc_chen', name: '陈建明医生', roleLabel: '深圳急诊 (Org2)', tagType: 'warning', hospital: '深圳中心医院', dept: '急诊科' },
-  { username: 'pat_zhang', name: '患者张三/张伟', roleLabel: '患者主权端', tagType: 'success', hospital: '患者个人中心', dept: '档案主权' },
-  { username: 'sup_zhao', name: '监管赵主任', roleLabel: '合规监管端', tagType: 'danger', hospital: '国家卫健委', dept: '审计中心' },
-  { username: 'admin', name: '系统管理员', roleLabel: '平台运维端', tagType: 'info', hospital: 'MedTrust 平台', dept: '技术主管' },
-]
-
-const accountDescMap: Record<string, string> = {
-  'doc_li': '广州第一附属医院 (Org1 节点) · 李建国主任 (心内科主任医师)',
-  'doc_wang': '深圳中心医院 (Org2 节点) · 王明德医生 (心内科主治医师)',
-  'doc_chen': '深圳中心医院 (Org2 节点) · 陈建明医生 (急诊科主治医师)',
-  'pat_zhang': '就诊患者 · 张三/张伟 (健康档案主权持有者)',
-  'sup_zhao': '国家卫生健康委 · 赵主任 (医疗监管与防篡改审计专员)',
-  'admin': 'MedTrust 平台 · 系统管理员 (平台技术主管)',
-  'doc_a': '第一人民医院 (Org1) · 李建国医生 (心内科主任医师)',
-  'tech_lab_a': '第一人民医院 (Org1) · 李主管 (医学检验科主管技师)',
-  'tech_pacs_a': '第一人民医院 (Org1) · 王医生 (放射影像中心主治医师)',
-  'doc_b': '省立中心医院 (Org2) · 王明德医生 (骨创伤科主治医师)',
-  'tech_lab_b': '省立中心医院 (Org2) · 刘主管 (医学检验科主管技师)',
-  'tech_pacs_b': '省立中心医院 (Org2) · 赵医生 (放射影像中心副主任技师)',
-  'doc_c': '协和医学中心 (Org3) · 陈晓华医生 (神经内科副主任医师)',
-  'tech_lab_c': '协和医学中心 (Org3) · 孙主管 (医学检验科主管技师)',
-  'tech_pacs_c': '协和医学中心 (Org3) · 钱医生 (放射影像中心主治医师)',
-  'pat_qian': '患者钱小芳 (就诊档案持有者)',
-  'supervisor': '卫健监管专员 (医疗合规全链路督察)'
-}
-
 onMounted(async () => {
   await fetchCaptcha()
-  const autoUser = (route.query.auto_login || route.query.username) as string
-  if (autoUser) {
-    username.value = autoUser
-    password.value = '123456'
-    if (route.query.auto_login) {
-      await handleLogin()
-    }
+  const savedUser = localStorage.getItem('medtrust_remembered_username')
+  if (savedUser) {
+    username.value = savedUser
+    rememberUsername.value = true
   }
 })
 
@@ -425,14 +322,16 @@ watch(mode, (newMode) => {
   }
 })
 
-function fillAccount(acc: string) {
-  username.value = acc
-  password.value = '123456'
-  const desc = accountDescMap[acc] || acc
-  ElMessage.info(`已快捷载入：${desc}`)
-  if (!captchaImg.value) {
-    fetchCaptcha()
-  }
+function handleForgotPwd() {
+  ElMessageBox.alert(
+    '根据国家医疗机构网络安全合规规范与等级保护（等保三级）要求，MedTrust 平台不设公开密码重置通道。临床医护人员、医技科室及监管专员如遗忘密码或出现数字证书异常，请携带有效执业证件至医院信息网络中心或医务部申请重置密码与资质复核；就诊患者可使用建档身份证件至院区便民服务台办理档案关联凭证重置。',
+    '账户安全与密码申诉说明',
+    {
+      confirmButtonText: '已悉知',
+      type: 'info',
+      customClass: 'security-notice-box'
+    }
+  )
 }
 
 const regForm = ref({
@@ -449,25 +348,25 @@ const features = [
     title: '链下密文存储与 IPFS',
     desc: '医疗影像及病历附件经客户端本地对称加密后推至分布式 IPFS 节点，杜绝明文上云与网络账本膨胀。',
     icon: CircleCheck,
-    bg: '#ede9fe',
+    bg: '#f0f9ff',
   },
   {
     title: 'Fabric 联盟链不可篡改锚定',
     desc: '核心数据指纹、智能合约授权凭证及生命周期事件均实时上链存证，确保医疗全链路可溯源抗抵赖。',
     icon: Share,
-    bg: '#e0e7ff',
+    bg: '#f0f9ff',
   },
   {
     title: 'Break-Glass 破窗急救放行',
-    desc: '急危重症患者抢救时启动紧急访问通道，毫秒级解密放行，并即刻异步上链记录生成闭环审计工单。',
+    desc: '急危重症患者抢救时启动紧急访问通道，即时解密放行，并同步异步上链记录生成闭环审计工单。',
     icon: KeyIcon,
-    bg: '#fee2e2',
+    bg: '#fef2f2',
   },
   {
-    title: '受控医疗 AI 智能助理',
-    desc: '严守工程与合规边界，AI 仅作为自然语言意图转换器，携带当前 JWT 经由 Go 统一网关鉴权交互。',
-    icon: MagicStick,
-    bg: '#fdf4ff',
+    title: '受控医疗数据检索助理',
+    desc: '严守工程与合规边界，仅作为自然语言意图转换器，携带当前 JWT 经由 Go 统一网关鉴权交互。',
+    icon: CircleCheck,
+    bg: '#f0f9ff',
   },
 ]
 
@@ -503,6 +402,12 @@ async function handleLogin() {
     })
 
     if (res.code === 200) {
+      if (rememberUsername.value) {
+        localStorage.setItem('medtrust_remembered_username', username.value)
+      } else {
+        localStorage.removeItem('medtrust_remembered_username')
+      }
+
       auth.setAuth(res.data.token, res.data.user)
       ElMessage.success(`登录成功！欢迎回来，${res.data.user.real_name}`)
 
@@ -626,13 +531,9 @@ async function handleRegister() {
 .app-logo {
   width: 40px;
   height: 40px;
-  border-radius: 11px;
-  box-shadow: 0 4px 14px rgba(14, 165, 233, 0.25);
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
   object-fit: contain;
-}
-.app-logo:hover {
-  transform: scale(1.08);
 }
 
 .logo-text {
@@ -643,10 +544,9 @@ async function handleRegister() {
 
 .brand {
   font-size: 22px;
-  font-weight: 850;
-  color: #4f46e5;
-  letter-spacing: -0.5px;
-  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.85);
+  font-weight: 800;
+  color: var(--mt-primary, #0284c7);
+  letter-spacing: -0.4px;
 }
 
 .divider {
@@ -660,7 +560,6 @@ async function handleRegister() {
   font-weight: 650;
   color: #1e293b;
   letter-spacing: 0.2px;
-  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.85);
 }
 
 .main-content {
@@ -685,108 +584,103 @@ async function handleRegister() {
 .hero-brand-pill {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  padding: 7px 16px 7px 12px;
-  background: rgba(255, 255, 255, 0.75);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(99, 102, 241, 0.25);
-  border-radius: 30px;
-  font-size: 13px;
+  gap: 8px;
+  padding: 6px 14px 6px 10px;
+  background: #ffffff;
+  border: 1px solid var(--mt-primary-border, #bae6fd);
+  border-radius: 6px;
+  font-size: 12.5px;
   font-weight: 600;
-  color: #6366f1;
-  margin-bottom: 20px;
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.08);
+  color: var(--mt-primary, #0284c7);
+  margin-bottom: 18px;
+  box-shadow: var(--mt-shadow-sm, 0 1px 2px rgba(15, 23, 42, 0.04));
 }
 
 .hero-pill-icon {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   object-fit: contain;
-  filter: drop-shadow(0 2px 4px rgba(14, 165, 233, 0.3));
 }
 
 .pill-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #10b981;
-  box-shadow: 0 0 6px #10b981;
+  background: var(--mt-success, #059669);
   display: inline-block;
 }
 
 .hero-title {
-  font-size: 42px;
-  font-weight: 850;
+  font-size: 38px;
+  font-weight: 800;
   color: #0f172a;
   line-height: 1.25;
-  margin-bottom: 18px;
-  letter-spacing: -0.6px;
+  margin-bottom: 16px;
+  letter-spacing: -0.5px;
 }
 
 .text-gradient {
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: var(--mt-primary, #0284c7);
 }
 
 .hero-subtitle {
-  font-size: 16.5px;
+  font-size: 15.5px;
   color: #334155;
-  line-height: 1.7;
-  margin-bottom: 34px;
+  line-height: 1.65;
+  margin-bottom: 28px;
 }
 
 .feature-list {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  margin-bottom: 34px;
+  gap: 16px;
+  margin-bottom: 28px;
 }
 
 .feature-item {
   display: flex;
   align-items: flex-start;
-  gap: 16px;
+  gap: 14px;
 }
 
 .feature-icon {
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
+  width: 38px;
+  height: 38px;
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #6366f1;
-  font-size: 20px;
+  color: var(--mt-primary, #0284c7);
+  font-size: 18px;
   flex-shrink: 0;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.1);
+  border: 1px solid var(--mt-primary-border, #bae6fd);
 }
 
 .feature-info h3 {
-  font-size: 16.5px;
-  font-weight: 750;
+  font-size: 15.5px;
+  font-weight: 700;
   color: #0f172a;
-  margin: 0 0 6px 0;
+  margin: 0 0 4px 0;
 }
 
 .feature-info p {
-  font-size: 13.5px;
+  font-size: 13px;
   color: #475569;
   margin: 0;
-  line-height: 1.55;
+  line-height: 1.5;
 }
 
 .system-intro-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
-  padding: 22px 28px;
-  background: rgba(255, 255, 255, 0.65);
-  backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.85);
-  border-radius: 20px;
-  box-shadow: 0 14px 32px rgba(99, 102, 241, 0.05);
+  gap: 20px;
+  padding: 18px 22px;
+  background: #ffffff;
+  border: 1px solid var(--mt-border-base, #e2e8f0);
+  border-left: 4px solid var(--mt-primary, #0284c7);
+  border-radius: 8px;
+  box-shadow: var(--mt-shadow-sm, 0 1px 2px rgba(15, 23, 42, 0.04));
 }
 
 .intro-card-left {
@@ -794,35 +688,24 @@ async function handleRegister() {
 }
 
 .system-intro-card h3 {
-  font-size: 16px;
-  font-weight: 750;
+  font-size: 15px;
+  font-weight: 700;
   color: #0f172a;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .system-intro-card p {
-  font-size: 13.5px;
+  font-size: 13px;
   color: #475569;
-  line-height: 1.6;
+  line-height: 1.55;
   margin: 0;
 }
 
 .intro-card-emblem {
-  width: 72px;
-  height: 72px;
+  width: 64px;
+  height: 64px;
   object-fit: contain;
   flex-shrink: 0;
-  filter: drop-shadow(0 6px 16px rgba(14, 165, 233, 0.35));
-  animation: emblemFloat 4s ease-in-out infinite;
-}
-
-@keyframes emblemFloat {
-  0%, 100% {
-    transform: translateY(0px) rotate(0deg);
-  }
-  50% {
-    transform: translateY(-6px) rotate(2deg);
-  }
 }
 
 .login-panel {
@@ -830,245 +713,86 @@ async function handleRegister() {
 }
 
 .login-glass-card {
-  width: clamp(380px, 32vw, 460px);
-  padding: 32px 28px;
-  background: rgba(255, 255, 255, 0.6) !important;
-  backdrop-filter: blur(24px) !important;
-  border: 1px solid rgba(255, 255, 255, 0.8) !important;
-  box-shadow: 0 20px 40px rgba(139, 92, 246, 0.08) !important;
-  border-radius: 24px;
+  width: clamp(400px, 32vw, 460px);
+  padding: 32px 30px 26px;
+  background: #ffffff !important;
+  border: 1px solid var(--mt-border-base, #e2e8f0) !important;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06) !important;
+  border-radius: 8px;
   box-sizing: border-box;
 }
 
 .card-header-emblem-wrap {
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   display: flex;
   align-items: center;
 }
 
 .card-header-emblem {
-  width: 46px;
-  height: 46px;
+  width: 42px;
+  height: 42px;
   object-fit: contain;
-  filter: drop-shadow(0 4px 12px rgba(14, 165, 233, 0.35));
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.card-header-emblem:hover {
-  transform: scale(1.1) rotate(5deg);
 }
 
 .card-header h2 {
-  font-size: 26px;
-  font-weight: 800;
+  font-size: 22px;
+  font-weight: 700;
   color: #0f172a;
-  margin: 0 0 6px 0;
+  margin: 0 0 4px 0;
 }
 
 .card-header p {
   font-size: 13px;
   color: #64748b;
-  margin-bottom: 18px;
+  margin: 0 0 10px 0;
+}
+
+.security-badges-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.sec-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  background: var(--mt-primary-soft, #f0f9ff);
+  border: 1px solid var(--mt-primary-border, #bae6fd);
+  border-radius: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--mt-primary, #0284c7);
+}
+
+.sec-badge .el-icon {
+  font-size: 13px;
+}
+
+.form-aux-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: -4px;
+  margin-bottom: 16px;
+  padding: 0 2px;
+}
+
+.forgot-link {
+  font-size: 12.5px;
+  color: #64748b !important;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.forgot-link:hover {
+  color: var(--mt-primary, #0284c7) !important;
 }
 
 .mb-3 {
   margin-bottom: 14px;
-}
-
-.demo-account-bar {
-  background: rgba(237, 233, 254, 0.7);
-  border: 1px solid rgba(139, 92, 246, 0.35);
-  border-radius: 14px;
-  padding: 10px 12px;
-  margin-bottom: 16px;
-  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.06);
-}
-
-.demo-title-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.demo-pulse-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #10b981;
-  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
-  display: inline-block;
-  animation: pulse 2s infinite;
-}
-
-.demo-title {
-  font-size: 11px;
-  font-weight: 700;
-  color: #6d28d9;
-}
-
-.defense-accounts-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.defense-acc-btn {
-  background: #ffffff;
-  border: 1px solid rgba(226, 232, 240, 0.9);
-  border-radius: 8px;
-  padding: 6px 8px;
-  text-align: left;
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.defense-acc-btn:hover {
-  transform: translateY(-1px);
-  border-color: #8b5cf6;
-  box-shadow: 0 3px 8px rgba(139, 92, 246, 0.15);
-}
-
-.defense-acc-btn.active-acc {
-  background: #f5f3ff;
-  border-color: #7c3aed;
-  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.2);
-}
-
-.dab-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 4px;
-}
-
-.dab-name {
-  font-size: 11.5px;
-  font-weight: 700;
-  color: #1e293b;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.dab-tag {
-  font-size: 9px;
-  height: 16px;
-  line-height: 16px;
-  padding: 0 4px;
-  border-radius: 4px;
-}
-
-.dab-sub {
-  font-size: 10px;
-  color: #64748b;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.dab-id {
-  font-size: 10px;
-  color: #7c3aed;
-  font-weight: 600;
-}
-
-.extra-accounts-wrapper {
-  border-top: 1px dashed rgba(167, 139, 250, 0.4);
-  padding-top: 6px;
-  margin-top: 4px;
-}
-
-.extra-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 10.5px;
-  color: #7c3aed;
-  cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 4px;
-  user-select: none;
-}
-
-.extra-toggle:hover {
-  background: rgba(255, 255, 255, 0.6);
-}
-
-.extra-arrow {
-  transition: transform 0.25s ease;
-}
-
-.extra-arrow.is-open {
-  transform: rotate(180deg);
-}
-
-.extra-accounts-content {
-  margin-top: 6px;
-}
-
-.demo-tabs {
-  display: flex;
-  gap: 3px;
-  margin-bottom: 8px;
-  background: rgba(241, 245, 249, 0.9);
-  padding: 3px;
-  border-radius: 8px;
-}
-
-.demo-tab-item {
-  flex: 1;
-  border: none;
-  background: transparent;
-  padding: 4px 4px;
-  font-size: 11px;
-  font-weight: 600;
-  color: #64748b;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  white-space: nowrap;
-  text-align: center;
-}
-
-.demo-tab-item:hover {
-  color: #475569;
-}
-
-.demo-tab-item.active {
-  background: white;
-  color: #7c3aed;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-}
-
-.demo-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.demo-btn-box {
-  display: inline-flex;
-  align-items: center;
-  background: white;
-  padding: 1px 4px;
-  border-radius: 6px;
-  border: 1px solid rgba(226, 232, 240, 0.9);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
-}
-
-.demo-btn-box .el-button--link {
-  padding: 0 2px;
-  margin-left: 2px;
-  font-size: 11px;
-}
-
-.concurrency-banner {
-  margin-bottom: 8px;
 }
 
 .reg-form-item {
@@ -1084,22 +808,22 @@ async function handleRegister() {
 
 .login-btn {
   width: 100%;
-  height: 46px;
-  border-radius: 10px;
-  font-size: 15px;
+  height: 42px;
+  border-radius: 6px;
+  font-size: 14px;
   font-weight: 700;
-  letter-spacing: 2px;
-  background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%) !important;
-  border: none;
-  box-shadow: 0 8px 16px rgba(139, 92, 246, 0.25) !important;
-  color: white !important;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  letter-spacing: 1px;
+  background: var(--mt-primary, #0284c7) !important;
+  border: 1px solid var(--mt-primary, #0284c7) !important;
+  box-shadow: none !important;
+  color: #ffffff !important;
+  transition: background-color 0.2s ease;
   margin-top: 8px;
 }
 
 .login-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 24px rgba(139, 92, 246, 0.35) !important;
+  background: var(--mt-primary-hover, #0369a1) !important;
+  border-color: var(--mt-primary-hover, #0369a1) !important;
 }
 
 .register-footer {
@@ -1120,13 +844,13 @@ async function handleRegister() {
 }
 
 .purple-link {
-  color: #7c3aed !important;
+  color: var(--mt-primary, #0284c7) !important;
   font-weight: 600;
   cursor: pointer;
 }
 
 .purple-link:hover {
-  color: #6d28d9 !important;
+  color: var(--mt-primary-hover, #0369a1) !important;
   text-decoration: underline;
 }
 

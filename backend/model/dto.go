@@ -233,6 +233,10 @@ type InfectionRiskAlert struct {
 	ProtectionGear []string               `json:"protection_gear"` // 必备个人防护装备 (PPE)
 	EmergencySteps []string               `json:"emergency_steps"` // 职业暴露发生后的紧急处置处置规程 (一挤二冲三消毒 / 2h内PEP)
 	DetectedFrom   []string               `json:"detected_from"`   // 检出来源病历号或检验报告摘要
+
+	// WP-07: 分级脱敏职业暴露防护预警（预授权分诊场景，不泄露具体病原学诊断）
+	PrecautionLevel string `json:"precaution_level,omitempty"` // LEVEL_1_STANDARD / LEVEL_3_BLOOD_BODY_FLUID
+	BannerText      string `json:"banner_text,omitempty"`      // 防护横幅提示文案
 }
 
 // InfectionDiseaseInfo 单项传染病临床特征

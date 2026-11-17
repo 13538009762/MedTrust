@@ -22,6 +22,9 @@ type IPFSService interface {
 	Cat(cid string) (cipherBytes []byte, err error)
 	PutData(ciphertext []byte) (string, error)
 	GetData(cid string) ([]byte, error)
+	// Delete 清理已写入但后续步骤失败的孤儿密文（DB 事务回滚时调用）。
+	// 尽力而为语义：失败不阻断主流程，由调用方记日志。
+	Delete(cid string) error
 }
 
 // KuboLiveClient 通过 Kubo HTTP API 连接真实 Docker 容器或守护节点的实现
@@ -115,6 +118,25 @@ func (c *KuboLiveClient) GetData(cid string) ([]byte, error) {
 	return c.Cat(cid)
 }
 
+// Delete 尽力清理本地缓存副本并尽力通知 Kubo unpin。
+// 说明：IPFS 内容寻址存储无法真正"删除"已被其他节点固定的块，此处只做本节点清理，
+// 目的是避免本地上传失败留下的孤儿密文长期占用磁盘与被无谓固定。
+func (c *KuboLiveClient) Delete(cid string) error {
+	if cid == "" {
+		return nil
+	}
+	localPath := filepath.Join(c.storageDir, cid)
+	if err := os.Remove(localPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("清理本地 IPFS 缓存失败: %w", err)
+	}
+	// 尽力 unpin，失败不影响主流程（Kubo 不可达时忽略）
+	pinURL := fmt.Sprintf("%s/api/v0/pin/rm?arg=%s", c.apiURL, cid)
+	if resp, err := c.client.Post(pinURL, "", nil); err == nil {
+		_ = resp.Body.Close()
+	}
+	return nil
+}
+
 // LocalMockIPFSClient 本地降级 Mock 实现 (对密文计算哈希生成 Qm CID，并写入本地磁盘)
 type LocalMockIPFSClient struct {
 	storageDir string
@@ -162,6 +184,20 @@ func (m *LocalMockIPFSClient) PutData(ciphertext []byte) (string, error) {
 
 func (m *LocalMockIPFSClient) GetData(cid string) ([]byte, error) {
 	return m.Cat(cid)
+}
+
+// Delete 移除本地模拟存储中的密文文件（上传失败后的孤儿清理）
+func (m *LocalMockIPFSClient) Delete(cid string) error {
+	if cid == "" {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	localPath := filepath.Join(m.storageDir, cid)
+	if err := os.Remove(localPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("清理本地模拟 IPFS 文件失败: %w", err)
+	}
+	return nil
 }
 
 // CreateIPFSService 工厂函数

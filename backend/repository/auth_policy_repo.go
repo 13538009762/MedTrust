@@ -57,6 +57,22 @@ func (r *AuthPolicyRepository) ListAuthorizations(patientID uint64, status strin
 	return list, err
 }
 
+// ListAuthorizationsForDoctor 医生视角：仅返回授权目标为该医生本人或其所在医疗机构的授权策略 (行级租户过滤)
+func (r *AuthPolicyRepository) ListAuthorizationsForDoctor(doctorID, hospitalID uint64, status string) ([]model.Authorization, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	query := DB.Model(&model.Authorization{}).
+		Where("(auth_target_type = 'DOCTOR' AND auth_target_id = ?) OR (auth_target_type = 'HOSPITAL' AND auth_target_id = ?) OR auth_target_type = 'ALL_DOCTORS'",
+			doctorID, hospitalID)
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	var list []model.Authorization
+	err := query.Order("created_at DESC").Find(&list).Error
+	return list, err
+}
+
 func (r *AuthPolicyRepository) UpdateAuthorizationStatus(id uint64, status, revokeTxID, revokeError string) error {
 	if DB == nil {
 		return errors.New("database not initialized")
@@ -170,6 +186,18 @@ func (r *AuthPolicyRepository) FindPendingRequestsByPatient(patientID uint64, li
 	}
 	var reqs []model.AccessRequest
 	err := DB.Where("patient_id = ? AND status = 'PENDING'", patientID).Order("id desc").Limit(limit).Find(&reqs).Error
+	return reqs, err
+}
+
+func (r *AuthPolicyRepository) FindPendingRequestsByIDs(patientID uint64, ids []uint64) ([]model.AccessRequest, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var reqs []model.AccessRequest
+	err := DB.Where("patient_id = ? AND id IN (?) AND status = 'PENDING'", patientID, ids).Order("id desc").Find(&reqs).Error
 	return reqs, err
 }
 
@@ -302,6 +330,19 @@ func (r *AuthPolicyRepository) FindActiveAuthorizationsForScope(patientID uint64
 	return oldAuths, err
 }
 
+// CountActiveConsentAuthorizations WP-15: 统计患者在指定时间点对 (医生/医院/全体医生) 且覆盖指定病历的 ACTIVE 授权数
+func (r *AuthPolicyRepository) CountActiveConsentAuthorizations(patientID, doctorID, hospitalID, recordID uint64, now time.Time) int64 {
+	if DB == nil {
+		return 0
+	}
+	var count int64
+	DB.Model(&model.Authorization{}).Where(
+		"patient_id = ? AND ((auth_target_type = 'DOCTOR' AND auth_target_id = ?) OR (auth_target_type = 'HOSPITAL' AND auth_target_id = ?) OR auth_target_type = 'ALL_DOCTORS') AND status = 'ACTIVE' AND start_time <= ? AND end_time >= ? AND (scope_type = 'ALL' OR (scope_type = 'SINGLE' AND record_id = ?))",
+		patientID, doctorID, hospitalID, now, now, recordID,
+	).Count(&count)
+	return count
+}
+
 func (r *AuthPolicyRepository) TryClaimRevokingActive(id, patientID uint64) (int64, error) {
 	if DB == nil {
 		return 0, errors.New("database not initialized")
@@ -329,4 +370,60 @@ func (r *AuthPolicyRepository) TryClaimRetryRevokingFailed(id, patientID uint64)
 			"updated_at":  time.Now(),
 		})
 	return res.RowsAffected, res.Error
+}
+
+// FindAuthorizationsByMultiField WP-15: 多字段查询授权记录（含 WHERE + Updates）
+func (r *AuthPolicyRepository) FindAuthorizationsByMultiField(where string, args ...interface{}) ([]model.Authorization, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	var list []model.Authorization
+	err := DB.Where(where, args...).Find(&list).Error
+	return list, err
+}
+
+// UpdateAuthorizationByMultiField 通过多条件更新授权状态
+func (r *AuthPolicyRepository) UpdateAuthorizationByMultiField(where string, updates map[string]interface{}, args ...interface{}) error {
+	if DB == nil {
+		return errors.New("database not initialized")
+	}
+	return DB.Model(&model.Authorization{}).Where(where, args...).Updates(updates).Error
+}
+
+// RevokeAuthorizationByPattern 根据 LIKE 模式撤销授权（紧急场景 revoke EMG 授权用）
+func (r *AuthPolicyRepository) RevokeAuthorizationByPattern(where string, updates map[string]interface{}, args ...interface{}) error {
+	if DB == nil {
+		return errors.New("database not initialized")
+	}
+	return DB.Model(&model.Authorization{}).Where(where, args...).Updates(updates).Error
+}
+
+// ListPrivAuthsByTime 查询指定时间窗口内活跃的 PRIVATE 范围授权
+func (r *AuthPolicyRepository) ListPrivAuthsByTime(startTime, endTime time.Time) ([]model.Authorization, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	var list []model.Authorization
+	err := DB.Where("scope_type = 'SINGLE' AND auth_target_type = 'PRIVATE' AND status = 'ACTIVE' AND start_time <= ? AND end_time >= ?", startTime, endTime).Find(&list).Error
+	return list, err
+}
+
+// ListPatientAuthsAtTime 查询指定患者在给定时间点的有效授权
+func (r *AuthPolicyRepository) ListPatientAuthsAtTime(patientID uint64, startTime, endTime time.Time) ([]model.Authorization, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	var list []model.Authorization
+	err := DB.Where("patient_id = ? AND status = 'ACTIVE' AND start_time <= ? AND end_time >= ?", patientID, startTime, endTime).Find(&list).Error
+	return list, err
+}
+
+// ListRecentActiveEmgs 查询最近一段时间内有效的紧急事件 (保留以兼容)
+func (r *AuthPolicyRepository) ListRecentActiveEmgs(doctorID uint64, since time.Time) ([]model.EmergencyAccessEvent, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	var emgs []model.EmergencyAccessEvent
+	err := DB.Where("doctor_id = ? AND created_at >= ? AND audit_status != 'CLOSED_VIOLATION' AND patient_feedback != 'OBJECTED'", doctorID, since).Find(&emgs).Error
+	return emgs, err
 }

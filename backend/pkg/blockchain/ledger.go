@@ -78,8 +78,8 @@ func (l *MockLedgerService) GetBlockchainStatus() BlockchainStatusDTO {
 	defer l.mu.RUnlock()
 	return BlockchainStatusDTO{
 		Mode:        "mock",
-		Connected:   false,
-		Message:     "MockLedger Development Mode",
+		Connected:   true,
+		Message:     "MockLedger Active",
 		Network:     "medicalchannel",
 		Chaincode:   "medical_contract",
 		Peer:        "peer0.org1.example.com (Mock)",

@@ -32,6 +32,38 @@ func (r *HospitalRepository) FindByHospitalNo(hospitalNo string) (*model.Hospita
 	return &h, nil
 }
 
+// FindByIDs WP-13: 批量拉取机构并建立 ID 映射 (WHERE id IN，消除列表端点 N+1)
+func (r *HospitalRepository) FindByIDs(ids []uint64) (map[uint64]model.Hospital, error) {
+	result := make(map[uint64]model.Hospital)
+	if DB == nil || len(ids) == 0 {
+		return result, nil
+	}
+	var list []model.Hospital
+	if err := DB.Where("id IN ?", ids).Find(&list).Error; err != nil {
+		return nil, err
+	}
+	for _, h := range list {
+		result[h.ID] = h
+	}
+	return result, nil
+}
+
+// FindDepartmentsByIDs WP-13: 批量拉取科室并建立 ID 映射 (WHERE id IN，消除列表端点 N+1)
+func (r *HospitalRepository) FindDepartmentsByIDs(ids []uint64) (map[uint64]model.Department, error) {
+	result := make(map[uint64]model.Department)
+	if DB == nil || len(ids) == 0 {
+		return result, nil
+	}
+	var list []model.Department
+	if err := DB.Where("id IN ?", ids).Find(&list).Error; err != nil {
+		return nil, err
+	}
+	for _, d := range list {
+		result[d.ID] = d
+	}
+	return result, nil
+}
+
 func (r *HospitalRepository) ListHospitals() ([]model.Hospital, error) {
 	if DB == nil {
 		return nil, errors.New("database not initialized")
@@ -154,4 +186,14 @@ func (r *HospitalRepository) DeleteDepartment(id uint64) error {
 		return errors.New("database not initialized")
 	}
 	return DB.Delete(&model.Department{}, id).Error
+}
+
+// GetActiveFileCIDs WP-15: 查询所有非空 ipfs_cid（供清理孤儿文件用）
+func (r *HospitalRepository) GetActiveFileCIDs() ([]string, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	var cids []string
+	err := DB.Model(&model.MedicalFile{}).Where("ipfs_cid != ''").Pluck("ipfs_cid", &cids).Error
+	return cids, err
 }

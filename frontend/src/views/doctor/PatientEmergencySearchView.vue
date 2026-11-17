@@ -13,7 +13,7 @@
           </el-tag>
         </div>
         <p class="subtitle">
-          面向跨机构临床协同与急诊抢救：快速定位患者全景档案，秒级调阅致命药物过敏与生命体征，全览已授权就诊记录，支持一键申请全部权限、分批申请及急救破窗绿色通道。
+          面向跨机构临床协同与急诊抢救：快速定位患者档案，调阅既往药物过敏史与生命体征，全览已授权就诊记录，支持全量/分批申请授权与急救破窗绿色通道。
         </p>
 
         <!-- 检索栏与候选患者芯片 -->
@@ -50,7 +50,7 @@
         <div class="guide-features">
           <div class="guide-item">
             <el-icon class="g-icon green"><CircleCheck /></el-icon>
-            <span>秒级穿透全网医联体已授权病历</span>
+            <span>快速检索医联体跨院已授权病历</span>
           </div>
           <div class="guide-item">
             <el-icon class="g-icon red"><WarningFilled /></el-icon>
@@ -58,7 +58,7 @@
           </div>
           <div class="guide-item">
             <el-icon class="g-icon blue"><Key /></el-icon>
-            <span>一键申请全量知情同意或分批勾选申请</span>
+            <span>批量申请全量知情同意或分批勾选申请</span>
           </div>
           <div class="guide-item">
             <el-icon class="g-icon red"><FirstAidKit /></el-icon>
@@ -154,13 +154,13 @@
             <div class="bento-body">
               <div v-if="hasRealAllergy(selectedPatient)" class="allergy-content-box">
                 <div class="allergy-text font-bold">
-                  ⚠️ {{ selectedPatient.allergies }}
+                  <el-icon class="mr-1"><WarningFilled /></el-icon>{{ selectedPatient.allergies }}
                 </div>
                 <div class="allergy-rule">严禁下达含致敏成分抗生素或同类静脉针剂</div>
               </div>
               <div v-else class="allergy-safe-box">
                 <div class="allergy-safe-title font-bold">
-                  ✓ {{ selectedPatient.allergies || '暂未报告已知药物过敏 (阴性)' }}
+                  <el-icon class="mr-1"><CircleCheck /></el-icon>{{ selectedPatient.allergies || '暂未报告已知药物过敏 (阴性)' }}
                 </div>
                 <div class="allergy-safe-sub text-muted">
                   电子健康档案未见致敏记录 · 常规用药仍需询问过敏史及皮试观察
@@ -232,7 +232,7 @@
             <div class="bento-body">
               <div v-if="selectedPatient.infection_alert?.has_risk" class="infect-risk-box">
                 <div class="infect-summary font-bold">
-                  ⚠️ {{ formatInfectionSummary(selectedPatient.infection_alert.summary) }}
+                  <el-icon class="mr-1"><WarningFilled /></el-icon>{{ formatInfectionSummary(selectedPatient.infection_alert.summary) }}
                 </div>
                 <div class="infect-guide">
                   {{ selectedPatient.infection_alert.protection_guide || '防护提示：接触患者血液体液务必佩戴双层手套及护目屏' }}
@@ -257,18 +257,18 @@
               <span class="deck-chip">COMMAND DECK</span>
             </div>
             <p class="deck-sub-text">
-              支持一键全量授权推送、分批勾选病历申请、现场专属密钥秒开、急救法定绿色通道及 AI 全景跨期推演
+              支持全量授权申请、分批勾选申请、患者现场密钥即时核验、急救法定破窗通道及跨期病历 SOAP 摘要汇总
             </p>
           </div>
 
           <div class="deck-action-buttons">
-            <!-- 1. 一键申请全量权限 -->
+            <!-- 1. 申请全量权限 -->
             <el-button
               class="deck-btn btn-primary-gradient"
               :icon="Key"
               @click="openAllConsentDialog"
             >
-              一键申请全量权限
+              申请全量权限
               <span v-if="unauthorizedCount > 0" class="btn-micro-badge primary">
                 {{ unauthorizedCount }}份待批
               </span>
@@ -303,7 +303,7 @@
               :icon="Unlock"
               @click="openKeyUnlockDialog"
             >
-              现场密钥核验放行 (秒开)
+              现场密钥核验放行
             </el-button>
 
             <!-- 4. 急救绿色通道 (破窗) -->
@@ -322,8 +322,8 @@
               class="deck-btn btn-ai-gradient"
               @click="aiDiagnosticVisible = true"
             >
-              <el-icon class="mr-1"><MagicStick /></el-icon>
-              <span>📋 跨院病历 SOAP 汇总与线索</span>
+              <el-icon class="mr-1"><DocumentChecked /></el-icon>
+              <span>跨院病历 SOAP 汇总与线索</span>
             </el-button>
           </div>
         </div>
@@ -347,8 +347,17 @@
                 </el-tag>
               </div>
 
-              <!-- 筛选器 -->
+              <!-- 筛选器与视图切换 -->
               <div class="rh-filters">
+                <el-radio-group v-model="recordsViewMode" size="small" class="view-mode-switch" aria-label="病历展示视图切换">
+                  <el-radio-button label="TIMELINE">
+                    <span class="vm-btn-inner"><el-icon><Clock /></el-icon>病例时间线视图</span>
+                  </el-radio-button>
+                  <el-radio-button label="TABLE">
+                    <span class="vm-btn-inner"><el-icon><Tickets /></el-icon>表格视图</span>
+                  </el-radio-button>
+                </el-radio-group>
+
                 <el-radio-group v-model="recordFilter" size="small">
                   <el-radio-button label="ALL">全部 ({{ patientRecords.length }})</el-radio-button>
                   <el-radio-button label="AUTHORIZED">
@@ -365,13 +374,46 @@
                   placeholder="过滤诊断、医院、就诊编号..."
                   size="small"
                   clearable
-                  style="width: 220px; margin-left: 12px;"
+                  style="width: 210px;"
                   :prefix-icon="Search"
                 />
               </div>
             </div>
           </template>
 
+          <!-- ===== 视图模式一：患者纵向病例时间线视图 ===== -->
+          <div v-if="recordsViewMode === 'TIMELINE'" class="emergency-timeline-wrap">
+            <PatientClinicalTimeline
+              :records="filteredPatientRecords"
+              :loading="loadingRecords"
+              :compact="false"
+              max-height="600px"
+              :allow-adopt="false"
+              :allow-request-access="true"
+              :hospital-map="hospitals"
+              :department-map="departments"
+              :current-hospital-id="auth.user?.hospital_id"
+              empty-description="当前筛选条件下暂无该患者的病例时间线记录"
+              @view-detail="viewRecordDetail"
+              @request-consent="openSingleConsentDialog"
+            />
+            <div class="table-card-footer mt-3">
+              <span class="tcf-stats text-muted">
+                当前时间线展示 {{ filteredPatientRecords.length }} 份病历 (全网 {{ patientRecords.length }} 份)
+              </span>
+              <div class="tcf-right">
+                <el-button size="small" text type="primary" @click="recordsViewMode = 'TABLE'">
+                  切换表格视图（支持批量勾选授权）
+                </el-button>
+                <el-button size="small" text :icon="Refresh" @click="refreshPatientRecords" :loading="loadingRecords">
+                  刷新列表
+                </el-button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===== 视图模式二：病历档案清单表格视图 ===== -->
+          <template v-else>
           <!-- 批量操作指引条 (当用户勾选了记录时高亮展示) -->
           <div v-if="selectedRecordRows.length > 0" class="selection-notice-bar">
             <div class="sn-left">
@@ -511,7 +553,7 @@
                       size="small"
                       class="status-tag"
                     >
-                      ✓ 患者已授权解密
+                      患者已授权解密
                     </el-tag>
                   </template>
 
@@ -585,16 +627,17 @@
               </el-button>
             </div>
           </div>
+          </template>
         </el-card>
       </div>
     </div>
 
     <!-- ================= 弹窗组件区 ================= -->
 
-    <!-- 弹窗 1：一键申请所有权限确认对话框 -->
+    <!-- 弹窗 1：申请全量权限确认对话框 -->
     <el-dialog
       v-model="allConsentDialogVisible"
-      title="一键向患者发起全量病历知情调阅申请"
+      title="向患者发起全量病历知情调阅申请"
       width="540px"
       append-to-body
     >
@@ -786,7 +829,7 @@
             <h4>国家卫生健康委医疗数据急救破窗法定授权机制</h4>
             <p>
               本功能仅限<strong>生命垂危、昏迷无自主意识、猝死抢救等无法线上授权且无法提供密钥</strong>的紧急抢救场景。
-              系统将秒级解密放行该患者全网所有就诊记录与检查影像，同时将本次急救调阅时间、经办医生、抢救原由实时写入 Fabric 联盟链进行永久不可篡改存证！
+              系统将即时解密放行该患者全网所有就诊记录与检查影像，同时将本次急救调阅时间、经办医生、抢救原由实时写入 Fabric 联盟链进行不可篡改存证！
             </p>
           </div>
         </div>
@@ -868,7 +911,7 @@
         </div>
 
         <!-- 基础元数据 -->
-        <el-descriptions :column="2" border class="mb-4 mt-3">
+        <el-descriptions :column="2" border label-width="104px" class="mb-4 mt-3">
           <el-descriptions-item label="就诊机构">
             <strong>{{ getHospitalName(activeRecord.hospital_id) }}</strong>
           </el-descriptions-item>
@@ -941,15 +984,15 @@
           <div class="section-body chain-meta-grid">
             <div class="cm-item">
               <span class="cm-label">联盟链交易哈希 (TxID):</span>
-              <code class="cm-code">{{ activeRecord.fabric_tx_id || '9f8e7d6c5b4a3f2e1d0c9b8a7' }}</code>
+              <HashCapsule :value="activeRecord.fabric_tx_id" :prefix-len="10" :suffix-len="8" label="联盟链 TxID" empty-text="待同步" />
             </div>
             <div class="cm-item">
               <span class="cm-label">账本区块高度 (Block Height):</span>
-              <code class="cm-code">Block #{{ activeRecord.fabric_block_height || '1268' }}</code>
+              <code class="cm-code">{{ activeRecord.fabric_block_height ? `Block #${activeRecord.fabric_block_height}` : '待同步' }}</code>
             </div>
             <div class="cm-item">
               <span class="cm-label">IPFS 密文 CID 存储哈希:</span>
-              <code class="cm-code">{{ activeRecord.ipfs_cid || 'QmZtmD2qtQgKdBnNgv878Pnmv1qZNyvXNswRcq0' }}</code>
+              <HashCapsule :value="activeRecord.ipfs_cid" :prefix-len="10" :suffix-len="8" label="IPFS CID" empty-text="—" />
             </div>
           </div>
         </div>
@@ -1002,8 +1045,12 @@ import {
   EditPen,
   Tickets,
   Compass,
-  MagicStick,
+  DocumentChecked,
+  Clock,
 } from '@element-plus/icons-vue'
+import HashCapsule from '@/components/common/HashCapsule.vue'
+import PatientClinicalTimeline from '@/components/clinical/PatientClinicalTimeline.vue'
+import { unwrapTimelineRecordsResponse, type TimelineRecordApiResponse } from '@/composables/usePatientTimeline'
 import {
   hasRealAllergy,
   formatProtectionLevel,
@@ -1033,6 +1080,7 @@ const selectedPatient = ref<any | null>(null)
 // 病历状态与分页
 const patientRecords = ref<any[]>([])
 const loadingRecords = ref(false)
+const recordsViewMode = ref<'TABLE' | 'TIMELINE'>('TABLE')
 const recordFilter = ref('ALL')
 const recordSearchText = ref('')
 const recordsTableRef = ref<any>(null)
@@ -1258,12 +1306,12 @@ async function selectPatient(patient: any) {
   await fetchPatientRecords(patient.id)
 }
 
-// 获取患者全部病历档案
+// 获取患者历史病历档案（page_size 限制为 15 避免同步核验耗时过长）
 async function fetchPatientRecords(patientId: number) {
   loadingRecords.value = true
   try {
-    const res: any = await listRecordsApi({ patient_id: patientId })
-    patientRecords.value = res.data || []
+    const res = (await listRecordsApi({ patient_id: patientId, page: 1, page_size: 15 })) as TimelineRecordApiResponse
+    patientRecords.value = unwrapTimelineRecordsResponse(res)
   } catch (err) {
     ElMessage.error('获取患者病历清单失败')
   } finally {

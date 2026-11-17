@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -13,6 +14,56 @@ import (
 )
 
 var DB *gorm.DB
+
+// TxRunner 事务内写操作收口：service 层通过它执行事务写入，不直接触碰 GORM 构建器
+type TxRunner struct {
+	db *gorm.DB
+}
+
+// Create 在事务内创建一条记录
+func (t *TxRunner) Create(value interface{}) error {
+	return t.db.Create(value).Error
+}
+
+// Save 在事务内整体保存一条记录
+func (t *TxRunner) Save(value interface{}) error {
+	return t.db.Save(value).Error
+}
+
+// Model 在事务内指定目标表模型（批量更新场景）
+func (t *TxRunner) Model(value interface{}) *TxRunnerQuery {
+	return &TxRunnerQuery{db: t.db.Model(value)}
+}
+
+// TxRunnerQuery 事务内条件更新链（仅暴露收口的条件构建操作）
+type TxRunnerQuery struct {
+	db *gorm.DB
+}
+
+// Where 追加查询条件
+func (q *TxRunnerQuery) Where(query interface{}, args ...interface{}) *TxRunnerQuery {
+	return &TxRunnerQuery{db: q.db.Where(query, args...)}
+}
+
+// Updates 批量更新字段
+func (q *TxRunnerQuery) Updates(values interface{}) error {
+	return q.db.Updates(values).Error
+}
+
+// Update 更新单个字段
+func (q *TxRunnerQuery) Update(column string, value interface{}) error {
+	return q.db.Update(column, value).Error
+}
+
+// Transaction WP-14/WP-15: 多表原子写事务封装。fn 返回 error 时自动回滚。
+func Transaction(fn func(tx *TxRunner) error) error {
+	if DB == nil {
+		return errors.New("database not initialized")
+	}
+	return DB.Transaction(func(txDB *gorm.DB) error {
+		return fn(&TxRunner{db: txDB})
+	})
+}
 
 // InitDB 初始化 MySQL 数据库连接、自动迁移表结构并幂等写入标准测试种子数据
 func InitDB() (*gorm.DB, error) {
@@ -46,6 +97,7 @@ func InitDB() (*gorm.DB, error) {
 		&model.AuditLog{},
 		&model.RiskRecord{},
 		&model.BlockchainTransaction{},
+		&model.ConsistencyTask{},
 	)
 	if err != nil {
 		log.Printf("[DB] AutoMigrate warning: %v", err)

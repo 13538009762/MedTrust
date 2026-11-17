@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"medtrust-backend/config"
-	"medtrust-backend/model"
 	"medtrust-backend/repository"
 )
 
@@ -30,26 +29,16 @@ func StartAccessRequestCleanup() {
 }
 
 func cleanExpiredRequests() {
-	if repository.DB == nil {
-		return
-	}
-
 	now := time.Now()
 	// 只更新状态为 PENDING、且明确设置了过期时间（大于 2000 年）并且当前时间已超期的记录
-	res := repository.DB.Model(&model.AccessRequest{}).
-		Where("status = ? AND expire_at > ? AND expire_at < ?", "PENDING", time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), now).
-		Updates(map[string]interface{}{
-			"status":   "EXPIRED",
-			"decision": "EXPIRED",
-		})
-
-	if res.Error != nil {
-		log.Printf("[CleanupService] 扫描过期调阅申请出错: %v", res.Error)
+	rowsAffected, err := repository.DefaultAuditRepository.ExpirePendingAccessRequests(now)
+	if err != nil {
+		log.Printf("[CleanupService] 扫描过期调阅申请出错: %v", err)
 		return
 	}
 
-	if res.RowsAffected > 0 {
-		log.Printf("[CleanupService] 已自动将 %d 笔超时未审批的跨院调阅申请置为 EXPIRED 状态", res.RowsAffected)
+	if rowsAffected > 0 {
+		log.Printf("[CleanupService] 已自动将 %d 笔超时未审批的跨院调阅申请置为 EXPIRED 状态", rowsAffected)
 	}
 }
 
@@ -77,9 +66,8 @@ func CleanOrphanedIPFSFiles() (int, int64, error) {
 
 	// 1. 从数据库读取当前所有有效病历附件的 ipfs_cid
 	validCIDs := make(map[string]bool)
-	if repository.DB != nil {
-		var activeCIDs []string
-		_ = repository.DB.Model(&model.MedicalFile{}).Where("ipfs_cid != ''").Pluck("ipfs_cid", &activeCIDs).Error
+	activeCIDs, err := repository.DefaultAuditRepository.GetActiveMedicalFileCIDs()
+	if err == nil {
 		for _, cid := range activeCIDs {
 			validCIDs[strings.TrimSpace(cid)] = true
 		}

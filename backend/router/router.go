@@ -58,7 +58,7 @@ func SetupRouter() *gin.Engine {
 			authGroup.GET("/medical-records", controller.DefaultMedicalController.List)
 			authGroup.GET("/medical-records/:id", controller.DefaultMedicalController.GetByID)
 			authGroup.GET("/medical-records/:id/download", controller.DefaultMedicalController.Download)
-			authGroup.GET("/patients", middleware.RequireRoles("doctor", "admin", "supervisor"), controller.DefaultMedicalController.ListPatients)
+			authGroup.GET("/patients", middleware.RequireRoles("doctor", "supervisor"), controller.DefaultMedicalController.ListPatients)
 
 			// 医护职业安全防护与高危传染病预警分析
 			authGroup.GET("/patients/:id/infection-risks", middleware.RequireRoles("doctor", "supervisor", "patient"), controller.DefaultMedicalController.GetPatientInfectionRisks)
@@ -83,13 +83,15 @@ func SetupRouter() *gin.Engine {
 			authGroup.POST("/access/requests/:id/approve", middleware.RequireRoles("patient"), controller.DefaultAccessController.ApproveRequest)
 			authGroup.POST("/access-requests/:id/confirm", middleware.RequireRoles("patient"), controller.DefaultAccessController.ApproveRequest)
 			authGroup.POST("/access/requests/:id/reject", middleware.RequireRoles("patient"), controller.DefaultAccessController.RejectRequest)
+			authGroup.POST("/access/requests/batch-approve", middleware.RequireRoles("patient"), controller.DefaultAccessController.BatchApproveRequests)
+			authGroup.POST("/access/requests/batch-reject", middleware.RequireRoles("patient"), controller.DefaultAccessController.BatchRejectRequests)
 			authGroup.POST("/access/break-glass", middleware.RequireRoles("doctor"), controller.DefaultAccessController.BreakGlass)
 			authGroup.POST("/access/break-glass/patient-feedback", middleware.RequireRoles("patient"), controller.DefaultAccessController.PatientFeedback)
 			authGroup.POST("/emergency-events/:event_no/feedback", middleware.RequireRoles("patient"), controller.DefaultAccessController.PatientFeedback)
 
 			// 患者自主授权模块与病历可见性配置
 			authGroup.POST("/authorizations", middleware.RequireRoles("patient"), controller.DefaultAccessController.CreateAuthorization)
-			authGroup.GET("/authorizations", controller.DefaultAccessController.ListAuthorizations)
+			authGroup.GET("/authorizations", middleware.RequireRoles("patient", "doctor", "supervisor"), controller.DefaultAccessController.ListAuthorizations)
 			authGroup.DELETE("/authorizations/revoke-all", middleware.RequireRoles("patient"), controller.DefaultAccessController.RevokeAllAuthorizations)
 			authGroup.DELETE("/authorizations/:id", middleware.RequireRoles("patient"), controller.DefaultAccessController.RevokeAuthorization)
 			authGroup.POST("/authorizations/:id/retry-revoke", middleware.RequireRoles("patient"), controller.DefaultAccessController.RetryRevokeAuthorization)
@@ -115,9 +117,9 @@ func SetupRouter() *gin.Engine {
 			authGroup.POST("/supervisor/lift-doctor-restriction", middleware.RequireRoles("supervisor", "admin"), controller.DefaultSupervisorController.LiftDoctorRestriction)
 			authGroup.POST("/verification/:record_id", middleware.RequireRoles("supervisor", "admin", "doctor", "patient"), controller.DefaultSupervisorController.VerifyRecord)
 			authGroup.GET("/verification/:record_id", middleware.RequireRoles("supervisor", "admin", "doctor", "patient"), controller.DefaultSupervisorController.VerifyRecord)
-			authGroup.POST("/verification/simulate-tamper/:record_id", middleware.RequireRoles("supervisor", "admin", "doctor"), controller.DefaultSupervisorController.SimulateTamper)
-			authGroup.POST("/supervisor/simulate-tamper/:record_id", middleware.RequireRoles("supervisor", "admin", "doctor"), controller.DefaultSupervisorController.SimulateTamper)
-			authGroup.POST("/verification/restore/:record_id", middleware.RequireRoles("supervisor", "admin", "doctor"), controller.DefaultSupervisorController.RestoreTamperedRecord)
+			authGroup.POST("/verification/simulate-tamper/:record_id", middleware.RequireRoles("supervisor"), controller.DefaultSupervisorController.SimulateTamper)
+			authGroup.POST("/supervisor/simulate-tamper/:record_id", middleware.RequireRoles("supervisor"), controller.DefaultSupervisorController.SimulateTamper)
+			authGroup.POST("/verification/restore/:record_id", middleware.RequireRoles("supervisor"), controller.DefaultSupervisorController.RestoreTamperedRecord)
 
 			// 系统管理员模块
 			authGroup.GET("/system/users", middleware.RequireRoles("admin", "supervisor"), controller.DefaultSystemController.ListUsers)
@@ -127,9 +129,11 @@ func SetupRouter() *gin.Engine {
 			authGroup.PUT("/users/:id/status", middleware.RequireRoles("admin"), controller.DefaultSystemController.UpdateUserStatus)
 			authGroup.PATCH("/users/:id/status", middleware.RequireRoles("admin"), controller.DefaultSystemController.UpdateUserStatus)
 			authGroup.POST("/system/users", middleware.RequireRoles("admin"), controller.DefaultSystemController.CreateUser)
-			authGroup.GET("/system/hospitals", controller.DefaultSystemController.ListHospitals)
-			authGroup.GET("/system/departments", controller.DefaultSystemController.ListDepartments)
-			authGroup.GET("/system/doctors", controller.DefaultSystemController.ListDoctors)
+			authGroup.GET("/system/hospitals", middleware.RequireRoles("admin", "supervisor", "doctor", "patient"), controller.DefaultSystemController.ListHospitals)
+			authGroup.GET("/system/departments", middleware.RequireRoles("admin", "supervisor", "doctor", "patient"), controller.DefaultSystemController.ListDepartments)
+			// 医生目录：所有角色均需（患者授权选医生、监管解除限制、医生互查），
+			// 故不收缩角色集，改为显式声明白名单 + 枚举限流，避免任意账号高频拖库。
+			authGroup.GET("/system/doctors", middleware.RequireRoles("admin", "supervisor", "doctor", "patient"), middleware.RateLimitMiddleware(60, time.Minute), controller.DefaultSystemController.ListDoctors)
 
 			// 医疗机构与科室全生命周期管理
 			authGroup.POST("/system/hospitals", middleware.RequireRoles("admin"), controller.DefaultSystemController.CreateHospital)

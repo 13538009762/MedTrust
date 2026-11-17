@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <h2 class="page-title">患者知情授权与跨院审批中心</h2>
-        <p class="page-sub">由患者自主控制个人医疗数据共享，在线审批外院医生门诊知情申请，生效即刻锚定 Fabric 联盟链，随时一键撤销</p>
+        <p class="page-sub">由患者自主控制个人医疗数据共享，在线审批外院医生门诊知情申请，生效即刻锚定 Fabric 联盟链，支持随时撤销</p>
       </div>
       <el-button type="primary" :icon="Plus" @click="dialogVisible = true">主动创建授权策略</el-button>
     </div>
@@ -15,7 +15,7 @@
         <div>
           <div class="mkb-title-row">
             <span class="mkb-title">我的跨院病历现场调阅专属密钥</span>
-            <el-tag size="small" type="success" effect="dark">现场秒级授权</el-tag>
+            <el-tag size="small" type="success" effect="dark">现场即时授权</el-tag>
           </div>
           <p class="mkb-sub">
             在其他医疗机构就诊时，您可直接向主治医生提供此密钥或在医生电脑现场输入，即可立即授权解锁您的健康病历，免去等待在线审批推送。
@@ -62,10 +62,91 @@
           :closable="false"
         />
 
+        <!-- 批量审批与一键全选操作栏 -->
+        <div class="pending-batch-toolbar mb-3">
+          <div class="batch-toolbar-left">
+            <el-checkbox
+              :model-value="isAllSelected"
+              :indeterminate="isIndeterminate"
+              @change="toggleSelectAll"
+            >
+              <span class="batch-select-label">全选当前页 ({{ pendingRequests.length }})</span>
+            </el-checkbox>
+            <transition name="el-fade-in">
+              <span v-if="selectedRequestIds.length > 0" class="selected-count-pill">
+                已选中 <strong>{{ selectedRequestIds.length }}</strong> 项
+              </span>
+            </transition>
+          </div>
+
+          <div class="batch-toolbar-actions">
+            <!-- 批量同意选定项 -->
+            <el-button
+              type="success"
+              size="small"
+              :disabled="selectedRequestIds.length === 0"
+              :loading="batchOperating && batchActionType === 'APPROVE_SELECTED'"
+              @click="handleBatchApproveSelected"
+            >
+              <el-icon class="mr-1"><Check /></el-icon>
+              批量同意所选 ({{ selectedRequestIds.length }})
+            </el-button>
+
+            <!-- 批量拒绝选定项 -->
+            <el-button
+              type="danger"
+              plain
+              size="small"
+              :disabled="selectedRequestIds.length === 0"
+              :loading="batchOperating && batchActionType === 'REJECT_SELECTED'"
+              @click="handleBatchRejectSelected"
+            >
+              <el-icon class="mr-1"><Close /></el-icon>
+              批量拒绝所选 ({{ selectedRequestIds.length }})
+            </el-button>
+
+            <el-divider direction="vertical" class="toolbar-divider" />
+
+            <!-- 批量全部同意 -->
+            <el-button
+              type="primary"
+              size="small"
+              :loading="batchOperating && batchActionType === 'APPROVE_ALL'"
+              @click="handleOneClickApproveAll"
+            >
+              <el-icon class="mr-1"><Select /></el-icon>
+              全部同意 ({{ pendingRequests.length }})
+            </el-button>
+
+            <!-- 批量全部拒绝 -->
+            <el-button
+              type="info"
+              plain
+              size="small"
+              :loading="batchOperating && batchActionType === 'REJECT_ALL'"
+              @click="handleOneClickRejectAll"
+            >
+              <el-icon class="mr-1"><Delete /></el-icon>
+              全部拒绝 ({{ pendingRequests.length }})
+            </el-button>
+          </div>
+        </div>
+
         <div class="pending-grid">
-          <div v-for="item in pendingRequests" :key="item.id" class="pending-item-card">
+          <div
+            v-for="item in pendingRequests"
+            :key="item.id"
+            :class="['pending-item-card', { 'is-selected': selectedRequestIds.includes(item.id) }]"
+          >
             <div class="pi-header">
-              <span class="pi-no">申请单号: <strong class="mono">{{ item.request_no }}</strong></span>
+              <div class="pi-header-left">
+                <el-checkbox
+                  :model-value="selectedRequestIds.includes(item.id)"
+                  @change="(val: boolean) => toggleSelectItem(item.id, val)"
+                  @click.stop
+                />
+                <span class="pi-no ml-2">申请单号: <strong class="mono">{{ item.request_no }}</strong></span>
+              </div>
               <div class="pi-badges" style="display: flex; gap: 8px; align-items: center;">
                 <el-tag size="small" type="warning" effect="dark">待患者二次确认</el-tag>
                 <el-tooltip :content="getRiskRulesTooltip(item)" placement="top">
@@ -75,7 +156,7 @@
                     effect="light"
                     class="cursor-pointer font-bold"
                   >
-                    🛡️ 风险评分: {{ item.risk_score || 48 }}分 · {{ getRiskScoreText(item.risk_score || 48) }}
+                    风险评分: {{ item.risk_score || 48 }}分 · {{ getRiskScoreText(item.risk_score || 48) }}
                   </el-tag>
                 </el-tooltip>
               </div>
@@ -237,11 +318,9 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="fabric_tx_id" label="Fabric 存证 TxID" min-width="180">
+        <el-table-column prop="fabric_tx_id" label="Fabric 存证 TxID" min-width="200">
           <template #default="{ row }">
-            <el-tooltip :content="row.fabric_tx_id" placement="top">
-              <span class="tx-hash">{{ row.fabric_tx_id ? row.fabric_tx_id.substring(0, 18) + '...' : '' }}</span>
-            </el-tooltip>
+            <HashCapsule :value="row.fabric_tx_id" :prefix-len="8" :suffix-len="6" label="Fabric TxID" />
           </template>
         </el-table-column>
         <el-table-column label="操作" width="100" fixed="right">
@@ -394,7 +473,7 @@
               <el-option label="90 天 (长程康复)" :value="90" />
               <el-option label="365 天 (年度签约)" :value="365" />
             </el-select>
-            <span class="text-xs text-slate-500">到期后系统将自动撤销权限，您也可随时一键作废</span>
+            <span class="text-xs text-slate-500">到期后系统将自动撤销权限，您也可随时撤销作废</span>
           </div>
         </el-form-item>
       </el-form>
@@ -558,7 +637,7 @@
               class="pdf-action-btn pdf-btn-verify"
               @click="verifyRecordIntegrity(previewingRecord.id)"
             >
-              一键链上完整性核验
+              链上完整性核验
             </el-button>
           </div>
         </div>
@@ -675,14 +754,14 @@
               <div class="crypto-sub-line">
                 <span><strong>联盟链通道：</strong><span class="mono text-purple-700">medicalchannel</span></span>
                 <span class="ml-2"><strong>智能合约：</strong><span class="mono text-indigo-700">medical_contract</span></span>
-                <span class="ml-2"><strong>区块高度：</strong><span class="mono text-emerald-700 font-bold">#{{ previewingRecord.block_height || 108 }}</span></span>
+                <span class="ml-2"><strong>区块高度：</strong><span class="mono text-emerald-700 font-bold">{{ previewingRecord.block_height ? `#${previewingRecord.block_height}` : '待同步' }}</span></span>
               </div>
               <div><strong>底层加密算法：</strong><span class="mono text-slate-700">AES-256-GCM (AAD 关联认证数据绑定)</span></div>
               <div v-if="previewingRecord.files && previewingRecord.files.length">
-                <strong>IPFS 分布式存证 CID：</strong><code>{{ previewingRecord.files[0].ipfs_cid }}</code>
+                <strong>IPFS 分布式存证 CID：</strong><code class="mono" style="word-break: break-all;">{{ previewingRecord.files[0].ipfs_cid || '—' }}</code>
               </div>
               <div v-if="previewingRecord.files && previewingRecord.files.length">
-                <strong>原始数据 SHA-256 指纹：</strong><code>{{ previewingRecord.files[0].file_hash }}</code>
+                <strong>原始数据 SHA-256 指纹：</strong><code class="mono" style="word-break: break-all;">{{ previewingRecord.files[0].file_hash || '—' }}</code>
               </div>
               <div class="text-xs text-emerald-700 mt-1">本病历经 Hyperledger Fabric 真实存证，数字签名抗抵赖、防篡改</div>
             </div>
@@ -691,10 +770,10 @@
               <!-- 防伪公章样式 -->
               <div class="emr-stamp">
                 <div class="stamp-inner">
-                  <div class="stamp-star">★</div>
+                  <div class="stamp-star">*</div>
                   <div class="stamp-text-top">{{ previewingRecord.hospital_name || '医疗机构' }}</div>
                   <div class="stamp-text-center">区块链存证专章</div>
-                  <div class="stamp-text-bottom">100% 真实有效</div>
+                  <div class="stamp-text-bottom">链上存证核验凭证</div>
                 </div>
               </div>
 
@@ -824,8 +903,8 @@
           <!-- 底部区块链元数据 -->
           <div class="chain-meta-card mt-3">
             <div><strong>Fabric TxID：</strong><code class="mono">{{ formatTxId(integrityResult.fabric_tx_id) }}</code></div>
-            <div><strong>存证区块高度：</strong><span class="mono">#{{ integrityResult.block_height || 108 }}</span> | <strong>通道：</strong><span class="mono">medicalchannel</span> | <strong>合约：</strong><span class="mono">medical_contract</span></div>
-            <div><strong>IPFS 密文 CID：</strong><code class="mono">{{ integrityResult.cid || integrityResult.ipfs_cid || '-' }}</code></div>
+            <div><strong>存证区块高度：</strong><span class="mono">{{ integrityResult.block_height ? `#${integrityResult.block_height}` : '待同步' }}</span> | <strong>通道：</strong><span class="mono">medicalchannel</span> | <strong>合约：</strong><span class="mono">medical_contract</span></div>
+            <div><strong>IPFS 密文 CID：</strong><code class="mono">{{ integrityResult.cid || integrityResult.ipfs_cid || '—' }}</code></div>
             <div><strong>加密算法：</strong><span class="mono">AES-256-GCM (AAD 关联认证数据绑定)</span></div>
           </div>
         </div>
@@ -843,8 +922,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Plus, View, Download, Printer, WarningFilled, CircleCheckFilled, Key, Hide } from '@element-plus/icons-vue'
-import { ElMessage, ElNotification } from 'element-plus'
+import { Plus, View, Download, Printer, WarningFilled, CircleCheckFilled, Key, Hide, Check, Close, Select, Delete } from '@element-plus/icons-vue'
+import { ElMessage, ElNotification, ElMessageBox } from 'element-plus'
+import HashCapsule from '@/components/common/HashCapsule.vue'
 import {
   formatFileSize,
   formatEncounterType,
@@ -871,6 +951,8 @@ import {
   listPendingAccessRequestsApi,
   approveAccessRequestApi,
   rejectAccessRequestApi,
+  batchApproveAccessRequestsApi,
+  batchRejectAccessRequestsApi,
   verifyRecordApi
 } from '../../api'
 import { useAuthStore } from '../../stores/auth'
@@ -884,6 +966,40 @@ const loading = ref(false)
 const dialogVisible = ref(false)
 const submitting = ref(false)
 const processingId = ref<number | null>(null)
+
+// 批量选择与审批/驳回状态
+const selectedRequestIds = ref<number[]>([])
+const batchOperating = ref(false)
+const batchActionType = ref<'APPROVE_SELECTED' | 'REJECT_SELECTED' | 'APPROVE_ALL' | 'REJECT_ALL' | null>(null)
+
+const isAllSelected = computed(() => {
+  if (pendingRequests.value.length === 0) return false
+  return pendingRequests.value.every((item: any) => selectedRequestIds.value.includes(item.id))
+})
+
+const isIndeterminate = computed(() => {
+  return selectedRequestIds.value.length > 0 && !isAllSelected.value
+})
+
+function toggleSelectAll(val: any) {
+  const checked = Boolean(val)
+  if (checked) {
+    selectedRequestIds.value = pendingRequests.value.map((item: any) => item.id)
+  } else {
+    selectedRequestIds.value = []
+  }
+}
+
+function toggleSelectItem(id: number, val: any) {
+  const checked = Boolean(val)
+  if (checked) {
+    if (!selectedRequestIds.value.includes(id)) {
+      selectedRequestIds.value.push(id)
+    }
+  } else {
+    selectedRequestIds.value = selectedRequestIds.value.filter((i) => i !== id)
+  }
+}
 
 // 详情查看与 PDF 规范预览状态
 const recordDetailVisible = ref(false)
@@ -1111,7 +1227,9 @@ async function loadPending() {
   try {
     const res: any = await listPendingAccessRequestsApi()
     if (res.code === 200) {
-      pendingRequests.value = res.data
+      pendingRequests.value = res.data || []
+      const currentIds = new Set(pendingRequests.value.map((i: any) => i.id))
+      selectedRequestIds.value = selectedRequestIds.value.filter((id) => currentIds.has(id))
     }
   } catch (err) {
     console.error(err)
@@ -1141,6 +1259,7 @@ async function approveConsent(id: number) {
         type: 'success',
         duration: 6000
       })
+      selectedRequestIds.value = selectedRequestIds.value.filter((i) => i !== id)
       loadPending()
       loadAuths()
     }
@@ -1157,12 +1276,172 @@ async function rejectConsent(id: number) {
     const res: any = await rejectAccessRequestApi(id)
     if (res.code === 200) {
       ElMessage.info('已驳回该跨院调阅申请')
+      selectedRequestIds.value = selectedRequestIds.value.filter((i) => i !== id)
       loadPending()
     }
   } catch (err: any) {
     ElMessage.error(err?.message || '驳回失败')
   } finally {
     processingId.value = null
+  }
+}
+
+async function handleBatchApproveSelected() {
+  if (selectedRequestIds.value.length === 0) return
+  const count = selectedRequestIds.value.length
+
+  try {
+    await ElMessageBox.confirm(
+      `您确定要批量同意所选的 ${count} 条医生跨院调阅知情申请吗？\n同意后将向对应经治医生释放病历查阅权限，并生成存证交易永久锚定至 Hyperledger Fabric 联盟链。`,
+      '批量同意知情授权确认',
+      {
+        confirmButtonText: `确认同意授权 (${count}项)`,
+        cancelButtonText: '取消',
+        type: 'success',
+        confirmButtonClass: 'el-button--success',
+      }
+    )
+  } catch {
+    return
+  }
+
+  batchOperating.value = true
+  batchActionType.value = 'APPROVE_SELECTED'
+  try {
+    const res: any = await batchApproveAccessRequestsApi({ request_ids: selectedRequestIds.value })
+    if (res.code === 200) {
+      ElNotification({
+        title: '批量授权核准成功',
+        message: `已成功核准 ${res.data?.success_count || count} 条调阅申请，授权已锚定至 Fabric 联盟链！`,
+        type: 'success',
+        duration: 6000,
+      })
+      selectedRequestIds.value = []
+      await loadPending()
+      await loadAuths()
+    }
+  } catch (err: any) {
+    ElMessage.error(err?.message || err?.response?.data?.message || '批量授权处理失败')
+  } finally {
+    batchOperating.value = false
+    batchActionType.value = null
+  }
+}
+
+async function handleBatchRejectSelected() {
+  if (selectedRequestIds.value.length === 0) return
+  const count = selectedRequestIds.value.length
+
+  try {
+    await ElMessageBox.confirm(
+      `您确定要批量驳回所选的 ${count} 条医生跨院调阅申请吗？\n驳回后外院医生将无法获取对应病历的调阅权限。`,
+      '批量驳回申请确认',
+      {
+        confirmButtonText: `确认驳回 (${count}项)`,
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    )
+  } catch {
+    return
+  }
+
+  batchOperating.value = true
+  batchActionType.value = 'REJECT_SELECTED'
+  try {
+    const res: any = await batchRejectAccessRequestsApi({ request_ids: selectedRequestIds.value })
+    if (res.code === 200) {
+      ElMessage.info(`已成功批量驳回 ${res.data?.success_count || count} 条跨院调阅申请`)
+      selectedRequestIds.value = []
+      await loadPending()
+    }
+  } catch (err: any) {
+    ElMessage.error(err?.message || err?.response?.data?.message || '批量驳回失败')
+  } finally {
+    batchOperating.value = false
+    batchActionType.value = null
+  }
+}
+
+async function handleOneClickApproveAll() {
+  const count = pendingRequests.value.length
+  if (count === 0) {
+    ElMessage.warning('当前暂无待处理的调阅申请')
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `【全部同意确认】您确定要核准当前全部 ${count} 条医生的跨院调阅申请吗？\n系统将自动向所有申请医生释放对应病历调阅权限，并依次固化存证至 Fabric 联盟链分布式账本。`,
+      '批量同意授权确认',
+      {
+        confirmButtonText: `确认全部同意 (${count}项)`,
+        cancelButtonText: '取消',
+        type: 'primary',
+      }
+    )
+  } catch {
+    return
+  }
+
+  batchOperating.value = true
+  batchActionType.value = 'APPROVE_ALL'
+  try {
+    const res: any = await batchApproveAccessRequestsApi({ all: true })
+    if (res.code === 200) {
+      ElNotification({
+        title: '批量授权成功',
+        message: `已全部核准 ${res.data?.success_count || count} 条调阅申请，全部授权凭据已锚定上链！`,
+        type: 'success',
+        duration: 6000,
+      })
+      selectedRequestIds.value = []
+      await loadPending()
+      await loadAuths()
+    }
+  } catch (err: any) {
+    ElMessage.error(err?.message || err?.response?.data?.message || '批量核准失败')
+  } finally {
+    batchOperating.value = false
+    batchActionType.value = null
+  }
+}
+
+async function handleOneClickRejectAll() {
+  const count = pendingRequests.value.length
+  if (count === 0) {
+    ElMessage.warning('当前暂无待处理的调阅申请')
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `【全部拒绝确认】您确定要驳回当前全部 ${count} 条跨院调阅申请吗？\n驳回后所有申请医生均无法查阅您的病历。`,
+      '批量驳回确认',
+      {
+        confirmButtonText: `确认全部驳回 (${count}项)`,
+        cancelButtonText: '取消',
+        type: 'error',
+      }
+    )
+  } catch {
+    return
+  }
+
+  batchOperating.value = true
+  batchActionType.value = 'REJECT_ALL'
+  try {
+    const res: any = await batchRejectAccessRequestsApi({ all: true })
+    if (res.code === 200) {
+      ElMessage.info(`已全部驳回 ${res.data?.success_count || count} 条调阅申请`)
+      selectedRequestIds.value = []
+      await loadPending()
+    }
+  } catch (err: any) {
+    ElMessage.error(err?.message || err?.response?.data?.message || '批量驳回失败')
+  } finally {
+    batchOperating.value = false
+    batchActionType.value = null
   }
 }
 
@@ -1250,7 +1529,7 @@ async function viewRecordDetail(item: any) {
         viewingRecord.value = res.data
         if (viewingRecord.value?.is_tampered) {
           ElNotification({
-            title: '⚠️ 病历数据异常警报',
+            title: '病历数据异常警报',
             message: '检测到该病历底层数据与区块链防篡改存证指纹不一致！',
             type: 'error',
             duration: 8000

@@ -429,7 +429,7 @@
                   v-if="viewOrder.file_id"
                   size="small"
                   type="primary"
-                  @click="openImagePreview(`/api/v1/medical-files/${viewOrder.file_id}/view?token=${auth.token}`, viewOrder.report_file_name || viewOrder.exam_item)"
+                  @click="openImagePreviewFromFile(viewOrder.file_id, viewOrder.report_file_name || viewOrder.exam_item)"
                 >
                   在线查阅影像图片
                 </el-button>
@@ -438,7 +438,7 @@
                   size="small"
                   type="success"
                   plain
-                  @click="downloadFile(`/api/v1/medical-files/${viewOrder.file_id}/download?token=${auth.token}`, viewOrder.report_file_name || '医学检查附件')"
+                  @click="downloadFileById(viewOrder.file_id, viewOrder.report_file_name || '医学检查附件')"
                 >
                   下载原始附件
                 </el-button>
@@ -447,9 +447,9 @@
             <!-- 如果是图片格式，直接呈现高清内联略缩图 -->
             <div v-if="viewOrder.file_id && isImageExt(viewOrder.report_file_type || viewOrder.report_file_name)" class="mt-2 text-center img-container">
               <img
-                :src="`/api/v1/medical-files/${viewOrder.file_id}/view?token=${auth.token}`"
+                :src="viewFileUrl"
                 class="report-inline-img"
-                @click="openImagePreview(`/api/v1/medical-files/${viewOrder.file_id}/view?token=${auth.token}`, viewOrder.report_file_name || viewOrder.exam_item)"
+                @click="openImagePreviewFromFile(viewOrder.file_id, viewOrder.report_file_name || viewOrder.exam_item)"
                 title="点击放大查阅影像"
               />
               <div class="text-xs text-gray-400 mt-1">（点击影像图片可全屏高清放大查阅）</div>
@@ -476,7 +476,7 @@
       </div>
       <template #footer>
         <el-button @click="imagePreviewVisible = false">关闭预览</el-button>
-        <el-button type="primary" :icon="Download" @click="downloadFile(previewImageUrl, previewImageTitle)">
+        <el-button type="primary" :icon="Download" @click="downloadPreviewImage">
           下载高清影像原图
         </el-button>
       </template>
@@ -489,6 +489,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { Tickets, Refresh, Search, Download, Timer, CircleCheckFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { listExamOrdersApi, completeExamOrderApi } from '../../api'
+import { buildMedicalFileViewUrl, buildMedicalFileDownloadUrl } from '@/utils/secureFileUrl'
 import { useAuthStore } from '../../stores/auth'
 
 const windowWidth = ref(window.innerWidth)
@@ -512,10 +513,14 @@ const filePreviewUrl = ref('')
 
 const viewDialogVisible = ref(false)
 const viewOrder = ref<any>(null)
+// 报告详情弹窗内联影像的鉴权 URL（一次性票据，随 viewOrder 刷新）
+const viewFileUrl = ref('')
 
 const imagePreviewVisible = ref(false)
 const previewImageUrl = ref('')
 const previewImageTitle = ref('')
+// 当前大图对应的附件 ID，用于「下载原图」重新申领票据
+const previewImageFileId = ref<number | null>(null)
 
 const reportForm = ref({
   exam_result: '',
@@ -648,9 +653,13 @@ function openProcessDialog(row: any) {
   processDialogVisible.value = true
 }
 
-function openViewDialog(row: any) {
+async function openViewDialog(row: any) {
   viewOrder.value = row
   viewDialogVisible.value = true
+  viewFileUrl.value = ''
+  if (row?.file_id) {
+    viewFileUrl.value = await buildMedicalFileViewUrl(row.file_id)
+  }
 }
 
 function onFileChange(e: any) {
@@ -833,6 +842,26 @@ function openImagePreview(url: string, title?: string) {
   imagePreviewVisible.value = true
 }
 
+// 一次性票据不可复用：每次打开大图都重新申领
+async function openImagePreviewFromFile(fileId: number, title?: string) {
+  previewImageFileId.value = fileId
+  const url = await buildMedicalFileViewUrl(fileId)
+  openImagePreview(url, title)
+}
+
+async function downloadFileById(fileId: number, name?: string) {
+  downloadFile(await buildMedicalFileDownloadUrl(fileId), name)
+}
+
+async function downloadPreviewImage() {
+  if (previewImageFileId.value === null) {
+    downloadFile(previewImageUrl.value, previewImageTitle.value)
+    return
+  }
+  const url = await buildMedicalFileDownloadUrl(previewImageFileId.value)
+  downloadFile(url, previewImageTitle.value)
+}
+
 function downloadFile(url: string, name?: string) {
   const a = document.createElement('a')
   a.href = url
@@ -884,61 +913,77 @@ onUnmounted(() => {
 
 <style scoped>
 .lab-center-container {
-  padding: 20px 20px 100px 20px;
+  padding: 16px 20px 80px 20px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 12px;
 }
 
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
+  gap: 12px;
 }
 
 .stat-card {
   background: #ffffff;
-  border-radius: 12px;
-  padding: 20px;
+  border-radius: 6px;
+  padding: 8px 14px;
+  min-height: 44px;
+  max-height: 48px;
   display: flex;
   align-items: center;
-  gap: 16px;
-  border: 1px solid rgba(226, 232, 240, 0.8);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
+  gap: 10px;
+  border: 1px solid #e2e8f0;
+  box-shadow: none;
 }
 
 .stat-card.pending {
-  border-left: 4px solid #f59e0b;
+  border-left: 3px solid #d97706;
 }
 
 .stat-card.processing {
-  border-left: 4px solid #0284c7;
+  border-left: 3px solid #0284c7;
 }
 
 .stat-card.completed {
-  border-left: 4px solid #10b981;
+  border-left: 3px solid #059669;
 }
 
 .stat-icon {
-  font-size: 2.2rem;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+}
+
+.stat-info {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  width: 100%;
+  gap: 8px;
 }
 
 .stat-value {
-  font-size: 1.8rem;
+  font-size: 16px;
   font-weight: 700;
-  color: #1e293b;
-  line-height: 1.2;
+  color: #0f172a;
+  font-family: var(--mt-font-mono, monospace);
+  line-height: 1;
+  order: 2;
 }
 
 .stat-label {
-  font-size: 0.88rem;
-  color: #64748b;
-  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  margin-top: 0;
+  order: 1;
 }
 
 .main-card {
-  border-radius: 12px;
-  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
 }
 
 .card-header {
@@ -994,11 +1039,11 @@ onUnmounted(() => {
 }
 
 .requisition-card {
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  background: #f8fafc;
   border: 1px solid #cbd5e1;
-  border-radius: 10px;
+  border-radius: 6px;
   padding: 16px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+  box-shadow: none;
 }
 
 .requisition-top-bar {

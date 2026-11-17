@@ -362,3 +362,72 @@ func (r *AuditRepository) ListAuditLogsWithFilter(opType, riskLevel string, filt
 	err := query.Order("id desc").Limit(limit).Find(&list).Error
 	return list, err
 }
+
+// RecentAuditAccessCount 查询指定用户在窗口期内的有效访问次数（带患者维度 JOIN，替代服务层直接操作 audit_logs 表）
+func (r *AuditRepository) RecentAuditAccessCount(doctorID, patientID uint64, duration time.Duration) int64 {
+	if DB == nil {
+		return 0
+	}
+	var count int64
+	since := time.Now().Add(-duration)
+	DB.Table("audit_logs").
+		Joins("JOIN medical_records ON audit_logs.target_id = CAST(medical_records.id AS CHAR)").
+		Where("audit_logs.user_id = ? AND medical_records.patient_id = ? AND audit_logs.operation_type = 'ACCESS' AND audit_logs.result = 'SUCCESS' AND audit_logs.created_at >= ?", doctorID, patientID, since).
+		Count(&count)
+	return count
+}
+
+// DistinctPatientsAccessedByDoctor 查询指定医生在窗口期内访问的不同患者数（替代服务层直接操作 audit_logs 表）
+func (r *AuditRepository) DistinctPatientsAccessedByDoctor(doctorID uint64, duration time.Duration) int64 {
+	if DB == nil {
+		return 0
+	}
+	var count int64
+	since := time.Now().Add(-duration)
+	DB.Table("audit_logs").
+		Joins("JOIN medical_records ON audit_logs.target_id = CAST(medical_records.id AS CHAR)").
+		Where("audit_logs.user_id = ? AND audit_logs.operation_type = 'ACCESS' AND audit_logs.result = 'SUCCESS' AND audit_logs.created_at >= ?", doctorID, since).
+		Distinct("medical_records.patient_id").
+		Count(&count)
+	return count
+}
+
+// CreateRiskRecord 创建风控记录 WP-15
+func (r *AuditRepository) CreateRiskRecord(riskRec *model.RiskRecord) error {
+	if DB == nil {
+		return errors.New("database not initialized")
+	}
+	return DB.Create(riskRec).Error
+}
+
+// UpdateFabricTxID WP-15: 回填审计日志的 fabric_tx_id 字段
+func (r *AuditRepository) UpdateFabricTxID(logID uint64, txID string) error {
+	if DB == nil {
+		return errors.New("database not initialized")
+	}
+	return DB.Model(&model.AuditLog{}).Where("id = ?", logID).Update("fabric_tx_id", txID).Error
+}
+
+// ExpirePendingAccessRequests WP-15: 自动标记超期未审批调阅申请为 EXPIRED（供清理服务调用）
+func (r *AuditRepository) ExpirePendingAccessRequests(now time.Time) (int64, error) {
+	if DB == nil {
+		return 0, errors.New("database not initialized")
+	}
+	res := DB.Model(&model.AccessRequest{}).
+		Where("status = ? AND expire_at > ? AND expire_at < ?", "PENDING", time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), now).
+		Updates(map[string]interface{}{
+			"status":   "EXPIRED",
+			"decision": "EXPIRED",
+		})
+	return res.RowsAffected, res.Error
+}
+
+// GetActiveMedicalFileCIDs WP-15: 查询所有非空 ipfs_cid（供清理孤儿文件用）
+func (r *AuditRepository) GetActiveMedicalFileCIDs() ([]string, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	var cids []string
+	err := DB.Model(&model.MedicalFile{}).Where("ipfs_cid != ''").Pluck("ipfs_cid", &cids).Error
+	return cids, err
+}

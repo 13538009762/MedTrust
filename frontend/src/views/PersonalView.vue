@@ -235,38 +235,32 @@
       </div>
     </div>
 
-    <!-- 业务数据统计卡片 -->
+    <!-- 账号执业权限与安全合规状态条（基于当前登录会话真实上下文） -->
     <div class="stats-section">
-      <div class="stats-header-bar">
-        <h3 class="stats-title">医疗数据与业务互联统计</h3>
-      </div>
-      <div class="stats-grid">
-        <el-card class="stat-card" shadow="hover">
-          <template #header>
-            <div class="stat-card-header">
-              <span>{{ auth.user?.role === 'doctor' ? '累计开具存证病历' : (auth.user?.role === 'patient' ? '个人健康档案总数' : '全网存证病历资产') }}</span>
-            </div>
-          </template>
-          <div class="stat-value text-purple">{{ auth.user?.role === 'doctor' ? '4' : (auth.user?.role === 'patient' ? '4' : '12') }} <span class="stat-unit">份</span></div>
-        </el-card>
-
-        <el-card class="stat-card" shadow="hover">
-          <template #header>
-            <div class="stat-card-header">
-              <span>{{ auth.user?.role === 'patient' ? '有效授权策略凭证' : '跨院调阅与安全协同' }}</span>
-            </div>
-          </template>
-          <div class="stat-value text-green">{{ auth.user?.role === 'patient' ? '1' : '3' }} <span class="stat-unit">项</span></div>
-        </el-card>
-
-        <el-card class="stat-card" shadow="hover">
-          <template #header>
-            <div class="stat-card-header">
-              <span>{{ auth.user?.role === 'patient' ? '收到抢救破窗预警' : 'Break-Glass 破窗急救' }}</span>
-            </div>
-          </template>
-          <div class="stat-value text-amber">1 <span class="stat-unit">次</span></div>
-        </el-card>
+      <div class="account-security-strip">
+        <div class="security-strip-item">
+          <span class="strip-label">当前安全角色</span>
+          <span class="strip-value">{{ getRoleName(auth.user?.role) }}</span>
+        </div>
+        <div class="security-strip-divider"></div>
+        <div class="security-strip-item">
+          <span class="strip-label">所属医疗机构 / 科室</span>
+          <span class="strip-value">
+            {{ auth.user?.hospital_name || '医联体可信共享网络' }} · {{ auth.user?.department_name || (auth.user?.role === 'patient' ? '实名就诊档案' : '综合业务管理') }}
+          </span>
+        </div>
+        <div class="security-strip-divider"></div>
+        <div class="security-strip-item">
+          <span class="strip-label">实名防重名索引</span>
+          <span class="strip-value font-mono">{{ auth.user?.id_card ? '已绑定身份证主键' : '待补录身份证号' }}</span>
+        </div>
+        <div class="security-strip-divider"></div>
+        <div class="security-strip-item">
+          <span class="strip-label">账号监管状态</span>
+          <span class="strip-value" :class="auth.user?.status === 'NORMAL' ? 'text-green' : 'text-amber'">
+            {{ auth.user?.status === 'NORMAL' ? '正常执业 / 存证受控' : '监管受限状态' }}
+          </span>
+        </div>
       </div>
     </div>
 
@@ -604,8 +598,8 @@
               {{ userInitials }}
             </div>
             <div>
-              <div class="restore-title">系统原生区块链数字印记头像</div>
-              <div class="restore-desc">根据真实姓名首字母与智能角色渐变生成的区块链官方身份标徽</div>
+              <div class="restore-title">系统原生数字印记头像</div>
+              <div class="restore-desc">根据真实姓名首字母与执业角色生成的标准身份标识</div>
             </div>
           </div>
           <el-button
@@ -656,7 +650,7 @@ import { useAuthStore } from '../stores/auth'
 const auth = useAuthStore()
 const loading = ref(false)
 
-// 头像渐变色与首字母计算
+// 头像纯色与首字母计算
 const userInitials = computed(() => {
   const name = auth.user?.real_name || auth.user?.username || '用'
   return name.slice(0, 1).toUpperCase()
@@ -664,11 +658,11 @@ const userInitials = computed(() => {
 
 const avatarGradient = computed(() => {
   const role = auth.user?.role
-  if (role === 'doctor') return 'linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%)'
-  if (role === 'patient') return 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
-  if (role === 'supervisor') return 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)'
-  if (role === 'admin') return 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
-  return 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)'
+  if (role === 'doctor') return '#0284c7'
+  if (role === 'patient') return '#059669'
+  if (role === 'supervisor') return '#475569'
+  if (role === 'admin') return '#0369a1'
+  return '#0284c7'
 })
 
 // ── 个人头像更换与自定义业务逻辑 ──────────────────────────

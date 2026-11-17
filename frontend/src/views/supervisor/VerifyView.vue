@@ -26,7 +26,7 @@
           模拟底层数据库恶意篡改 (越权攻击对抗演练)
         </el-button>
         <el-button v-if="hasTampered" type="success" :loading="restoring" @click="restoreTamper">
-          一键恢复原始数据 (撤销篡改)
+          恢复原始基准数据 (撤销篡改)
         </el-button>
       </div>
     </el-card>
@@ -87,22 +87,27 @@
               {{ verifyResult.verified ? '校验匹配' : '哈希突变' }}
             </el-tag>
           </div>
-          <code class="hash-code" :class="{ 'mismatch-code': !verifyResult.verified }">{{ verifyResult.calculated_hash }}</code>
+          <HashCapsule :value="verifyResult.calculated_hash" :truncate="false" label="数据库计算摘要 H_calc" />
         </div>
         <div class="hash-row">
           <div class="hash-header">
             <span class="hash-label">2. Fabric 联盟链账本固化原始 ClinicalHash (H_chain):</span>
             <el-tag size="small" type="info">区块高度不可篡改</el-tag>
           </div>
-          <code class="hash-code">{{ verifyResult.chain_hash }}</code>
+          <HashCapsule :value="verifyResult.chain_hash" :truncate="false" label="Fabric 基准哈希 H_chain" />
         </div>
         <div class="hash-row">
           <span class="hash-label">3. 链下 IPFS 内容寻址唯一标识 (CID):</span>
-          <code class="hash-code text-muted">{{ verifyResult.cid || 'QmDefaultAttestationPayloadV2' }}</code>
+          <HashCapsule :value="verifyResult.cid" :truncate="false" label="IPFS CID" empty-text="待同步" />
         </div>
         <div class="hash-row">
           <span class="hash-label">4. 联盟链存证交易凭证 (Fabric TxID):</span>
-          <code class="hash-code text-muted">{{ verifyResult.fabric_tx_id }} (区块高度: #{{ verifyResult.block_height || 108 }})</code>
+          <div class="flex items-center gap-2 flex-wrap">
+            <HashCapsule :value="verifyResult.fabric_tx_id" :truncate="false" label="Fabric TxID" empty-text="待同步" />
+            <span class="text-xs text-slate-500 mono">
+              {{ verifyResult.block_height ? `(区块高度: #${verifyResult.block_height})` : '(区块高度: 待同步)' }}
+            </span>
+          </div>
         </div>
       </div>
     </el-card>
@@ -121,7 +126,7 @@
       <div class="raw-asset-container">
         <div class="ra-banner">
           <span>● 通道: <strong>medchannel</strong> | 智能合约: <strong>medical</strong> | 接口: <strong>QueryMedicalAsset</strong></span>
-          <el-button size="small" type="primary" plain @click="copyRawJSON">一键复制 JSON</el-button>
+          <el-button size="small" type="primary" plain @click="copyRawJSON">复制原始 JSON</el-button>
         </div>
         <pre class="ra-json-code"><code>{{ formattedRawAsset }}</code></pre>
       </div>
@@ -136,6 +141,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { CircleCheck, CircleClose } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
+import HashCapsule from '@/components/common/HashCapsule.vue'
 import TrustedFlowTimeline from '../../components/TrustedFlowTimeline.vue'
 import {
   listRecordsApi,
@@ -171,36 +177,36 @@ const stageItems = computed(() => {
   const rec = selectedRecord.value || {}
   const pass = vr ? Boolean(vr.verified) : !rec.is_tampered
 
-  const fileH = (rec.files && rec.files[0]?.file_hash) || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
-  const calcH = vr ? vr.calculated_hash : (rec.current_hash || 'ca978112ca1bbdcafac231b39a23dc4da78608144160670c3547f480e6085a86')
+  const fileH = (rec.files && rec.files[0]?.file_hash) || ''
+  const calcH = vr ? vr.calculated_hash : (rec.current_hash || '')
   const chainH = vr ? vr.chain_hash : (rec.chain_hash || calcH)
-  const rawTx = vr ? vr.fabric_tx_id : (rec.fabric_tx_id || '9f8e7d6c5b4a3210efedcba0123456789abcdef0123456789abcdef012345678')
-  const txID = String(rawTx).replace(/^0x/i, '')
-  const bHeight = vr?.block_height || rec.block_height || 108
+  const rawTx = vr ? vr.fabric_tx_id : (rec.fabric_tx_id || '')
+  const txID = rawTx ? String(rawTx).replace(/^0x/i, '') : ''
+  const bHeight = vr?.block_height || rec.block_height || null
 
   return [
     {
       title: '阶段一：IPFS 密文拉取与 AES-256-GCM 原始文件完整性校验',
       passed: Boolean(fileH),
-      localVal: fileH,
-      chainVal: fileH,
-      detail: '已从 IPFS 节点拉取密文块并通过 AES-256-GCM 认证标签校验，解密明文计算的 SHA-256 指纹与链上登记完全吻合。'
+      localVal: fileH || '待同步',
+      chainVal: fileH || '待同步',
+      detail: '已从 IPFS 节点拉取密文块并通过 AES-256-GCM 认证标签校验，解密明文计算的 SHA-256 指纹与链上登记核对。'
     },
     {
       title: '阶段二：结构化临床病历 Merkle 综合摘要验真',
       passed: pass,
-      localVal: calcH,
-      chainVal: chainH,
+      localVal: calcH || '待同步',
+      chainVal: chainH || '待同步',
       detail: pass
-        ? '数据库中全量临床结构化字段（主诉/现病史/体征/确诊/处置）综合摘要与 Fabric 账本 ClinicalHash 100% 一致。'
-        : '【高危报警】数据库中临床诊断或处置医嘱已被非法篡改！综合摘要已发生雪崩式突变！'
+        ? '数据库中全量临床结构化字段（主诉/现病史/体征/确诊/处置）综合摘要与 Fabric 账本 ClinicalHash 完全一致。'
+        : '【高危报警】数据库中临床诊断或处置医嘱已被非法篡改，综合摘要已发生雪崩式突变。'
     },
     {
       title: '阶段三：联盟链身份与智能合约背书核验',
       passed: Boolean(txID),
-      localVal: txID,
-      chainVal: `Block #${bHeight} | medchannel | Org1MSP, Org2MSP 节点共识背书`,
-      detail: 'Hyperledger Fabric 2.5 智能合约多机构数字签名与 Raft 共识背书有效，出块凭据真实存在。'
+      localVal: txID || '待同步',
+      chainVal: bHeight ? `Block #${bHeight} | medchannel | Org1MSP, Org2MSP 节点共识背书` : '区块高度待同步 | medchannel | Org1MSP, Org2MSP 节点共识背书',
+      detail: 'Hyperledger Fabric 2.5 智能合约多机构数字签名与 Raft 共识背书核验。'
     }
   ]
 })
@@ -209,15 +215,15 @@ const formattedRawAsset = computed(() => {
   const rec = selectedRecord.value || {}
   const vr = verifyResult.value
   const raw = (vr && vr.raw_asset) || {
-    record_id: rec.record_no || 'ENC2026031201',
-    patient_id: String(rec.patient_id || 4),
-    cid: (rec.files && rec.files[0]?.ipfs_cid) || 'QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG',
-    file_hash: (rec.files && rec.files[0]?.file_hash) || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-    clinical_hash: rec.chain_hash || 'ca978112ca1bbdcafac231b39a23dc4da78608144160670c3547f480e6085a86',
-    hospital_id: String(rec.hospital_id || 1),
-    creator_id: String(rec.doctor_id || 1),
+    record_id: rec.record_no || '—',
+    patient_id: rec.patient_id != null ? String(rec.patient_id) : '—',
+    cid: (rec.files && rec.files[0]?.ipfs_cid) || '待同步',
+    file_hash: (rec.files && rec.files[0]?.file_hash) || '待同步',
+    clinical_hash: rec.chain_hash || '待同步',
+    hospital_id: rec.hospital_id != null ? String(rec.hospital_id) : '—',
+    creator_id: rec.doctor_id != null ? String(rec.doctor_id) : '—',
     data_type: rec.data_type || 'EMR',
-    create_time: rec.created_at || '2026-03-12T09:15:00Z',
+    create_time: rec.created_at || '—',
   }
   return JSON.stringify(raw, null, 2)
 })
@@ -274,7 +280,7 @@ async function simulateTamper() {
     if (res.code === 200) {
       verifyResult.value = res.data
       hasTampered.value = true
-      ElMessage.error('【演示攻击成功】已向数据库注入非法篡改数据！动态验真系统已秒级感知并触发高危警报！')
+      ElMessage.error('【演示攻击成功】已向数据库注入非法篡改数据，动态验真系统已识别异常并触发高危警报！')
     }
   } catch (err: any) {
     ElMessage.error(err?.message || '模拟篡改请求失败')
@@ -291,7 +297,7 @@ async function restoreTamper() {
     if (res.code === 200) {
       verifyResult.value = res.data
       hasTampered.value = false
-      ElMessage.success('数据已成功一键恢复！重算 SHA-256 与 Fabric 链上指纹恢复一致，绿标通过！')
+      ElMessage.success('基准数据已恢复！重算 SHA-256 与 Fabric 链上指纹恢复一致，校验通过。')
     }
   } catch (err: any) {
     ElMessage.error(err?.message || '恢复请求失败')

@@ -2,13 +2,13 @@
   <div class="trusted-timeline-container">
     <div class="timeline-header">
       <div class="th-left">
-        <span class="th-badge">⛓️ 联盟链全生命周期存证</span>
+        <span class="th-badge">联盟链全生命周期存证</span>
         <h3 class="th-title">医疗数据可信流转与密码学生命周期时间线 (14 关键节点)</h3>
       </div>
       <div class="th-meta" v-if="record">
-        <span class="th-tag">病历单号: <strong>{{ record.record_no || 'ENC-DEMO' }}</strong></span>
-        <span class="th-tag">患者: <strong>{{ record.patient_name || '患者' }}</strong></span>
-        <span class="th-tag">机构: <strong>{{ record.hospital_name || '医疗机构' }}</strong></span>
+        <span class="th-tag">病历单号: <strong>{{ record.record_no || '—' }}</strong></span>
+        <span class="th-tag">患者: <strong>{{ record.patient_name || '—' }}</strong></span>
+        <span class="th-tag">机构: <strong>{{ record.hospital_name || '—' }}</strong></span>
       </div>
     </div>
 
@@ -78,8 +78,8 @@ const steps = computed(() => {
       desc: '患者实名认证建档，生成全网唯一规范临床就诊业务流水号。',
       techSpec: 'UUIDv4 + 时间戳前缀',
       details: [
-        { label: '流水单号', val: r.record_no || 'ENC2026031201' },
-        { label: '建档时间', val: r.created_at ? String(r.created_at).slice(0, 19) : '2026-03-12 09:15:00' },
+        { label: '流水单号', val: r.record_no || '—' },
+        { label: '建档时间', val: r.created_at ? String(r.created_at).slice(0, 19) : '—' },
       ]
     },
     {
@@ -91,8 +91,8 @@ const steps = computed(() => {
       desc: '专科医生调阅既往档案，核实临床主诉症状与发病病程。',
       techSpec: 'RBAC 角色认证 + JWT 会话令牌',
       details: [
-        { label: '接诊医师', val: r.doctor_name || '李建国 主任医师' },
-        { label: '接诊科室', val: r.department_name || '心血管内科' },
+        { label: '接诊医师', val: r.doctor_name || '—' },
+        { label: '接诊科室', val: r.department_name || '—' },
       ]
     },
     {
@@ -104,8 +104,8 @@ const steps = computed(() => {
       desc: '规范采集主观病史 (S)、客观查体 (O) 与生命体征指标。',
       techSpec: '结构化医学标准字段校验',
       details: [
-        { label: '基础体征', val: r.vital_signs || '血压 145/95mmHg, 脉搏 88次/分' },
-        { label: '主诉症状', val: r.chief_complaint || r.symptoms || '胸骨后剧烈绞痛3小时' },
+        { label: '基础体征', val: r.vital_signs || '—' },
+        { label: '主诉症状', val: r.chief_complaint || r.symptoms || '—' },
       ]
     },
     {
@@ -117,8 +117,8 @@ const steps = computed(() => {
       desc: '根据初步拟诊下达检验化验或医学影像申请单。',
       techSpec: '检查流水号 ORD 编码生成',
       details: [
-        { label: '辅助申请', val: r.exam_items || (r.need_exam ? '急诊心电图, 肌钙蛋白I, 心脏超声' : '常规临床检查') },
-        { label: '初步拟诊', val: r.initial_diagnosis || '急性前壁心肌梗死待查' },
+        { label: '辅助申请', val: r.exam_items || (r.need_exam ? '已开立辅助检查申请' : '常规临床检查') },
+        { label: '初步拟诊', val: r.initial_diagnosis || '—' },
       ]
     },
     {
@@ -130,8 +130,8 @@ const steps = computed(() => {
       desc: '标本实验室化验或 PACS 影像扫描上机检查。',
       techSpec: '分布式多院区医技系统协同',
       details: [
-        { label: '出具人员', val: r.exam_doctor || '检验主管技师 / 影像科医生' },
-        { label: '执行时间', val: r.exam_time || '2026-03-12 09:35:00' },
+        { label: '出具人员', val: r.exam_doctor || '检验/影像技师' },
+        { label: '执行时间', val: r.exam_time || '—' },
       ]
     },
     {
@@ -143,7 +143,7 @@ const steps = computed(() => {
       desc: '客观检查结果与影像结论回传并绑定至主就诊记录。',
       techSpec: '医技数据跨科室自动化流转',
       details: [
-        { label: '检查结论', val: (r.exam_result && r.exam_result.length > 40) ? (r.exam_result.slice(0, 38) + '...') : (r.exam_result || 'V1-V4导联ST段抬高, 肌钙蛋白阳性') },
+        { label: '检查结论', val: (r.exam_result && r.exam_result.length > 40) ? (r.exam_result.slice(0, 38) + '...') : (r.exam_result || '—') },
       ]
     },
     {
@@ -155,8 +155,8 @@ const steps = computed(() => {
       desc: '责任医师结合检查结论做出明确评估 (A) 与处置医嘱 (P)。',
       techSpec: '电子病历归档闭环',
       details: [
-        { label: '最终确诊', val: r.diagnosis || '急性ST段抬高型前壁心肌梗死' },
-        { label: '治疗方案', val: (r.treatment_plan && r.treatment_plan.length > 40) ? (r.treatment_plan.slice(0, 38) + '...') : (r.treatment_plan || '急诊介入 PCI 手术与监护治疗') },
+        { label: '最终确诊', val: r.diagnosis || '—' },
+        { label: '治疗方案', val: (r.treatment_plan && r.treatment_plan.length > 40) ? (r.treatment_plan.slice(0, 38) + '...') : (r.treatment_plan || '—') },
       ]
     },
     {
@@ -182,7 +182,7 @@ const steps = computed(() => {
       techSpec: '国密/国际双密算法 (AES-GCM / SM4-GCM)',
       details: [
         { label: '加密模式', val: 'AES-256-GCM (认证加密流)' },
-        { label: '附加认证', val: `PatientID:${r.patient_id || 4}:${r.record_no || 'ENC2026'}` },
+        { label: '附加认证', val: `PatientID:${r.patient_id ?? '—'}:${r.record_no || '—'}` },
       ]
     },
     {
@@ -194,7 +194,7 @@ const steps = computed(() => {
       desc: '病历密文切片托管于分布式存储网络，生成唯一内容寻址 CID。',
       techSpec: 'InterPlanetary File System (Kademlia DHT)',
       details: [
-        { label: 'IPFS CID', val: (r.files && r.files[0]?.ipfs_cid) || 'QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG' },
+        { label: 'IPFS CID', val: (r.files && r.files[0]?.ipfs_cid) || '待同步' },
       ]
     },
     {
@@ -206,8 +206,8 @@ const steps = computed(() => {
       desc: '同时分离计算原始文件 FileHash 与结构化临床 Merkle 摘要。',
       techSpec: 'SHA-256 多维临床 Merkle Tree 构造',
       details: [
-        { label: 'FileHash', val: (r.files && r.files[0]?.file_hash) || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' },
-        { label: 'ClinicalHash', val: r.chain_hash || r.current_hash || 'ca978112ca1bbdcafac231b39a23dc4da78608144160670c3547f480e6085a86' },
+        { label: 'FileHash', val: (r.files && r.files[0]?.file_hash) || '待同步' },
+        { label: 'ClinicalHash', val: r.chain_hash || r.current_hash || '待同步' },
       ]
     },
     {
@@ -219,8 +219,8 @@ const steps = computed(() => {
       desc: '提交交易至 medchannel 通道，Org1/Org2 节点背书并出块。',
       techSpec: 'Hyperledger Fabric 2.5 + Raft 共识',
       details: [
-        { label: 'Fabric TxID', val: String(r.fabric_tx_id || '9f8e7d6c5b4a3210efedcba0123456789abcdef0123456789abcdef012345678').replace(/^0x/i, '') },
-        { label: '区块高度', val: `#${r.block_height || 108} (medicalchannel 通道)` },
+        { label: 'Fabric TxID', val: r.fabric_tx_id ? String(r.fabric_tx_id).replace(/^0x/i, '') : '待同步' },
+        { label: '区块高度', val: r.block_height ? `#${r.block_height} (medicalchannel 通道)` : '待同步 (medicalchannel 通道)' },
       ]
     },
     {
@@ -241,14 +241,14 @@ const steps = computed(() => {
       title: '动态闭环验真与防篡改审计',
       role: 'Supervisor 监管',
       status: isTampered ? 'WARNING' : 'COMPLETED',
-      statusText: isTampered ? '篡改拦截' : '100% 吻合',
+      statusText: isTampered ? '篡改拦截' : '哈希吻合',
       desc: isTampered
-        ? '动态核验检测到数据库被非法修改，与 Fabric 链上固化指纹不匹配，系统即刻红标报警并阻断采信！'
-        : '实时解密比对本地多维指纹与 Fabric 账本原始指纹，100% 一致，存证链闭环真实可信。',
+        ? '动态核验检测到数据库被非法修改，与 Fabric 链上固化指纹不匹配，系统即刻红标报警并阻断采信。'
+        : '实时解密比对本地多维指纹与 Fabric 账本原始指纹，哈希完全一致，存证链闭环可信。',
       techSpec: '三阶段防篡改核验 (附件指纹 + 临床摘要 + 链上背书)',
       details: [
         { label: '验真判定', val: isTampered ? 'TAMPER_ALERT (哈希突变)' : 'VERIFIED (真实完整)' },
-        { label: '不可篡改', val: 'Fabric 账本不可逆，MySQL 篡改即刻显形' },
+        { label: '不可篡改', val: 'Fabric 账本不可逆，底层库篡改即刻检出' },
       ]
     },
   ]

@@ -45,6 +45,8 @@ func buildE2ETestEngine(userID uint64, role, username string) *gin.Engine {
 		// 访问控制与授权
 		v1.POST("/access/requests", controller.DefaultAccessController.RequestAccess)
 		v1.POST("/access-requests", controller.DefaultAccessController.RequestAccess)
+		v1.POST("/access/requests/batch-approve", controller.DefaultAccessController.BatchApproveRequests)
+		v1.POST("/access/requests/batch-reject", controller.DefaultAccessController.BatchRejectRequests)
 		v1.POST("/access/break-glass", controller.DefaultAccessController.BreakGlass)
 		v1.POST("/access/break-glass/patient-feedback", controller.DefaultAccessController.PatientFeedback)
 		v1.POST("/emergency-events/:event_no/feedback", controller.DefaultAccessController.PatientFeedback)

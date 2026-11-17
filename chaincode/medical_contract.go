@@ -3,9 +3,34 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 
 	"github.com/hyperledger/fabric-contract-api-go/contractapi"
 )
+
+// mspIDPattern 联盟成员 MSP 标识格式约定 (如 Org1MSP / HospitalAMSP)
+var mspIDPattern = regexp.MustCompile(`^[A-Za-z0-9]+MSP$`)
+
+// stampIdentityFromContext (WP-11) 从交易上下文提取提交方 MSP 归属与客户端身份，
+// 校验 MSP 非空且符合联盟注册格式后盖章到账本状态，客户端载荷无法 spoof 组织来源。
+func stampIdentityFromContext(ctx contractapi.TransactionContextInterface, endorserMSPID, clientIdentityID *string) error {
+	mspID, err := ctx.GetClientIdentity().GetMSPID()
+	if err != nil {
+		return fmt.Errorf("提取提交方 MSP 身份失败: %v", err)
+	}
+	if mspID == "" {
+		return fmt.Errorf("交易提交方 MSP ID 为空，拒绝确权存证")
+	}
+	if !mspIDPattern.MatchString(mspID) {
+		return fmt.Errorf("提交方 MSP ID %q 不符合联盟注册 MSP 格式 (^[A-Za-z0-9]+MSP$)，拒绝确权存证", mspID)
+	}
+	*endorserMSPID = mspID
+
+	if clientID, idErr := ctx.GetClientIdentity().GetID(); idErr == nil && clientID != "" {
+		*clientIdentityID = clientID
+	}
+	return nil
+}
 
 // MedicalContract 医疗数据存证与共享控制智能合约
 type MedicalContract struct {
@@ -54,6 +79,11 @@ type MedicalAsset struct {
 	CreatorID    string `json:"creator_id"`    // 签署医生标识
 	DataType     string `json:"data_type"`     // EMR, REPORT, IMAGE
 	CreateTime   string `json:"create_time"`   // 上链时间戳
+
+	// WP-11: 链上 MSP 背书身份确权——由链码从 ClientIdentity 提取并盖章，
+	// 客户端载荷无法伪造组织来源归属
+	EndorserMSPID    string `json:"endorser_msp_id,omitempty" metadata:",optional"`
+	ClientIdentityID string `json:"client_identity_id,omitempty" metadata:",optional"`
 }
 
 
@@ -67,6 +97,10 @@ type AuthorizationRecord struct {
 	RecordID   string `json:"record_id"`
 	Status     string `json:"status"` // ACTIVE, REVOKED
 	Timestamp  string `json:"timestamp"`
+
+	// WP-11: 链码侧调用者证书身份强绑定，客户端载荷无法伪造归属
+	EndorserMSPID    string `json:"endorser_msp_id,omitempty" metadata:",optional"`
+	ClientIdentityID string `json:"client_identity_id,omitempty" metadata:",optional"`
 }
 
 // EmergencyAccessRecord 紧急破窗访问上链凭据
@@ -80,10 +114,14 @@ type EmergencyAccessRecord struct {
 	Description  string `json:"description"`
 	Timestamp    string `json:"timestamp"`
 	Status       string `json:"status"` // PENDING_AUDIT, UNDER_INVESTIGATION, CLOSED_APPROVED, CLOSED_VIOLATION
-	SupervisorID string `json:"supervisor_id,omitempty"`
-	AuditComment string `json:"audit_comment,omitempty"`
-	Punishment   string `json:"punishment,omitempty"`
-	AuditTime    string `json:"audit_time,omitempty"`
+	SupervisorID string `json:"supervisor_id,omitempty" metadata:",optional"`
+	AuditComment string `json:"audit_comment,omitempty" metadata:",optional"`
+	Punishment   string `json:"punishment,omitempty" metadata:",optional"`
+	AuditTime    string `json:"audit_time,omitempty" metadata:",optional"`
+
+	// WP-11: 链码侧调用者证书身份强绑定
+	EndorserMSPID    string `json:"endorser_msp_id,omitempty" metadata:",optional"`
+	ClientIdentityID string `json:"client_identity_id,omitempty" metadata:",optional"`
 }
 
 // AuditRecord 全局不可篡改审计凭据
@@ -97,6 +135,10 @@ type AuditRecord struct {
 	Result     string `json:"result"`
 	RiskLevel  string `json:"risk_level"`
 	Timestamp  string `json:"timestamp"`
+
+	// WP-11: 链码侧调用者证书身份强绑定
+	EndorserMSPID    string `json:"endorser_msp_id,omitempty" metadata:",optional"`
+	ClientIdentityID string `json:"client_identity_id,omitempty" metadata:",optional"`
 }
 
 // CreateMedicalAsset 提交病历存证至分布式账本世界状态
@@ -106,12 +148,21 @@ func (c *MedicalContract) CreateMedicalAsset(ctx contractapi.TransactionContextI
 		return fmt.Errorf("反序列化病历资产失败: %v", err)
 	}
 
+	// WP-11: 拒绝客户端载荷自带的伪造 MSP 归属字段，身份以链码侧提取为准
+	asset.EndorserMSPID = ""
+	asset.ClientIdentityID = ""
+
 	exists, err := ctx.GetStub().GetState("RECORD_" + asset.RecordID)
 	if err != nil {
 		return fmt.Errorf("读取账本状态失败: %v", err)
 	}
 	if exists != nil {
 		return fmt.Errorf("病历资产 %s 已存在于账本中，不可重复创建", asset.RecordID)
+	}
+
+	// WP-11: 从交易提交方 ClientIdentity 提取并盖章 MSP 归属，客户端无法伪造
+	if err := stampIdentityFromContext(ctx, &asset.EndorserMSPID, &asset.ClientIdentityID); err != nil {
+		return err
 	}
 
 	assetBytes, _ := json.Marshal(asset)
@@ -142,6 +193,13 @@ func (c *MedicalContract) CreateAuthorizationRecord(ctx contractapi.TransactionC
 		return fmt.Errorf("反序列化授权记录失败: %v", err)
 	}
 
+	// WP-11: 拒绝客户端伪造，链码侧盖章调用者身份
+	auth.EndorserMSPID = ""
+	auth.ClientIdentityID = ""
+	if err := stampIdentityFromContext(ctx, &auth.EndorserMSPID, &auth.ClientIdentityID); err != nil {
+		return err
+	}
+
 	authBytes, _ := json.Marshal(auth)
 	return ctx.GetStub().PutState("AUTH_"+auth.AuthNo, authBytes)
 }
@@ -157,6 +215,13 @@ func (c *MedicalContract) RevokeAuthorizationRecord(ctx contractapi.TransactionC
 	_ = json.Unmarshal(authBytes, &auth)
 	auth.Status = "REVOKED"
 
+	// WP-11: 撤销操作重新盖章当前调用者身份
+	auth.EndorserMSPID = ""
+	auth.ClientIdentityID = ""
+	if err := stampIdentityFromContext(ctx, &auth.EndorserMSPID, &auth.ClientIdentityID); err != nil {
+		return err
+	}
+
 	updatedBytes, _ := json.Marshal(auth)
 	return ctx.GetStub().PutState("AUTH_"+authNo, updatedBytes)
 }
@@ -166,6 +231,13 @@ func (c *MedicalContract) CreateEmergencyRecord(ctx contractapi.TransactionConte
 	var record EmergencyAccessRecord
 	if err := json.Unmarshal([]byte(eventJSON), &record); err != nil {
 		return fmt.Errorf("反序列化紧急访问记录失败: %v", err)
+	}
+
+	// WP-11: 链码侧盖章调用者身份
+	record.EndorserMSPID = ""
+	record.ClientIdentityID = ""
+	if err := stampIdentityFromContext(ctx, &record.EndorserMSPID, &record.ClientIdentityID); err != nil {
+		return err
 	}
 
 	recordBytes, _ := json.Marshal(record)
@@ -187,6 +259,13 @@ func (c *MedicalContract) UpdateEmergencyStatus(ctx contractapi.TransactionConte
 	record.Punishment = punishment
 	record.AuditTime = auditTime
 
+	// WP-11: 监管裁决操作重新盖章当前调用者身份
+	record.EndorserMSPID = ""
+	record.ClientIdentityID = ""
+	if err := stampIdentityFromContext(ctx, &record.EndorserMSPID, &record.ClientIdentityID); err != nil {
+		return err
+	}
+
 	updatedBytes, _ := json.Marshal(record)
 	return ctx.GetStub().PutState("EMERGENCY_"+eventNo, updatedBytes)
 }
@@ -201,6 +280,10 @@ func (c *MedicalContract) CreateMedicalRecord(ctx contractapi.TransactionContext
 		HospitalID:   hospitalID,
 		DataType:     dataType,
 		CreateTime:   timestamp,
+	}
+	// WP-11: 盖章链码侧提取的 MSP 背书身份
+	if err := stampIdentityFromContext(ctx, &asset.EndorserMSPID, &asset.ClientIdentityID); err != nil {
+		return err
 	}
 	assetBytes, _ := json.Marshal(asset)
 	return ctx.GetStub().PutState("RECORD_"+recordID, assetBytes)
@@ -284,7 +367,13 @@ func (c *MedicalContract) CreateAuditRecord(ctx contractapi.TransactionContextIn
 		return fmt.Errorf("反序列化审计日志记录失败: %v", err)
 	}
 
+	// WP-11: 链码侧盖章调用者身份
+	audit.EndorserMSPID = ""
+	audit.ClientIdentityID = ""
+	if err := stampIdentityFromContext(ctx, &audit.EndorserMSPID, &audit.ClientIdentityID); err != nil {
+		return err
+	}
+
 	auditBytes, _ := json.Marshal(audit)
 	return ctx.GetStub().PutState("AUDIT_"+audit.LogID, auditBytes)
 }
-

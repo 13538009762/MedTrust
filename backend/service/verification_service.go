@@ -5,7 +5,6 @@ import (
 	"strings"
 	"sync"
 
-	"medtrust-backend/model"
 	"medtrust-backend/pkg/blockchain"
 	"medtrust-backend/repository"
 )
@@ -54,12 +53,12 @@ func (s *VerificationService) Verify(recordID uint64, clientIP ...string) (*Veri
 		ip = clientIP[0]
 	}
 
-	var record model.MedicalRecord
-	if err := repository.DB.Preload("Files").First(&record, recordID).Error; err != nil {
+	record, err := repository.DefaultMedicalRepository.FindRecordByID(recordID)
+	if err != nil {
 		return nil, fmt.Errorf("病历不存在: %w", err)
 	}
 
-	DefaultMedicalService.VerifyRecord(&record)
+	DefaultMedicalService.VerifyRecord(record)
 
 	chainData, _ := blockchain.DefaultService.QueryAsset(record.RecordNo)
 
@@ -86,7 +85,7 @@ func (s *VerificationService) Verify(recordID uint64, clientIP ...string) (*Veri
 	stage1Pass := true
 	stage1Detail := "该病历无独立二进制附件"
 
-	if primaryFile := SelectPrimaryMedicalFile(&record); primaryFile != nil {
+	if primaryFile := SelectPrimaryMedicalFile(record); primaryFile != nil {
 		if cid == "" {
 			cid = primaryFile.IPFSCID
 		}
@@ -94,7 +93,7 @@ func (s *VerificationService) Verify(recordID uint64, clientIP ...string) (*Veri
 			chainFileHash = primaryFile.FileHash
 		}
 		if primaryFile.IPFSCID != "" {
-			_, decryptedHash, decErr := DefaultMedicalService.DecryptFileAndComputeHash(&record, primaryFile)
+			_, decryptedHash, decErr := DefaultMedicalService.DecryptFileAndComputeHash(record, primaryFile)
 			if decErr != nil {
 				if primaryFile.EncryptedDEK != "" {
 					stage1Pass = false
@@ -103,17 +102,9 @@ func (s *VerificationService) Verify(recordID uint64, clientIP ...string) (*Veri
 					record.IsTampered = true
 					record.Verified = false
 				} else {
-					localFileHash = primaryFile.FileHash
-					stage1Pass = (chainFileHash == "" || localFileHash == chainFileHash)
-					if !stage1Pass && len(record.Files) > 1 {
-						for _, f := range record.Files {
-							if f.FileHash == chainFileHash {
-								localFileHash = f.FileHash
-								stage1Pass = true
-								break
-							}
-						}
-					}
+					matchedHash, fileMatched := MatchRecordChainFileHash(record.Files, primaryFile, "", chainFileHash)
+					localFileHash = matchedHash
+					stage1Pass = fileMatched
 					if stage1Pass {
 						stage1Detail = "历史规范病历附件文件指纹与链上登记 FileHash 完全吻合 (已通过区块链不可篡改公信力校验)"
 					} else {
@@ -123,8 +114,9 @@ func (s *VerificationService) Verify(recordID uint64, clientIP ...string) (*Veri
 					}
 				}
 			} else {
-				localFileHash = decryptedHash
-				stage1Pass = (chainFileHash != "" && localFileHash == chainFileHash)
+				matchedHash, fileMatched := MatchRecordChainFileHash(record.Files, primaryFile, decryptedHash, chainFileHash)
+				localFileHash = matchedHash
+				stage1Pass = (chainFileHash != "" && fileMatched)
 				if stage1Pass {
 					stage1Detail = "已从 IPFS 节点拉取密文块并通过 AES-256-GCM 认证标签与 AAD 校验，解密明文计算的 SHA-256 指纹与链上登记 FileHash 完全吻合"
 				} else {
@@ -156,7 +148,7 @@ func (s *VerificationService) Verify(recordID uint64, clientIP ...string) (*Veri
 	}
 
 	// 阶段 2: 结构化病历 Merkle 综合摘要验真
-	stage2Pass := !record.IsTampered
+	stage2Pass := chainData != nil && !record.IsTampered
 	stage2 := VerificationStageItem{
 		StageName: "阶段二：结构化临床数据 Merkle 综合摘要验真",
 		Passed:    stage2Pass,
@@ -165,6 +157,9 @@ func (s *VerificationService) Verify(recordID uint64, clientIP ...string) (*Veri
 		Detail: func() string {
 			if stage2Pass {
 				return "数据库全量临床字段（主诉/现病史/体征/检查/确诊/处置）综合哈希与 Fabric 账本 ClinicalHash 100% 一致"
+			}
+			if chainData == nil {
+				return "区块链分布式账本中尚未检索到该病历存证资产，无法完成 ClinicalHash 比对"
 			}
 			return "【严重告警】数据库中临床文字内容已被黑客直接篡改，与区块链原始背书指纹严重失配"
 		}(),
@@ -187,13 +182,19 @@ func (s *VerificationService) Verify(recordID uint64, clientIP ...string) (*Veri
 
 	stages := []VerificationStageItem{stage1, stage2, stage3}
 
+	verified := !record.IsTampered && record.Verified
 	msg := "动态核验成功：数据库临床内容与 Fabric 链上固化凭证完全一致，数据真实完整，未遭篡改"
 	if record.IsTampered {
 		msg = "【高危安全警报】检测到数据完整性哈希不匹配！数据库中的病历数据已被非法篡改！"
+	} else if !record.Verified {
+		msg = record.TamperReason
+		if msg == "" {
+			msg = "【区块链存证提示】该病历尚未完成区块链分布式账本存证共识"
+		}
 	}
 
 	DefaultAuditService.Log(0, "VERIFY", "RECORD", record.RecordNo, record.HospitalID, func() string {
-		if !record.IsTampered {
+		if verified {
 			return "SUCCESS"
 		}
 		return "FAILED"
@@ -204,12 +205,20 @@ func (s *VerificationService) Verify(recordID uint64, clientIP ...string) (*Veri
 		return "HIGH"
 	}(), ip)
 
+	// WP-12: 单记录端点执行完整三阶段核验后，将结论持久化到 IntegrityStatus，
+	// 供列表/总览端点 O(1) 读取，避免每个列表请求触发 O(N) Fabric+IPFS 同步核验
+	if record.IsTampered {
+		_ = repository.DefaultMedicalRepository.UpdateIntegrityStatus(record.ID, "TAMPERED")
+	} else if verified {
+		_ = repository.DefaultMedicalRepository.UpdateIntegrityStatus(record.ID, "VERIFIED")
+	}
+
 	return &VerificationResult{
 		RecordID:       record.ID,
 		RecordNo:       record.RecordNo,
 		CalculatedHash: record.CurrentHash,
 		ChainHash:      record.ChainHash,
-		Verified:       !record.IsTampered,
+		Verified:       verified,
 		CID:            cid,
 		FabricTxID:     record.FabricTxID,
 		BlockHeight:    record.BlockHeight,
@@ -226,8 +235,8 @@ func (s *VerificationService) SimulateTamper(recordID uint64, clientIP ...string
 		ip = clientIP[0]
 	}
 
-	var record model.MedicalRecord
-	if err := repository.DB.First(&record, recordID).Error; err != nil {
+	record, err := repository.DefaultMedicalRepository.FindRecordSimpleByID(recordID)
+	if err != nil {
 		return nil, fmt.Errorf("病历不存在: %w", err)
 	}
 
@@ -244,7 +253,7 @@ func (s *VerificationService) SimulateTamper(recordID uint64, clientIP ...string
 	// 模拟黑客绕过应用层直接篡改底层数据库内容
 	record.Diagnosis = record.Diagnosis + " [恶意篡改：伪造头孢曲松钠严重过敏史与青霉素休克体征]"
 	record.TreatmentPlan = "【非法篡改医嘱】立即停用原方案，改用大剂量高糖输注 (篡改指纹)"
-	if err := repository.DB.Save(&record).Error; err != nil {
+	if err := repository.DefaultMedicalRepository.UpdateMedicalRecord(record); err != nil {
 		return nil, fmt.Errorf("模拟篡改保存失败: %w", err)
 	}
 
@@ -261,8 +270,8 @@ func (s *VerificationService) RestoreTamperedRecord(recordID uint64, clientIP ..
 		ip = clientIP[0]
 	}
 
-	var record model.MedicalRecord
-	if err := repository.DB.First(&record, recordID).Error; err != nil {
+	record, err := repository.DefaultMedicalRepository.FindRecordSimpleByID(recordID)
+	if err != nil {
 		return nil, fmt.Errorf("病历不存在: %w", err)
 	}
 
@@ -279,7 +288,7 @@ func (s *VerificationService) RestoreTamperedRecord(recordID uint64, clientIP ..
 	}
 	s.mu.Unlock()
 
-	if err := repository.DB.Save(&record).Error; err != nil {
+	if err := repository.DefaultMedicalRepository.UpdateMedicalRecord(record); err != nil {
 		return nil, fmt.Errorf("恢复病历保存失败: %w", err)
 	}
 	DefaultAuditService.Log(0, "TAMPER_RESTORE", "RECORD", record.RecordNo, record.HospitalID, "SUCCESS", "LOW", ip)

@@ -197,36 +197,33 @@ func StoreSSETicket(ticket, data string, ttl time.Duration) error {
 }
 
 // ConsumeSSETicket 原子获取并立即删除单次有效票据 (防止重放与重复使用)
+//
+// Redis 侧使用 GETDEL (Redis 6.2+) 保证 get+delete 的原子性：并发重放时只有一个请求能拿到票据。
+// 内存侧先 Delete 再返回，避免 Get 与 Delete 之间的窗口期被其他 goroutine 命中。
 func ConsumeSSETicket(ticket string) (string, bool) {
 	if ticket == "" {
 		return "", false
 	}
 	key := SSETicketPrefix + ticket
 
-	// 1. 尝试从本地内存获取并删除
-	if val, ok := DefaultCache.Get(key); ok {
-		DefaultCache.Delete(key)
-		if redisAvailable && RDB != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-			defer cancel()
-			_ = RDB.Del(ctx, key).Err()
-		}
-		if s, ok := val.(string); ok {
-			return s, true
-		}
-	}
-
-	// 2. 若本地未命中，查询 Redis (分布式场景)
+	// 1. 先走 Redis 原子 GETDEL (分布式场景权威来源)
 	if redisAvailable && RDB != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
-		val, err := RDB.Get(ctx, key).Result()
+		val, err := RDB.GetDel(ctx, key).Result()
 		if err == nil && val != "" {
-			_ = RDB.Del(ctx, key).Err()
+			// Redis 已删除，同步清理本地内存副本避免残留
+			DefaultCache.Delete(key)
 			return val, true
+		}
+	}
+
+	// 2. Redis 未命中或不可用：回落到本地内存 (先删除再判定，杜绝双花)
+	if val, ok := DefaultCache.GetAndDelete(key); ok {
+		if s, ok := val.(string); ok && s != "" {
+			return s, true
 		}
 	}
 
 	return "", false
 }
-

@@ -729,69 +729,73 @@ async function submitAddUser() {
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
+  gap: 10px;
 }
 
 .stat-card {
   background: #ffffff;
-  border-radius: 12px;
-  padding: 16px 20px;
+  border-radius: 6px;
+  padding: 8px 14px;
+  min-height: 44px;
+  max-height: 48px;
   display: flex;
   align-items: center;
-  gap: 16px;
-  border: 1px solid rgba(226, 232, 240, 0.8);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
+  gap: 10px;
+  border: 1px solid #e2e8f0;
+  box-shadow: none;
 }
 
-.stat-card.blue { border-left: 4px solid #3b82f6; }
-.stat-card.cyan { border-left: 4px solid #06b6d4; }
-.stat-card.green { border-left: 4px solid #10b981; }
-.stat-card.purple { border-left: 4px solid #8b5cf6; }
+.stat-card.blue { border-left: 3px solid #0284c7; }
+.stat-card.cyan { border-left: 3px solid #0369a1; }
+.stat-card.green { border-left: 3px solid #059669; }
+.stat-card.purple { border-left: 3px solid #475569; }
 
-.stat-icon { font-size: 2rem; }
-.stat-value { font-size: 1.6rem; font-weight: 700; color: #1e293b; line-height: 1.2; }
-.stat-label { font-size: 0.84rem; color: #64748b; margin-top: 4px; }
+.stat-icon { font-size: 16px; color: #0284c7; display: flex; align-items: center; }
+.stat-info { display: flex; align-items: baseline; justify-content: space-between; width: 100%; gap: 8px; }
+.stat-value { font-size: 16px; font-weight: 700; color: #0f172a; font-family: var(--mt-font-mono, monospace); line-height: 1; order: 2; }
+.stat-label { font-size: 12px; color: #475569; font-weight: 600; margin-top: 0; order: 1; }
 
 .hero-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 12px;
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
 }
 
 .header-icon-ring {
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
-  background: #ede9fe;
-  color: #7c3aed;
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  color: #0284c7;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
+  font-size: 18px;
 }
 
 .page-title {
-  font-size: 22px;
-  font-weight: 800;
+  font-size: 18px;
+  font-weight: 700;
   color: #0f172a;
 }
 
 .page-sub {
-  font-size: 13px;
+  font-size: 12px;
   color: #64748b;
   margin-top: 2px;
 }
 
 .mgmt-card {
-  border-radius: 12px;
-  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
 }
 
 .toolbar-wrapper {
@@ -862,14 +866,16 @@ async function submitAddUser() {
 }
 
 .hero-avatar {
-  width: 52px;
-  height: 52px;
-  border-radius: 12px;
+  width: 44px;
+  height: 44px;
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 26px;
-  background: #ede9fe;
+  font-size: 20px;
+  background: #f0f9ff;
+  color: #0284c7;
+  border: 1px solid #bae6fd;
 }
 
 .hero-name-row {

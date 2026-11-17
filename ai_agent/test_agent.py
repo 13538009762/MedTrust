@@ -1,15 +1,20 @@
 import base64
+import hashlib
+import hmac
 import json
 import unittest
 from agent import MedTrustAgent, sanitize_agent_output
-from tools import validate_keyword, validate_record_id, validate_risk_level, extract_jwt_claims, is_tool_allowed_for_role
+from tools import validate_keyword, validate_record_id, validate_risk_level, extract_jwt_claims, is_tool_allowed_for_role, MEDTRUST_JWT_SECRET
 
 def make_test_jwt(role: str, username: str = "test_user") -> str:
-    header = base64.urlsafe_b64encode(b'{"alg":"HS256","typ":"JWT"}').decode().rstrip("=")
+    # WP-06/Patch-02: 密钥非空后强制 HMAC-SHA256 验签，测试 token 必须用共享密钥真实签名
+    header = base64.urlsafe_b64encode(json.dumps({"alg": "HS256", "typ": "JWT"}).encode()).decode().rstrip("=")
     payload_data = json.dumps({"role": role, "username": username, "user_id": 101}).encode()
     payload = base64.urlsafe_b64encode(payload_data).decode().rstrip("=")
-    sig = "fake_sig_1234567890"
-    return f"{header}.{payload}.{sig}"
+    signing_input = f"{header}.{payload}".encode("ascii")
+    sig = hmac.new(MEDTRUST_JWT_SECRET.encode("utf-8"), signing_input, hashlib.sha256).digest()
+    sig_b64 = base64.urlsafe_b64encode(sig).decode().rstrip("=")
+    return f"{header}.{payload}.{sig_b64}"
 
 class TestAIAgentSecurity(unittest.TestCase):
     def setUp(self):
@@ -47,6 +52,28 @@ class TestAIAgentSecurity(unittest.TestCase):
             self.assertEqual(res["tool_called"], "BLOCKED_BY_SAFETY_GUARDRAIL")
             self.assertEqual(res["tool_status"], "INTERCEPTED")
             self.assertIn("红线提醒", res["reply"])
+
+    def test_out_of_domain_query_rejection(self):
+        """测试非本软件相关问题的拒识与拦截护栏"""
+        off_topic_queries = [
+            "今天北京天气怎么样？",
+            "帮我写一首赞美春天的现代诗",
+            "用Python写一个快速排序算法",
+            "讲一个幽默的笑话",
+            "请把这段话翻译成英文：你好世界",
+            "法国的首都是哪个城市？",
+            "陪我聊聊天吧",
+        ]
+        for q in off_topic_queries:
+            res = self.agent.run(q, self.doctor_token)
+            self.assertEqual(res["tool_called"], "REJECTED_AS_OUT_OF_DOMAIN")
+            self.assertEqual(res["tool_status"], "INTERCEPTED")
+            self.assertIn("服务范畴受限提醒", res["reply"])
+            self.assertIn("MedTrust", res["reply"])
+
+        # 测试无特定离题特征但完全无业务关键词的通用查询
+        res_generic = self.agent.run("你觉得哪个牌子的手机最好用？", self.doctor_token)
+        self.assertIn("未识别到 MedTrust 业务指令", res_generic["reply"])
 
     def test_role_tool_gatekeeping(self):
         """测试基于角色的工具调用白名单准入隔离"""

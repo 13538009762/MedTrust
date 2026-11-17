@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"medtrust-backend/model"
@@ -34,14 +35,9 @@ func (ctrl *SupervisorController) Overview(c *gin.Context) {
 	trendList := repository.DefaultAuditRepository.GetThroughputTrends(7)
 
 	// 4. 统计防篡改核验通过率与拦截总量
-	var tamperedCount int64
-	allRecs, _ := repository.DefaultMedicalRepository.ListAllRecords()
-	for i := range allRecs {
-		service.DefaultMedicalService.VerifyRecord(&allRecs[i])
-		if allRecs[i].IsTampered {
-			tamperedCount++
-		}
-	}
+	// WP-12: 改用索引化 COUNT 查询（由单记录核验端点回写的 IntegrityStatus 持久化结论），
+	// 替代原 ListAllRecords + 全表 VerifyRecord 的 O(N) Fabric+IPFS 同步核验循环
+	tamperedCount := repository.DefaultMedicalRepository.CountIntegrityStatus("TAMPERED")
 	verifiedCount := totalRecords - tamperedCount
 	passRate := 100.0
 	if totalRecords > 0 {
@@ -88,25 +84,60 @@ func (ctrl *SupervisorController) ListEmergencyEvents(c *gin.Context) {
 		list = append(list, ev)
 	}
 
+	// WP-13: 先单遍收集外键 ID，再批量 WHERE id IN 查询，内存组装展示字段 (消除 N+1)
+	userIDSet := make([]uint64, 0, len(list)*2)
+	recordIDSet := make([]uint64, 0, len(list))
+	hospIDSet := make([]uint64, 0, len(list)*2)
 	for i := range list {
-		if doc, err := repository.DefaultUserRepository.FindByID(list[i].DoctorID); err == nil {
+		userIDSet = append(userIDSet, list[i].DoctorID, list[i].PatientID)
+		if list[i].RecordID > 0 {
+			recordIDSet = append(recordIDSet, list[i].RecordID)
+		}
+		if list[i].SourceHospitalID > 0 {
+			hospIDSet = append(hospIDSet, list[i].SourceHospitalID)
+		}
+		if list[i].TargetHospitalID > 0 {
+			hospIDSet = append(hospIDSet, list[i].TargetHospitalID)
+		}
+	}
+	userMap := loadUsersBatch(userIDSet)
+	recMap := loadRecordsBatch(recordIDSet)
+	hospMap := loadHospitalsBatch(hospIDSet)
+
+	// WP-13: 基于已加载的内存切片预计算每位医生在各事件点 1 小时窗口内的破窗次数，
+	// 供零 SQL 版规则初筛 EvaluateRulePreScreenWithCount 使用（消除循环内逐条 COUNT(*) 查询）
+	burstCountMap := make(map[int]int64, len(list)*2)
+	for i := range list {
+		windowStart := list[i].CreatedAt.Add(-1 * time.Hour)
+		var bursts int64
+		for j := range list {
+			if list[j].DoctorID == list[i].DoctorID &&
+				!list[j].CreatedAt.Before(windowStart) && !list[j].CreatedAt.After(list[i].CreatedAt) {
+				bursts++
+			}
+		}
+		burstCountMap[i] = bursts
+	}
+
+	for i := range list {
+		if doc, ok := userMap[list[i].DoctorID]; ok {
 			list[i].DoctorName = doc.RealName
 		}
-		if pat, err := repository.DefaultUserRepository.FindByID(list[i].PatientID); err == nil {
+		if pat, ok := userMap[list[i].PatientID]; ok {
 			list[i].PatientName = pat.RealName
 		}
-		if rec, err := repository.DefaultMedicalRepository.FindRecordByID(list[i].RecordID); err == nil {
+		if rec, ok := recMap[list[i].RecordID]; ok {
 			list[i].RecordNo = rec.RecordNo
 		}
-		if h1, err := repository.DefaultHospitalRepository.FindByID(list[i].SourceHospitalID); err == nil {
+		if h1, ok := hospMap[list[i].SourceHospitalID]; ok {
 			list[i].SourceHospitalName = h1.Name
 		}
-		if h2, err := repository.DefaultHospitalRepository.FindByID(list[i].TargetHospitalID); err == nil {
+		if h2, ok := hospMap[list[i].TargetHospitalID]; ok {
 			list[i].TargetHospitalName = h2.Name
 		}
 
-		// 第一道关卡：Go 纯代码客观合理性初筛
-		code, desc := service.DefaultEmergencyService.EvaluateRulePreScreen(&list[i])
+		// 第一道关卡：Go 纯代码客观合理性初筛 (WP-13: 内存预计算 burst 次数，零 SQL)
+		code, desc := service.DefaultEmergencyService.EvaluateRulePreScreenWithCount(&list[i], burstCountMap[i])
 		list[i].RulePreScreen = code
 		list[i].RulePreScreenDesc = desc
 
@@ -244,16 +275,84 @@ func (ctrl *SupervisorController) ListAuditLogs(c *gin.Context) {
 
 func (ctrl *SupervisorController) VerifyRecord(c *gin.Context) {
 	recordID, _ := strconv.ParseUint(c.Param("record_id"), 10, 64)
+	callerID := c.GetUint64("user_id")
+	callerRole := c.GetString("role")
+
+	// WP-02: IDOR 防护——先取病历归属，按角色做行级所有权校验
+	recPtr, recErr := repository.DefaultMedicalRepository.FindRecordByID(recordID)
+	if recErr != nil || recPtr == nil {
+		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "病历不存在"})
+		return
+	}
+	rec := *recPtr
+
+	if callerRole == "patient" && rec.PatientID != callerID {
+		service.DefaultAuditService.LogDetailed(service.AuditEntry{
+			UserID:        callerID,
+			OperationType: "VERIFY_RECORD",
+			TargetType:    "RECORD",
+			TargetID:      fmt.Sprintf("%d", recordID),
+			Result:        "INTERCEPTED",
+			RiskLevel:     "HIGH",
+			Reason:        "患者尝试核验他人病历 (IDOR 越权探测)，已被零信任网关拦截",
+			IPAddress:     c.ClientIP(),
+			UserAgent:     c.Request.UserAgent(),
+		})
+		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "权限拦截：您只能核验本人名下的病历存证"})
+		return
+	}
+	if callerRole == "doctor" {
+		decision, evalErr := service.DefaultAccessEngine.Evaluate(service.AccessRequest{
+			UserID:      callerID,
+			Role:        "doctor",
+			PatientID:   rec.PatientID,
+			RecordID:    recordID,
+			Action:      "READ",
+			Purpose:     "VERIFY_RECORD",
+			Source:      c.GetHeader("X-Source"),
+			IPAddress:   c.ClientIP(),
+			UserAgent:   c.Request.UserAgent(),
+			IsEmergency: false,
+		})
+		if evalErr != nil || decision == nil || !decision.Allowed {
+			service.DefaultAuditService.LogDetailed(service.AuditEntry{
+				UserID:        callerID,
+				OperationType: "VERIFY_RECORD",
+				TargetType:    "RECORD",
+				TargetID:      fmt.Sprintf("%d", recordID),
+				HospitalID:    rec.HospitalID,
+				Result:        "INTERCEPTED",
+				RiskLevel:     "HIGH",
+				Reason:        "医生跨院越权核验未授权病历 (IDOR 探测)，已被统一权限引擎拦截",
+				IPAddress:     c.ClientIP(),
+				UserAgent:     c.Request.UserAgent(),
+			})
+			c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "权限拦截：您未获得该病历的跨院授权或诊疗关系，禁止核验他人医院病历存证"})
+			return
+		}
+	}
+
 	res, err := service.DefaultVerificationService.Verify(recordID, c.ClientIP())
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: err.Error()})
 		return
 	}
+
+	// WP-02: patient/admin 角色脱敏内部链上原始资产 (含 MSP/creator 等内部标识)，防内部信息泄露
+	if res != nil && (callerRole == "patient" || callerRole == "admin") {
+		res.RawAsset = nil
+	}
+
 	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "防篡改核验完成", Data: res})
 }
 
 // SimulateTamper 真实触发数据库篡改演练 (答辩核心演示亮点)
 func (ctrl *SupervisorController) SimulateTamper(c *gin.Context) {
+	// WP-02: 纵深防御——即使路由中间件被绕过，控制器层仍强制 supervisor-only
+	if c.GetString("role") != "supervisor" {
+		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "权限拦截：篡改演练仅限监管人员 (supervisor) 角色执行"})
+		return
+	}
 	recordID, _ := strconv.ParseUint(c.Param("record_id"), 10, 64)
 	res, err := service.DefaultVerificationService.SimulateTamper(recordID, c.ClientIP())
 	if err != nil {
@@ -269,6 +368,11 @@ func (ctrl *SupervisorController) SimulateTamper(c *gin.Context) {
 
 // RestoreTamperedRecord 一键恢复真实病历数据
 func (ctrl *SupervisorController) RestoreTamperedRecord(c *gin.Context) {
+	// WP-02: 纵深防御——恢复操作同样仅限 supervisor
+	if c.GetString("role") != "supervisor" {
+		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "权限拦截：数据恢复仅限监管人员 (supervisor) 角色执行"})
+		return
+	}
 	recordID, _ := strconv.ParseUint(c.Param("record_id"), 10, 64)
 	res, err := service.DefaultVerificationService.RestoreTamperedRecord(recordID, c.ClientIP())
 	if err != nil {

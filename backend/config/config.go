@@ -1,12 +1,13 @@
 package config
 
 import (
+	"crypto/rand"
 	"encoding/base64"
-	"flag"
 	"fmt"
 	"log"
 	"os"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 )
@@ -74,7 +75,15 @@ func (c *Config) IsProduction() bool {
 	return strings.ToLower(strings.TrimSpace(c.AppEnv)) == "production"
 }
 
+var (
+	ephemeralKeyOnce sync.Once
+	ephemeralKey     []byte
+)
+
 // GetAESMasterKey 获取 32-byte AES 主密钥（支持 base64: 前缀编码或 32 字节明文）
+//
+// 密钥来源优先级：配置/AES_MASTER_KEY 环境变量 > (demo) 进程内一次性随机密钥。
+// 生产模式不允许静默回退：Validate() 已 fail-fast；此处再兜一层直接返回 nil 由调用方拒绝。
 func (c *Config) GetAESMasterKey() []byte {
 	k := strings.TrimSpace(c.Security.AESMasterKey)
 	if strings.HasPrefix(k, "base64:") {
@@ -86,14 +95,26 @@ func (c *Config) GetAESMasterKey() []byte {
 	if len(k) == 32 {
 		return []byte(k)
 	}
-	// 容灾平滑回退，自动补齐为 32 字节
-	if len(k) == 0 {
-		k = "MedTrustMasterKeyAES256GCM2026!"
+	// 非 32 字节的显式配置仍按历史行为补齐（demo 容灾），但会打印警告
+	if len(k) > 0 {
+		log.Printf("[Security WARNING] AES 主密钥长度为 %d 字节，非 32 字节标准长度，已在内存中补齐/截断使用", len(k))
+		for len(k) < 32 {
+			k += "!"
+		}
+		return []byte(k[:32])
 	}
-	for len(k) < 32 {
-		k += "!"
+	if c.IsProduction() {
+		return nil
 	}
-	return []byte(k[:32])
+	// demo 且未配置密钥：生成进程内一次性随机密钥（重启后旧密文不可解）
+	ephemeralKeyOnce.Do(func() {
+		ephemeralKey = make([]byte, 32)
+		if _, err := rand.Read(ephemeralKey); err != nil {
+			log.Fatalf("[Security FATAL] 无法生成一次性 AES 主密钥: %v", err)
+		}
+		log.Println("[Security WARNING (Demo Mode)] 未配置 AES_MASTER_KEY，已生成进程内一次性随机主密钥；重启后既有密文将无法解密，请在 .env 中显式配置")
+	})
+	return ephemeralKey
 }
 
 // Validate 校验启动配置的安全性
@@ -150,9 +171,11 @@ func (c *Config) Validate() error {
 
 	// 3. 生产环境数据库敏感配置校验
 	if isProd {
-		dsn := strings.ToLower(c.Database.DSN)
-		if strings.Contains(dsn, "root:123456") || strings.Contains(dsn, ":@tcp") {
-			errs = append(errs, "生产环境数据库 DSN 严禁使用 root:123456 默认口令或空口令")
+		dsn := strings.TrimSpace(c.Database.DSN)
+		if dsn == "" {
+			errs = append(errs, "生产环境必须通过 DB_DSN 显式配置数据库连接串")
+		} else if lower := strings.ToLower(dsn); strings.Contains(lower, "root:123456") || strings.Contains(lower, ":@tcp") {
+			errs = append(errs, "生产环境数据库 DSN 严禁使用默认 root 口令或空口令")
 		}
 	}
 
@@ -193,9 +216,7 @@ func isKnownWeakAESKey(s string) bool {
 var AppConfig Config
 
 func loadDotEnv() {
-	if flag.Lookup("test.v") != nil {
-		return
-	}
+	// 测试也需加载 .env：密钥与 DB_DSN 已从 config.yaml 外置，否则 go test 会因缺少 DSN/密钥失败。
 	paths := []string{".env", "../.env", "../../.env"}
 	for _, p := range paths {
 		data, err := os.ReadFile(p)
@@ -243,6 +264,9 @@ func LoadConfig(path string) (*Config, error) {
 		AppConfig.Database.DSN = v
 	}
 	if v := os.Getenv("AES_MASTER_KEY"); v != "" {
+		AppConfig.Security.AESMasterKey = v
+	}
+	if v := os.Getenv("MEDTRUST_CRYPTO_MASTER_KEY"); v != "" {
 		AppConfig.Security.AESMasterKey = v
 	}
 	if v := os.Getenv("CORS_ALLOWED_ORIGINS"); v != "" {

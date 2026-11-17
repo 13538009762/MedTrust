@@ -168,3 +168,155 @@ func TestVerification_MissingLedgerAsset(t *testing.T) {
 		t.Fatalf("链上存证缺失的病历必须判定为 Verified=false，但返回了 true")
 	}
 }
+
+func TestVerification_LegacyDefaultSecretDecryptCompatibility(t *testing.T) {
+	cfg, err := config.LoadConfig("../config/config.yaml")
+	if err != nil {
+		t.Fatalf("Load config failed: %v", err)
+	}
+	tempIPFS := t.TempDir()
+	service.InitMedicalService(cfg.IPFS.APIURL, tempIPFS)
+
+	plain := []byte("%PDF-1.4 legacy medical record attachment")
+	patientID := uint64(4)
+	recordNo := fmt.Sprintf("ENC_LEGACY_%d", time.Now().UnixNano())
+
+	// 1. 模拟升级 WP-09 前（未配置独立环境变量时使用 DefaultMasterSecret）生成的旧派生密文
+	t.Setenv("MEDTRUST_CRYPTO_MASTER_KEY", "")
+	t.Setenv("AES_MASTER_KEY", "")
+	legacyPack, legacyHash, err := crypto.EncryptRecordFile(plain, patientID, recordNo)
+	if err != nil {
+		t.Fatalf("EncryptRecordFile failed: %v", err)
+	}
+	cid, err := service.DefaultMedicalService.GetIPFSService().Add(legacyPack)
+	if err != nil {
+		t.Fatalf("IPFS Add failed: %v", err)
+	}
+
+	rec := &model.MedicalRecord{RecordNo: recordNo, PatientID: patientID}
+	file := &model.MedicalFile{FileName: "临床就诊规范归档凭据_" + recordNo + ".pdf", IPFSCID: cid, FileHash: legacyHash}
+
+	// 2. 启用独立 AES_MASTER_KEY 后，非生产模式应能向下兼容解密历史旧密文并精准校验哈希
+	t.Setenv("AES_MASTER_KEY", "k7R9vX2mL4pQ8sY1wZ3bN5cE7tH9uI0j")
+	origEnv := config.AppConfig.AppEnv
+	config.AppConfig.AppEnv = "demo"
+	defer func() { config.AppConfig.AppEnv = origEnv }()
+
+	decBytes, decHash, decErr := service.DefaultMedicalService.DecryptFileAndComputeHash(rec, file)
+	if decErr != nil {
+		t.Fatalf("expected legacy compatibility decryption to succeed in demo mode, got: %v", decErr)
+	}
+	if string(decBytes) != string(plain) || decHash != legacyHash {
+		t.Fatalf("decrypted content/hash mismatch: got hash=%s want=%s", decHash, legacyHash)
+	}
+
+	// 3. 生产模式下禁止回退内置默认密钥
+	config.AppConfig.AppEnv = "production"
+	if _, _, prodErr := service.DefaultMedicalService.DecryptFileAndComputeHash(rec, file); prodErr == nil {
+		t.Fatalf("production mode must NOT fall back to DefaultMasterSecret")
+	}
+}
+
+func TestVerification_MultiFileChainHashCompatibility(t *testing.T) {
+	cfg, err := config.LoadConfig("../config/config.yaml")
+	if err != nil {
+		t.Fatalf("Load config failed: %v", err)
+	}
+	if _, err := repository.InitDB(); err != nil {
+		t.Fatalf("Init DB failed: %v", err)
+	}
+
+	tempLedger := t.TempDir()
+	tempIPFS := t.TempDir()
+	blockchain.InitBlockchainService(tempLedger, blockchain.FabricGatewayConfig{Mode: "local"})
+	service.InitMedicalService(cfg.IPFS.APIURL, tempIPFS)
+
+	recordNo := fmt.Sprintf("REC_MULTI_%d", time.Now().UnixNano())
+	rec := model.MedicalRecord{
+		RecordNo:      recordNo,
+		PatientID:     1009,
+		DoctorID:      2009,
+		HospitalID:    1,
+		DataType:      "OUTPATIENT",
+		EncounterType: "OUTPATIENT",
+		Status:        "COMPLETED",
+		Diagnosis:     "多附件归档核验回归测试",
+		TreatmentPlan: "常规随访复查",
+		CreatedAt:     time.Now(),
+	}
+	if err := repository.DB.Create(&rec).Error; err != nil {
+		t.Fatalf("Create record failed: %v", err)
+	}
+	defer repository.DB.Unscoped().Delete(&model.MedicalRecord{}, rec.ID)
+
+	imgPlain := []byte("ORIGINAL_LAB_IMAGE_BYTES_01")
+	imgHash := crypto.ComputeSHA256(imgPlain)
+	archivePlain := []byte("%PDF-1.4 ARCHIVE_RECEIPT_BYTES_02")
+	masterKey := config.AppConfig.GetAESMasterKey()
+	cipherData, encDEK, ivNonce, archiveHash, err := crypto.EncryptMedicalFile(archivePlain, rec.PatientID, rec.RecordNo, masterKey)
+	if err != nil {
+		t.Fatalf("EncryptMedicalFile failed: %v", err)
+	}
+	archiveCID, err := service.DefaultMedicalService.GetIPFSService().Add(cipherData)
+	if err != nil {
+		t.Fatalf("IPFS Add failed: %v", err)
+	}
+
+	fImg := model.MedicalFile{RecordID: rec.ID, FileName: "检验影像_01.png", FileHash: imgHash, IPFSCID: "QmMockImgOnlyHashMatch"}
+	fArc := model.MedicalFile{RecordID: rec.ID, FileName: "临床就诊规范归档凭据_" + recordNo + ".pdf", FileHash: archiveHash, IPFSCID: archiveCID, EncryptedDEK: encDEK, IVNonce: ivNonce}
+	repository.DB.Create(&fImg)
+	repository.DB.Create(&fArc)
+	defer func() {
+		repository.DB.Unscoped().Where("record_id = ?", rec.ID).Delete(&model.MedicalFile{})
+	}()
+
+	// 链上 file_hash 锚定首个上传的检验影像哈希，主归档凭据位于末尾且完整加密
+	clinicalHash := service.ComputeRecordHash(&rec)
+	txID, height, commitErr := blockchain.DefaultService.CommitAsset("MEDICAL_RECORD", rec.RecordNo, map[string]interface{}{
+		"record_no":     rec.RecordNo,
+		"patient_id":    rec.PatientID,
+		"doctor_id":     rec.DoctorID,
+		"hospital_id":   rec.HospitalID,
+		"cid":           archiveCID,
+		"file_hash":     imgHash,
+		"clinical_hash": clinicalHash,
+		"data_type":     rec.DataType,
+		"create_time":   rec.CreatedAt.Format(time.RFC3339),
+	})
+	if commitErr != nil {
+		t.Fatalf("CommitAsset failed: %v", commitErr)
+	}
+	repository.DB.Model(&rec).Updates(map[string]interface{}{
+		"fabric_tx_id": txID,
+		"block_height": height,
+	})
+
+	// 1. 多附件记录在主归档凭据与链上首个附件均真实一致时，Verify 与 VerifyRecord 均应通过
+	res, err := service.DefaultVerificationService.Verify(rec.ID)
+	if err != nil {
+		t.Fatalf("Verify failed: %v", err)
+	}
+	if !res.Verified {
+		t.Fatalf("expected multi-file record Verify=true, got false: %s", res.Message)
+	}
+
+	repository.DB.Preload("Files").First(&rec, rec.ID)
+	service.DefaultMedicalService.VerifyRecord(&rec)
+	if !rec.Verified || rec.IsTampered {
+		t.Fatalf("expected multi-file VerifyRecord Verified=true IsTampered=false, got reason=%s", rec.TamperReason)
+	}
+
+	// 2. 若将主归档凭据对应 IPFS 内容替换为另一个可解密密文（与 primaryFile.FileHash 不符），仍必须判定篡改
+	badPlain := []byte("TAMPERED_PDF_PAYLOAD")
+	badCipher, badDEK, badIV, _, _ := crypto.EncryptMedicalFile(badPlain, rec.PatientID, rec.RecordNo, masterKey)
+	badCID, _ := service.DefaultMedicalService.GetIPFSService().Add(badCipher)
+	repository.DB.Model(&fArc).Updates(map[string]interface{}{"ipfs_cid": badCID, "encrypted_dek": badDEK, "iv_nonce": badIV})
+
+	tamperedRes, err := service.DefaultVerificationService.Verify(rec.ID)
+	if err != nil {
+		t.Fatalf("Verify after tamper failed: %v", err)
+	}
+	if tamperedRes.Verified || (len(tamperedRes.Stages) > 0 && tamperedRes.Stages[0].Passed) {
+		t.Fatalf("expected tampered primary attachment to fail verification even with sibling file on chain")
+	}
+}

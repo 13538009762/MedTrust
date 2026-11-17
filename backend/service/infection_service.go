@@ -298,24 +298,24 @@ func (s *InfectionService) AnalyzePatientRisks(patientID uint64) (*model.Infecti
 	}
 
 	// 1. 查询患者名下所有历史病历 (跨机构联合排查)
-	var records []model.MedicalRecord
-	if err := repository.DB.Where("patient_id = ?", patientID).
-		Order("created_at desc").
-		Find(&records).Error; err != nil {
+	records, err := repository.DefaultMedicalRepository.FindRecordsByPatient(patientID)
+	if err != nil {
 		return nil, err
 	}
 
 	// 2. 查询患者名下所有检验单
-	var examOrders []model.MedicalExamOrder
-	_ = repository.DB.Where("patient_id = ?", patientID).Find(&examOrders).Error
+	examOrders, err := repository.DefaultExamOrderRepository.FindExamOrdersByPatientID(patientID)
+	if err != nil {
+		examOrders = nil
+	}
 
 	return s.evaluateRisks(records, examOrders)
 }
 
 // AnalyzeRecordRisks 分析某单张病历与其患者历史背景
 func (s *InfectionService) AnalyzeRecordRisks(recordID uint64) (*model.InfectionRiskAlert, error) {
-	var record model.MedicalRecord
-	if err := repository.DB.First(&record, recordID).Error; err != nil {
+	record, err := repository.DefaultMedicalRepository.FindRecordSimpleByID(recordID)
+	if err != nil {
 		return nil, err
 	}
 
@@ -325,7 +325,7 @@ func (s *InfectionService) AnalyzeRecordRisks(recordID uint64) (*model.Infection
 	}
 
 	// 若无关联患者 ID，则仅排查该单份病历
-	return s.evaluateRisks([]model.MedicalRecord{record}, nil)
+	return s.evaluateRisks([]model.MedicalRecord{*record}, nil)
 }
 
 // EvaluateDirectText 即时评估医生在界面上填写的文本 (支持前端实时推断)

@@ -90,6 +90,32 @@ func loadRecordsBatch(ids []uint64) map[uint64]model.MedicalRecord {
 	return recMap
 }
 
+// loadHospitalsMapBatch WP-13: 批量拉取机构映射 (走 HospitalRepository.FindByIDs)
+func loadHospitalsMapBatch(ids []uint64) map[uint64]model.Hospital {
+	hospMap := make(map[uint64]model.Hospital)
+	uniqueIDs := deduplicateIDs(ids)
+	if len(uniqueIDs) == 0 {
+		return hospMap
+	}
+	if m, err := repository.DefaultHospitalRepository.FindByIDs(uniqueIDs); err == nil {
+		return m
+	}
+	return hospMap
+}
+
+// loadDepartmentsMapBatch WP-13: 批量拉取科室映射 (WHERE id IN)
+func loadDepartmentsMapBatch(ids []uint64) map[uint64]model.Department {
+	deptMap := make(map[uint64]model.Department)
+	uniqueIDs := deduplicateIDs(ids)
+	if len(uniqueIDs) == 0 {
+		return deptMap
+	}
+	if m, err := repository.DefaultHospitalRepository.FindDepartmentsByIDs(uniqueIDs); err == nil {
+		return m
+	}
+	return deptMap
+}
+
 // deduplicateIDs 辅助清洗并去重 ID 列表
 func deduplicateIDs(ids []uint64) []uint64 {
 	seen := make(map[uint64]bool, len(ids))

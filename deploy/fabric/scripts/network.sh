@@ -1,9 +1,9 @@
 #!/bin/bash
 set -e
 
-CHANNEL_NAME="medchannel"
-CC_NAME="medical"
-CC_VERSION="1.0"
+CHANNEL_NAME="${CHANNEL_NAME:-medicalchannel}"
+CC_NAME="${CC_NAME:-medical_contract}"
+CC_VERSION="${CC_VERSION:-1.0}"
 CC_SEQUENCE=1
 
 ORDERER_CA=/opt/gopath/src/github.com/hyperledger/fabric/peer/crypto/ordererOrganizations/example.com/orderers/orderer.example.com/tls/ca.crt
@@ -30,7 +30,7 @@ createChannel() {
   
   BLOCK_FILE="/opt/gopath/src/github.com/hyperledger/fabric/peer/channel-config/${CHANNEL_NAME}.block"
   if [ ! -f "$BLOCK_FILE" ]; then
-    configtxgen -profile medicalchannel -outputBlock "$BLOCK_FILE" -channelID ${CHANNEL_NAME} -configPath /opt/gopath/src/github.com/hyperledger/fabric/peer/channel-config
+    configtxgen -profile ${CHANNEL_NAME} -outputBlock "$BLOCK_FILE" -channelID ${CHANNEL_NAME} -configPath /opt/gopath/src/github.com/hyperledger/fabric/peer/channel-config
   fi
 
   echo ">>> [2/4] Orderer 加入通道..."

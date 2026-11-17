@@ -109,16 +109,18 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 			}
 		} else {
 			// 支持 URL Query token (供 <img> / 浏览器附件直接下载安全鉴权)
+			// 生产模式一律拒绝：URL 中的长效 JWT 会经访问日志、Referer、浏览器历史泄露，
+			// 前端已改为先 POST /auth/ticket 取一次性票据，再以 ?ticket= 访问。
 			tokenStr = c.Query("token")
-			if tokenStr != "" && strings.HasPrefix(c.Request.URL.Path, "/api/v1/notifications/stream") {
+			if tokenStr != "" {
 				if config.AppConfig.IsProduction() {
 					c.AbortWithStatusJSON(http.StatusForbidden, model.Response{
 						Code:    403,
-						Message: "生产环境禁止在 URL 中明文传递 Token 访问 SSE，请使用 POST /api/v1/auth/ticket 获取一次性 Ticket",
+						Message: "生产环境禁止在 URL 中明文传递 Token，请先 POST /api/v1/auth/ticket 获取一次性 Ticket 后以 ?ticket= 访问",
 					})
 					return
 				}
-				log.Printf("[Security WARNING (Demo Mode)] 检测到通过 URL 携带 JWT Token 访问 SSE: %s，建议升级为一次性 Ticket 鉴权", c.Request.URL.Path)
+				log.Printf("[Security WARNING (Demo Mode)] 检测到通过 URL 携带 JWT Token 访问 %s，建议升级为一次性 Ticket 鉴权", c.Request.URL.Path)
 			}
 		}
 

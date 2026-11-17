@@ -54,9 +54,9 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="fabric_tx_id" label="Fabric 存证 TxID" min-width="180">
+        <el-table-column prop="fabric_tx_id" label="Fabric 存证 TxID" min-width="200">
           <template #default="{ row }">
-            <span class="tx-hash">{{ row.fabric_tx_id ? row.fabric_tx_id.substring(0, 18) + '...' : '' }}</span>
+            <HashCapsule :value="row.fabric_tx_id" :prefix-len="8" :suffix-len="6" label="Fabric TxID" />
           </template>
         </el-table-column>
       </el-table>
@@ -66,6 +66,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import HashCapsule from '@/components/common/HashCapsule.vue'
 import { listAuditLogsApi } from '../../api'
 
 const logs = ref([])

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -125,5 +126,75 @@ func TestEmergencyService_RulePreScreenAndAuditSummary(t *testing.T) {
 	}
 	if !testing.Short() {
 		t.Logf("生成的医患陈述对比摘要:\n%s", summary)
+	}
+}
+
+// TestAIDiagnostic_Fix4_NoHallucinatedLabsAndPIISanitized 回归测试 Fix 4：杜绝伪造心电图与人口学推测，严格脱敏 Prompt PII
+func TestAIDiagnostic_Fix4_NoHallucinatedLabsAndPIISanitized(t *testing.T) {
+	s := GetAIDiagnosticService()
+
+	// 1. 测试当化验项为空时，SOAP Objective 段如实说明，绝不伪造心电缺血结论
+	req := model.DiagnosticAssistRequest{
+		PatientID:       100,
+		CurrentSymptoms: "轻微咳嗽",
+		PresentIllness:  "起病1天",
+		VitalSigns:      "BP 115/75mmHg, HR 72bpm",
+	}
+	soap := s.generateSOAPSummary(req, model.User{RealName: "张三"}, nil, []model.LabIndicatorItem{
+		{
+			ItemName:     "检验/检查",
+			HistoryValue: "本次授权范围内未见异常检验/检查结果记录",
+			Status:       "NORMAL",
+		},
+	})
+	for _, forbidden := range []string{"12导联心电图", "V4-V6", "T波低平", "轻度缺血改变"} {
+		if strings.Contains(soap.Objective, forbidden) {
+			t.Fatalf("【真实性违规】无异常化验单时仍伪造了心电图指标: %s", forbidden)
+		}
+	}
+	if !strings.Contains(soap.Objective, "未见异常或危急值记录") {
+		t.Errorf("SOAP Objective 段未如实说明无异常化验: %s", soap.Objective)
+	}
+
+	// 2. 测试 buildDiagnosticPrompt 隐私脱敏与无性别年龄推测
+	patUnknown := model.User{
+		RealName: "李晓明",
+		UserNo:   "P20261102",
+		Gender:   "", // 未登记性别
+		Age:      0,  // 未登记年龄
+	}
+	prompt := s.buildDiagnosticPrompt(patUnknown, nil, nil, req, nil)
+
+	// 真实明文姓名与卡号不得出现
+	if strings.Contains(prompt, "李晓明") {
+		t.Fatalf("【PII 泄露】患者真实明文姓名出现在 Prompt 中")
+	}
+	if strings.Contains(prompt, "P20261102") {
+		t.Fatalf("【PII 泄露】患者全量病历号出现在 Prompt 中")
+	}
+	// 掩码内容必须存在
+	if !strings.Contains(prompt, "李**") {
+		t.Errorf("Prompt 未正确包含脱敏后的姓名")
+	}
+	if !strings.Contains(prompt, "P2****02") {
+		t.Errorf("Prompt 未正确包含脱敏后的病历号")
+	}
+	// 缺失的性别与年龄不得被猜测为 男/45
+	if strings.Contains(prompt, "45 岁") {
+		t.Fatalf("【数据伪造】未登记年龄被静默猜测为 45 岁")
+	}
+	if !strings.Contains(prompt, "未登记") {
+		t.Errorf("未登记的性别或年龄未显示未登记标识")
+	}
+
+	// 3. 针对 mask 函数的边界用例测试
+	if got := maskRealName("王"); got != "王*" {
+		t.Errorf("单字名脱敏失败: got %s, want 王*", got)
+	}
+	if got := maskRealName("诸葛孔明"); got != "诸***" {
+		t.Errorf("四字名脱敏失败: got %s, want 诸***", got)
+	}
+	if got := maskUserNo("P12"); got != "****" {
+		t.Errorf("超短号脱敏失败: got %s, want ****", got)
 	}
 }

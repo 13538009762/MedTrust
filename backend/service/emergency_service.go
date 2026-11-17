@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"medtrust-backend/model"
-	"medtrust-backend/pkg/blockchain"
 	"medtrust-backend/repository"
 )
 
@@ -23,14 +22,22 @@ func (s *EmergencyService) SubmitEmergencyAccess(doctorID, recordID uint64, reas
 		ip = clientIP[0]
 	}
 
+	doctorPtr, dbErr := repository.DefaultUserRepository.FindByID(doctorID)
+	if dbErr != nil {
+		return nil, fmt.Errorf("医生不存在: %w", dbErr)
+	}
 	var doctor model.User
-	if err := repository.DB.First(&doctor, doctorID).Error; err != nil {
-		return nil, fmt.Errorf("医生不存在: %w", err)
+	if doctorPtr != nil {
+		doctor = *doctorPtr
 	}
 
+	recordPtr, recErr := repository.DefaultMedicalRepository.FindRecordByID(recordID)
+	if recErr != nil {
+		return nil, fmt.Errorf("病历不存在: %w", recErr)
+	}
 	var record model.MedicalRecord
-	if err := repository.DB.First(&record, recordID).Error; err != nil {
-		return nil, fmt.Errorf("病历不存在: %w", err)
+	if recordPtr != nil {
+		record = *recordPtr
 	}
 
 	// 生成事件单号
@@ -38,8 +45,8 @@ func (s *EmergencyService) SubmitEmergencyAccess(doctorID, recordID uint64, reas
 	_, _ = rand.Read(randBytes)
 	eventNo := fmt.Sprintf("EA%s%s", time.Now().Format("20060102"), hex.EncodeToString(randBytes))
 
-	// 上链存证
-	txID, _, err := blockchain.DefaultService.CommitAsset("EMERGENCY_ACCESS", eventNo, map[string]interface{}{
+	// 上链存证 (WP-10: 失败自动登记补偿队列，而非硬失败中断急救流程)
+	txID, _, cErr := CommitAssetWithCompensation("EMERGENCY_ACCESS", eventNo, map[string]interface{}{
 		"event_no":    eventNo,
 		"doctor_id":   fmt.Sprintf("%d", doctorID),
 		"patient_id":  fmt.Sprintf("%d", record.PatientID),
@@ -50,8 +57,9 @@ func (s *EmergencyService) SubmitEmergencyAccess(doctorID, recordID uint64, reas
 		"timestamp":   time.Now().Format(time.RFC3339),
 		"status":      "PENDING_AUDIT",
 	})
-	if err != nil {
-		return nil, fmt.Errorf("区块链记录失败: %w", err)
+	if cErr != nil {
+		// 修复 5：破窗事件已落库（急救不中断），但链上凭证缺失必须显式审计，禁止静默
+		AuditChainAnchoringPending(doctorID, "BREAK_GLASS_ANCHOR_PENDING", "EVENT", eventNo, doctor.HospitalID, cErr)
 	}
 
 	event := model.EmergencyAccessEvent{
@@ -71,10 +79,6 @@ func (s *EmergencyService) SubmitEmergencyAccess(doctorID, recordID uint64, reas
 		UpdatedAt:        time.Now(),
 	}
 
-	if err := repository.DB.Create(&event).Error; err != nil {
-		return nil, err
-	}
-
 	// 自动生成 24 小时紧急破窗临时通行授权，确保急救期间及随诊期间直接放行，重启服务依然生效
 	authNo := fmt.Sprintf("AUTH_EMG%s%s", time.Now().Format("20060102"), hex.EncodeToString(randBytes))
 	emgAuth := model.Authorization{
@@ -90,7 +94,16 @@ func (s *EmergencyService) SubmitEmergencyAccess(doctorID, recordID uint64, reas
 		FabricTxID:     txID,
 		CreatedAt:      time.Now(),
 	}
-	_ = repository.DB.Create(&emgAuth)
+
+	// WP-10: 事件单与 24 小时临时绿色通道授权必须包裹在同一本地事务中，保证原子性
+	if err := repository.Transaction(func(tx *repository.TxRunner) error {
+		if err := tx.Create(&event); err != nil {
+			return err
+		}
+		return tx.Create(&emgAuth)
+	}); err != nil {
+		return nil, err
+	}
 
 	DefaultAuditService.Log(doctorID, "BREAK_GLASS", "EVENT", eventNo, doctor.HospitalID, "SUCCESS", "HIGH", ip)
 	return &event, nil
@@ -103,8 +116,22 @@ func (s *EmergencyService) SubmitPatientFeedback(patientID uint64, eventNo, feed
 		ip = clientIP[0]
 	}
 
-	var event model.EmergencyAccessEvent
-	if err := repository.DB.Where("event_no = ? AND patient_id = ?", eventNo, patientID).First(&event).Error; err != nil {
+	eventPtr, emgErr := repository.DefaultEmergencyRepository.FindByEventNo(eventNo)
+	if emgErr != nil || eventPtr == nil {
+		return fmt.Errorf("未找到该紧急事件单或无权操作")
+	}
+	event := *eventPtr
+
+	// Re-check patient ownership via list (since FindByEventNo doesn't filter patient)
+	events, _ := repository.DefaultEmergencyRepository.ListEvents(0, patientID, "")
+	found := false
+	for i := range events {
+		if events[i].EventNo == eventNo {
+			found = true
+			break
+		}
+	}
+	if !found {
 		return fmt.Errorf("未找到该紧急事件单或无权操作")
 	}
 
@@ -113,16 +140,17 @@ func (s *EmergencyService) SubmitPatientFeedback(patientID uint64, eventNo, feed
 		event.PatientComment = comment
 	}
 	event.UpdatedAt = time.Now()
-	if err := repository.DB.Save(&event).Error; err != nil {
+	if err := repository.DefaultEmergencyRepository.UpdatePatientFeedback(eventNo, patientID, feedback, comment); err != nil {
 		return fmt.Errorf("更新事件反馈失败: %w", err)
 	}
 
 	// 若患者提出异议 (OBJECTED)，立即收回关联的 24h 紧急授权记录
 	if feedback == "OBJECTED" {
-		_ = repository.DB.Model(&model.Authorization{}).
-			Where("patient_id = ? AND auth_target_id = ? AND record_id = ? AND auth_no LIKE 'AUTH_EMG%' AND status = 'ACTIVE'",
-				event.PatientID, event.DoctorID, event.RecordID).
-			Updates(map[string]interface{}{"status": "REVOKED", "revoke_reason": "患者对破窗行为提出异议，紧急放行即时终止"}).Error
+		_ = repository.DefaultAuthPolicyRepository.RevokeAuthorizationByPattern(
+			"patient_id = ? AND auth_target_id = ? AND record_id = ? AND auth_no LIKE 'AUTH_EMG%' AND status = 'ACTIVE'",
+			map[string]interface{}{"status": "REVOKED", "revoke_reason": "患者对破窗行为提出异议，紧急放行即时终止"},
+			event.PatientID, event.DoctorID, event.RecordID,
+		)
 	}
 
 	DefaultAuditService.Log(patientID, "FEEDBACK", "EVENT", eventNo, event.TargetHospitalID, "SUCCESS", "LOW", ip)
@@ -136,39 +164,54 @@ func (s *EmergencyService) AuditEvent(supervisorID uint64, eventNo, auditStatus,
 		ip = clientIP[0]
 	}
 
-	var event model.EmergencyAccessEvent
-	if err := repository.DB.Where("event_no = ?", eventNo).First(&event).Error; err != nil {
-		return fmt.Errorf("未找到紧急事件单: %w", err)
+	eventPtr, emgErr := repository.DefaultEmergencyRepository.FindByEventNo(eventNo)
+	if emgErr != nil || eventPtr == nil {
+		return fmt.Errorf("未找到紧急事件单: %w", emgErr)
 	}
+	event := *eventPtr
 
 	event.AuditStatus = auditStatus
 	event.SupervisorID = supervisorID
 	event.AuditComment = comment
 	event.UpdatedAt = time.Now()
-	if err := repository.DB.Save(&event).Error; err != nil {
-		return fmt.Errorf("保存审核结果失败: %w", err)
-	}
 
-	// 更新 Fabric 链上状态
-	_, _, _ = blockchain.DefaultService.CommitAsset("EMERGENCY_AUDIT", eventNo, map[string]interface{}{
+	// WP-10: 事件审核状态更新与阶梯式惩戒联动必须包裹在同一本地事务中，保证原子性
+	if err := repository.Transaction(func(tx *repository.TxRunner) error {
+		if err := tx.Save(&event); err != nil {
+			return fmt.Errorf("保存审核结果失败: %w", err)
+		}
+
+		// 执行惩戒联动 (NORMAL, RESTRICTED, DISABLED)
+		if auditStatus == "CLOSED_VIOLATION" || (punishment != "" && punishment != "NORMAL") {
+			if err := tx.Model(&model.Authorization{}).
+				Where("patient_id = ? AND auth_target_id = ? AND record_id = ? AND auth_no LIKE 'AUTH_EMG%' AND status = 'ACTIVE'",
+					event.PatientID, event.DoctorID, event.RecordID).
+				Updates(map[string]interface{}{"status": "REVOKED", "revoke_reason": "监管裁定违规破窗，收回紧急放行权限"}); err != nil {
+				return err
+			}
+		}
+		if punishment != "" && punishment != "NORMAL" {
+			if err := tx.Model(&model.User{}).Where("id = ?", event.DoctorID).Update("status", punishment); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	repository.InvalidateUserStatus(event.DoctorID)
+
+	// WP-10: 链上审核存证失败时登记补偿任务，而非静默吞掉错误
+	if _, _, cErr := CommitAssetWithCompensation("EMERGENCY_AUDIT", eventNo, map[string]interface{}{
 		"event_no":      eventNo,
 		"supervisor_id": supervisorID,
 		"audit_status":  auditStatus,
 		"comment":       comment,
 		"punishment":    punishment,
 		"timestamp":     time.Now().Format(time.RFC3339),
-	})
-
-	// 执行惩戒联动 (NORMAL, RESTRICTED, DISABLED)
-	if auditStatus == "CLOSED_VIOLATION" || (punishment != "" && punishment != "NORMAL") {
-		_ = repository.DB.Model(&model.Authorization{}).
-			Where("patient_id = ? AND auth_target_id = ? AND record_id = ? AND auth_no LIKE 'AUTH_EMG%' AND status = 'ACTIVE'",
-				event.PatientID, event.DoctorID, event.RecordID).
-			Updates(map[string]interface{}{"status": "REVOKED", "revoke_reason": "监管裁定违规破窗，收回紧急放行权限"}).Error
-	}
-	if punishment != "" && punishment != "NORMAL" {
-		_ = repository.DB.Model(&model.User{}).Where("id = ?", event.DoctorID).Update("status", punishment).Error
-		repository.InvalidateUserStatus(event.DoctorID)
+	}); cErr != nil {
+		// 修复 5：监管裁定的链上凭证缺失必须显式审计，禁止静默
+		AuditChainAnchoringPending(supervisorID, "AUDIT_CLOSE_ANCHOR_PENDING", "EVENT", eventNo, 0, cErr)
 	}
 
 	DefaultAuditService.Log(supervisorID, "AUDIT_CLOSE", "EVENT", eventNo, 0, "SUCCESS", "LOW", ip)
@@ -182,12 +225,16 @@ func (s *EmergencyService) LiftDoctorRestriction(supervisorID, doctorID uint64, 
 		ip = clientIP[0]
 	}
 
+	docPtr, dbErr := repository.DefaultUserRepository.FindByID(doctorID)
+	if dbErr != nil {
+		return fmt.Errorf("医生不存在: %w", dbErr)
+	}
 	var doc model.User
-	if err := repository.DB.First(&doc, doctorID).Error; err != nil {
-		return fmt.Errorf("医生不存在: %w", err)
+	if docPtr != nil {
+		doc = *docPtr
 	}
 
-	if err := repository.DB.Model(&model.User{}).Where("id = ?", doctorID).Update("status", "NORMAL").Error; err != nil {
+	if err := repository.DefaultUserRepository.UpdateStatus(doctorID, "NORMAL"); err != nil {
 		return err
 	}
 	repository.InvalidateUserStatus(doctorID)
@@ -198,6 +245,17 @@ func (s *EmergencyService) LiftDoctorRestriction(supervisorID, doctorID uint64, 
 
 // EvaluateRulePreScreen 关卡一：Go 纯代码客观合理性初筛 (0 Token 消耗，毫秒级判定)
 func (s *EmergencyService) EvaluateRulePreScreen(event *model.EmergencyAccessEvent) (string, string) {
+	// WP-13: 循环外批量调用方请使用 EvaluateRulePreScreenWithCount 预计算 burst 次数，避免逐条 COUNT(*) SQL
+	var recentBursts int64
+	if isRepoInit() {
+		recentBursts = repository.DefaultEmergencyRepository.CountRecentBreakGlassBursts(event.DoctorID, event.CreatedAt)
+	}
+	return s.EvaluateRulePreScreenWithCount(event, recentBursts)
+}
+
+// EvaluateRulePreScreenWithCount WP-13: 零 SQL 版本规则初筛——recentBursts 由调用方基于已加载的
+// 内存事件切片预计算（同一医生在 event.CreatedAt 前后 1 小时窗口内的破窗次数），全程无数据库往返
+func (s *EmergencyService) EvaluateRulePreScreenWithCount(event *model.EmergencyAccessEvent, recentBursts int64) (string, string) {
 	reasonUpper := strings.ToUpper(strings.TrimSpace(event.EmergencyReason))
 	descUpper := strings.ToUpper(strings.TrimSpace(event.Description))
 
@@ -210,14 +268,7 @@ func (s *EmergencyService) EvaluateRulePreScreen(event *model.EmergencyAccessEve
 		strings.Contains(descUpper, "抢救") || strings.Contains(descUpper, "意识丧失") ||
 		strings.Contains(descUpper, "心室颤动") || strings.Contains(descUpper, "大出血")
 
-	// 检查是否在短期内跨多名患者频繁发起破窗 (防滥用刷单)
-	var recentBursts int64
-	if repository.DB != nil {
-		oneHourAgo := event.CreatedAt.Add(-1 * time.Hour)
-		repository.DB.Model(&model.EmergencyAccessEvent{}).
-			Where("doctor_id = ? AND created_at >= ? AND created_at <= ?", event.DoctorID, oneHourAgo, event.CreatedAt).
-			Count(&recentBursts)
-	}
+	// recentBursts 已由调用方预计算传入 (WP-13: 零 SQL 循环安全判定)
 
 	// 若理由过于笼统 (如 OTHER, 其它, 调阅) 或 1小时内超过 8 次破窗，或患者已提出异议
 	isSuspicious := strings.Contains(reasonUpper, "OTHER") || strings.Contains(reasonUpper, "其它") ||

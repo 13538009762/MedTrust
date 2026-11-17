@@ -37,8 +37,9 @@ type CaptchaResult struct {
 // GenerateCaptcha creates a random math problem and renders it as an SVG image (base64 data URI).
 func GenerateCaptcha() (*CaptchaResult, error) {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	num1 := r.Intn(10) + 1
-	num2 := r.Intn(10) + 1
+	// 运算数 0~99：单 token 错答即作废（见 VerifyCaptcha），扩大范围以压低猜测命中率
+	num1 := r.Intn(100)
+	num2 := r.Intn(100)
 
 	op := "+"
 	var answer int
@@ -179,11 +180,22 @@ func VerifyCaptcha(token string, answer string) (bool, string) {
 
 	// Check answer
 	if payload.Answer != answer {
+		// 错答即作废：否则持有同一 token 可无限暴力尝试（0~99 运算结果空间很小）
+		markTokenConsumed(token, payload.ExpiresAt)
 		return false, "验证码计算错误，请重新输入"
 	}
 
 	// Mark as consumed to prevent replay attack
+	markTokenConsumed(token, payload.ExpiresAt)
+
+	return true, ""
+}
+
+// markTokenConsumed 记录已消费的 token（含容量清理），调用方需保证逻辑上该 token 已不可再用。
+func markTokenConsumed(token string, expiresAt int64) {
 	usedTokensLock.Lock()
+	defer usedTokensLock.Unlock()
+
 	if len(usedTokens) >= maxUsedTokens {
 		// Clean up expired ones
 		now := time.Now().Unix()
@@ -204,8 +216,5 @@ func VerifyCaptcha(token string, answer string) (bool, string) {
 			}
 		}
 	}
-	usedTokens[token] = payload.ExpiresAt
-	usedTokensLock.Unlock()
-
-	return true, ""
+	usedTokens[token] = expiresAt
 }

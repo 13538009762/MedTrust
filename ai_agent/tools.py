@@ -1,11 +1,61 @@
 import base64
+import hashlib
+import hmac
 import json
 import os
 import re
+import time
 import requests
+from pathlib import Path
 from typing import Dict, Any, Optional, Set
 
 GO_BACKEND_URL = os.getenv("GO_BACKEND_URL", "http://127.0.0.1:8080/api/v1")
+
+
+def _read_secret_from_file(path: Path, key: str) -> str:
+    """从 KEY=VALUE (.env) 或 key: value (YAML) 文件中读取指定密钥；只做最小解析，避免额外依赖。"""
+    if not path.exists():
+        return ""
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if stripped.startswith(key + ":") or stripped.startswith(key + "="):
+                sep = "=" if "=" in stripped.split("#", 1)[0] and not stripped.startswith(key + ":") else ":"
+                val = stripped.split(sep, 1)[1].split("#", 1)[0].strip().strip('"').strip("'")
+                if val:
+                    return val
+    except OSError:
+        return ""
+    return ""
+
+
+def _load_jwt_secret() -> str:
+    """加载与 Go 后端共享的 JWT HMAC 密钥。
+
+    来源优先级：环境变量 > backend/config/config.yaml > 仓库根 .env。
+    全部缺失时返回空串——extract_jwt_claims 会在空密钥下拒绝一切 token（fail-closed），
+    不再回退到硬编码弱密钥。
+    """
+    env_secret = os.getenv("MEDTRUST_JWT_SECRET") or os.getenv("JWT_SECRET")
+    if env_secret:
+        return env_secret.strip()
+
+    repo_root = Path(__file__).resolve().parent.parent
+    for path, key in (
+        (repo_root / "backend" / "config" / "config.yaml", "jwt_secret"),
+        (repo_root / ".env", "JWT_SECRET"),
+        (repo_root / "backend" / ".env", "JWT_SECRET"),
+    ):
+        val = _read_secret_from_file(path, key)
+        if val:
+            return val
+    return ""
+
+
+# WP-06: 与 Go 后端共享的 JWT 签名密钥 (HS256)，强制校验签名，阻断伪造 Payload
+MEDTRUST_JWT_SECRET = _load_jwt_secret()
 
 # 严格角色-工具白名单映射 (RBAC + Tool Calling Guardrail)
 ROLE_TOOL_ALLOWLIST: Dict[str, Set[str]] = {
@@ -17,6 +67,7 @@ ROLE_TOOL_ALLOWLIST: Dict[str, Set[str]] = {
     "doctor": {
         "tool_query_medical_records",
         "tool_verify_integrity",
+        "tool_summarize_soap",
     },
     "supervisor": {
         "tool_query_audit_logs",
@@ -27,18 +78,51 @@ ROLE_TOOL_ALLOWLIST: Dict[str, Set[str]] = {
     },
 }
 
+class PermissionError(Exception):
+    """JWT 签名/有效期校验失败——拒绝信任 token 内的 role/user_id (应映射 HTTP 401)"""
+
+
+def _b64url_decode(data: str) -> bytes:
+    padded = data + "=" * ((4 - len(data) % 4) % 4)
+    return base64.urlsafe_b64decode(padded)
+
+
 def extract_jwt_claims(token: str) -> Dict[str, Any]:
-    """无需外部依赖纯 Python 解析 JWT Claims Payload"""
+    """密码学 JWT 校验——HMAC-SHA256 签名比对 (hmac.compare_digest 防 timing attack) + exp 过期校验。
+
+    fail-closed 语义：未配置共享密钥时一律拒绝（抛 PermissionError → HTTP 401），
+    绝不"跳过验签仅解析 payload"，否则攻击者可自签任意角色 token 提权。"""
+    if not MEDTRUST_JWT_SECRET:
+        raise PermissionError("服务端未配置 JWT 共享密钥 (MEDTRUST_JWT_SECRET/JWT_SECRET)，拒绝所有令牌")
+
     try:
         parts = token.split(".")
-        if len(parts) >= 2:
-            payload = parts[1]
-            padded = payload + "=" * ((4 - len(payload) % 4) % 4)
-            data = base64.urlsafe_b64decode(padded)
-            return json.loads(data)
-    except Exception:
-        pass
-    return {}
+        if len(parts) != 3:
+            raise PermissionError("JWT 结构非法")
+        header = json.loads(_b64url_decode(parts[0]))
+        if header.get("alg") != "HS256":
+            raise PermissionError(f"不支持的 JWT 签名算法: {header.get('alg')}")
+
+        signing_input = f"{parts[0]}.{parts[1]}".encode("ascii")
+        expected_sig = hmac.new(
+            MEDTRUST_JWT_SECRET.encode("utf-8"), signing_input, hashlib.sha256
+        ).digest()
+        actual_sig = _b64url_decode(parts[2])
+        if not hmac.compare_digest(expected_sig, actual_sig):
+            raise PermissionError("JWT HMAC-SHA256 签名校验失败 (疑似伪造 token)")
+
+        claims = json.loads(_b64url_decode(parts[1]))
+
+        exp = claims.get("exp")
+        if exp is not None:
+            if isinstance(exp, (int, float)) and exp < time.time():
+                raise PermissionError("JWT 已过期 (exp)")
+
+        return claims
+    except PermissionError:
+        raise
+    except Exception as exc:
+        raise PermissionError(f"JWT 解析失败: {exc}") from exc
 
 def is_tool_allowed_for_role(tool_name: str, role: str) -> bool:
     """检查工具是否在指定角色的白名单内"""
@@ -220,6 +304,37 @@ class ControlledMedicalTools:
         })
         return result
 
+    def summarize_patient_soap(self, patient_id: int) -> Dict[str, Any]:
+        """受控工具5：调用 Go 后端 /ai/diagnostic-assist 统一 SOAP 摘要边界 (Python 零数据库驱动)"""
+        try:
+            valid_pid = int(patient_id)
+            if valid_pid <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            return {"code": 400, "message": "非法的患者 ID", "data": None}
+        try:
+            resp = requests.post(
+                f"{GO_BACKEND_URL}/ai/diagnostic-assist",
+                headers=self.headers,
+                json={"patient_id": valid_pid},
+                timeout=15,
+            )
+            result = resp.json() if resp.status_code == 200 else {"code": resp.status_code, "message": "权限拦截"}
+            status_code = resp.status_code
+        except Exception as e:
+            result = {"code": 500, "message": str(e)}
+            status_code = 500
+        self.trace_logs.append({
+            "tool": "summarize_patient_soap",
+            "endpoint": "POST /api/v1/ai/diagnostic-assist",
+            "status_code": status_code,
+            "gate1_guard": "角色白名单 (仅执业医生) 核验通过 (HTTP 200)" if status_code == 200 else f"权限拦截 (HTTP {status_code})",
+            "gate2_semantic": "执行工具: summarize_patient_soap (经 Go 统一 SOAP 摘要边界，零诊断零处方)",
+            "gate3_post_check": "Go 侧 enforceNonDiagnosticOutputGuard 已强制清空疾病预测与新处方" if status_code == 200 else "未放行，跳过",
+            "auth_check": "PASSED" if status_code == 200 else "INTERCEPTED_BY_GATEKEEPER"
+        })
+        return result
+
     def analyze_audit_anomalies(self, risk_level: str = "") -> Dict[str, Any]:
         """受控工具4：检索访问审计日志与异常高风险行为记录（仅监管员/患者本人可用）"""
         try:
@@ -240,4 +355,3 @@ class ControlledMedicalTools:
             "auth_check": "PASSED" if status_code == 200 else "INTERCEPTED_BY_GATEKEEPER"
         })
         return result
-

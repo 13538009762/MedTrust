@@ -9,17 +9,23 @@ import (
 	"time"
 )
 
-func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHospitalID, currentUserID uint64, onlyCrossAccessed bool, keyword, dataType string) ([]model.MedicalRecord, error) {
-	query := repository.DB.Model(&model.MedicalRecord{}).Preload("Files")
+// MaxRecordPageSize 病历列表单页最大条数，防止客户端传 page_size=999999 拖垮库与响应体
+const MaxRecordPageSize = 100
+
+func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHospitalID, currentUserID uint64, onlyCrossAccessed bool, keyword, dataType string, page, pageSize int) ([]model.MedicalRecord, error) {
+	query := repository.DefaultMedicalRepository.NewRecordQuery()
 
 	var currentUser model.User
 	var currentUserDeptName string
 	if currentUserID > 0 {
-		_ = repository.DB.First(&currentUser, currentUserID)
+		userPtr, _ := repository.DefaultUserRepository.FindByID(currentUserID)
+		if userPtr != nil {
+			currentUser = *userPtr
+		}
 		if currentUser.DepartmentID > 0 {
-			var dept model.Department
-			if err := repository.DB.First(&dept, currentUser.DepartmentID).Error; err == nil {
-				currentUserDeptName = dept.Name
+			deptPtr, deptErr := repository.DefaultUserRepository.FindDepartmentByID(currentUser.DepartmentID)
+			if deptErr == nil && deptPtr != nil {
+				currentUserDeptName = deptPtr.Name
 			}
 		}
 	}
@@ -34,11 +40,8 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 	var patientAuths []model.Authorization
 
 	if currentUserID > 0 && currentUser.Role == "doctor" {
-		repository.DB.Where("(auth_target_type = 'DOCTOR' AND auth_target_id = ?) OR (auth_target_type = 'HOSPITAL' AND auth_target_id = ?) OR auth_target_type = 'ALL_DOCTORS'", currentUserID, currentUser.HospitalID).
-			Where("status = 'ACTIVE' AND start_time <= ? AND end_time >= ?", now, now).Find(&docAuths)
-
-		var privAuths []model.Authorization
-		repository.DB.Where("scope_type = 'SINGLE' AND auth_target_type = 'PRIVATE' AND status = 'ACTIVE' AND start_time <= ? AND end_time >= ?", now, now).Find(&privAuths)
+		docAuths, _ = repository.DefaultAuthPolicyRepository.ListAuthorizationsForDoctor(currentUserID, currentUser.HospitalID, "ACTIVE")
+		privAuths, _ := repository.DefaultAuthPolicyRepository.ListPrivAuthsByTime(now, now)
 		for _, pa := range privAuths {
 			if pa.RecordID > 0 {
 				privateRecordIDs[pa.RecordID] = true
@@ -53,14 +56,13 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 			}
 		}
 
-		var emgs []model.EmergencyAccessEvent
-		repository.DB.Where("doctor_id = ? AND created_at >= ? AND audit_status != 'CLOSED_VIOLATION' AND patient_feedback != 'OBJECTED'", currentUserID, now.Add(-24*time.Hour)).Find(&emgs)
+		emgs, _ := repository.DefaultEmergencyRepository.ListRecentActiveEmgs(currentUserID, now.Add(-24*time.Hour))
 		for _, e := range emgs {
 			docEmgRecordIDs[e.RecordID] = true
 			authRecordIDs = append(authRecordIDs, e.RecordID)
 		}
 	} else if currentUserID > 0 && currentUser.Role == "patient" {
-		repository.DB.Where("patient_id = ? AND status = 'ACTIVE' AND start_time <= ? AND end_time >= ?", currentUserID, now, now).Find(&patientAuths)
+		patientAuths, _ = repository.DefaultAuthPolicyRepository.ListPatientAuthsAtTime(currentUserID, now, now)
 	}
 
 	if onlyCrossAccessed && currentUserID > 0 && currentUser.Role == "doctor" {
@@ -107,7 +109,19 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 	}
 
 	var list []model.MedicalRecord
-	if err := query.Order("id desc").Find(&list).Error; err != nil {
+	db := query.Order("id desc")
+	// 分页下推到 SQL：pageSize>0 时按页取，避免把全表拉进内存后再截断。
+	// pageSize<=0 表示内部调用方（AI 诊断、导出等）需要全量，此时不施加 LIMIT。
+	if pageSize > 0 {
+		if pageSize > MaxRecordPageSize {
+			pageSize = MaxRecordPageSize
+		}
+		if page < 1 {
+			page = 1
+		}
+		db = db.Offset((page - 1) * pageSize).Limit(pageSize)
+	}
+	if err := db.Find(&list); err != nil {
 		return nil, err
 	}
 
@@ -148,8 +162,8 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 		}
 	}
 	if len(allUserIDs) > 0 {
-		var users []model.User
-		if err := repository.DB.Where("id IN ?", allUserIDs).Find(&users).Error; err == nil {
+		users, usrErr := repository.DefaultUserRepository.FindByIDs(allUserIDs)
+		if usrErr == nil {
 			for _, u := range users {
 				userMap[u.ID] = u
 			}
@@ -161,8 +175,8 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 		allHospIDs = append(allHospIDs, id)
 	}
 	if len(allHospIDs) > 0 {
-		var hosps []model.Hospital
-		if err := repository.DB.Where("id IN ?", allHospIDs).Find(&hosps).Error; err == nil {
+		hosps, hospErr := repository.DefaultUserRepository.FindHospitalsByIDs(allHospIDs)
+		if hospErr == nil {
 			for _, h := range hosps {
 				hospMap[h.ID] = h
 			}
@@ -367,7 +381,44 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 			list[i].HasAccess = true
 		}
 
-		s.VerifyRecord(&list[i])
+		// WP-12: 列表端点不再执行 O(N) Fabric+IPFS 同步核验（每条记录一次链查询+密文拉取+解密），
+		// 改为基于索引字段的 O(1) 轻量状态推导：
+		//   - 未上链且流转中的就诊记录不误判为篡改（与 VerifyRecord 流转分支语义一致）
+		//   - 已上链记录以持久化 IntegrityStatus 为准（由单记录核验端点回写）
+		//   - 上链但从未核验过的记录按账本锚定状态给出非篡改指纹
+		if r := &list[i]; r.FabricTxID == "" && (r.Status == "WAITING_EXAM" || r.Status == "PROCESSING_EXAM" || r.Status == "EXAM_COMPLETED" || r.Status == "INITIAL_DIAGNOSIS") {
+			r.Verified = false
+			r.IsTampered = false
+			r.ChainHash = ""
+			r.TamperReason = ""
+		} else if r.FabricTxID == "" {
+			r.Verified = false
+			r.IsTampered = false
+			r.ChainHash = ""
+			r.TamperReason = "【区块链存证提示】该病历尚未在区块链分布式账本形成存证锚定"
+		} else if r.IntegrityStatus == "TAMPERED" {
+			r.Verified = false
+			r.IsTampered = true
+			r.TamperReason = "【区块链安全告警】该病历最近一次单记录核验检测到篡改请点击单条核验重新验真"
+		} else {
+			chainAnchored := r.FabricTxID != ""
+			r.Verified = chainAnchored && r.IntegrityStatus != "TAMPERED"
+			r.IsTampered = false
+			r.TamperReason = ""
+		}
+
+		// WP-08: 列表端点无条件统一脱敏患者身份证与手机号（即使 HasAccess == true），
+		// 降低批量表格接口的 PII 拖库风险；完整明文仅在单记录详情/授权通道中按需返回
+		if len(list[i].PatientPhone) >= 7 {
+			list[i].PatientPhone = list[i].PatientPhone[:3] + "****" + list[i].PatientPhone[7:]
+		} else if list[i].PatientPhone != "" {
+			list[i].PatientPhone = "***"
+		}
+		if len(list[i].PatientIDCard) >= 14 {
+			list[i].PatientIDCard = list[i].PatientIDCard[:6] + "********" + list[i].PatientIDCard[14:]
+		} else if list[i].PatientIDCard != "" {
+			list[i].PatientIDCard = "******************"
+		}
 
 		// 安全脱敏防御：若当前医生未获得调阅权限，严禁向前端返回临床敏感诊断与明细数据
 		if currentUserID > 0 && !list[i].HasAccess {
@@ -383,16 +434,6 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 			list[i].ExamReason = "【未取得患者授权】"
 			list[i].ExamResult = "【未取得患者授权】"
 			list[i].VitalSigns = "【受控屏蔽】"
-			if len(list[i].PatientPhone) >= 7 {
-				list[i].PatientPhone = list[i].PatientPhone[:3] + "****" + list[i].PatientPhone[7:]
-			} else if list[i].PatientPhone != "" {
-				list[i].PatientPhone = "***"
-			}
-			if len(list[i].PatientIDCard) >= 14 {
-				list[i].PatientIDCard = list[i].PatientIDCard[:6] + "********" + list[i].PatientIDCard[14:]
-			} else if list[i].PatientIDCard != "" {
-				list[i].PatientIDCard = "******************"
-			}
 			list[i].Files = nil
 		}
 
@@ -409,23 +450,25 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 }
 
 func (s *MedicalService) GetRecordByID(id uint64) (*model.MedicalRecord, error) {
-	var rec model.MedicalRecord
-	if err := repository.DB.Preload("Files").First(&rec, id).Error; err != nil {
-		return nil, err
+	recPtr, recErr := repository.DefaultMedicalRepository.FindRecordByID(id)
+	if recErr != nil {
+		return nil, recErr
 	}
-	var pat model.User
-	if err := repository.DB.First(&pat, rec.PatientID).Error; err == nil {
-		rec.PatientName = pat.RealName
-		rec.PatientIDCard = pat.IDCard
-		rec.PatientPhone = pat.Phone
+	rec := *recPtr
+
+	patPtr, patErr := repository.DefaultUserRepository.FindByID(rec.PatientID)
+	if patErr == nil && patPtr != nil {
+		rec.PatientName = patPtr.RealName
+		rec.PatientIDCard = patPtr.IDCard
+		rec.PatientPhone = patPtr.Phone
 	}
-	var doc model.User
-	if err := repository.DB.First(&doc, rec.DoctorID).Error; err == nil {
-		rec.DoctorName = doc.RealName
+	docPtr, docErr := repository.DefaultUserRepository.FindByID(rec.DoctorID)
+	if docErr == nil && docPtr != nil {
+		rec.DoctorName = docPtr.RealName
 	}
-	var hosp model.Hospital
-	if err := repository.DB.First(&hosp, rec.HospitalID).Error; err == nil {
-		rec.HospitalName = hosp.Name
+	hospPtr, hospErr := repository.DefaultUserRepository.FindHospitalByIDFull(rec.HospitalID)
+	if hospErr == nil && hospPtr != nil {
+		rec.HospitalName = hospPtr.Name
 	}
 	s.VerifyRecord(&rec)
 
@@ -444,6 +487,45 @@ func (s *MedicalService) EnrichPatientEmergencyProfile(user *model.User) {
 	}
 
 	// 1. 根据 18 位身份证号码推导性别与年龄
+	s.enrichPatientIdentityProfile(user)
+
+	// 2. 从最近就诊记录中获取最新生命体征参数与慢性病信息
+	// WP-13: 外部批量调用方请优先使用 ListPatients 的批量预加载版本，避免逐患者 N+1 查询
+	var latestRec model.MedicalRecord
+	recPtr, lrErr := repository.DefaultMedicalRepository.FindLatestByPatient(user.ID)
+	if lrErr == nil && recPtr != nil {
+		latestRec = *recPtr
+	}
+	if latestRec.VitalSigns != "" {
+		user.LatestVitalSigns = latestRec.VitalSigns
+	}
+
+	// 3. WP-07: 仅展示真实持久化的抢救档案字段，严禁伪造 mock 过敏史/血型/紧急联系人
+	if user.LatestVitalSigns == "" {
+		user.LatestVitalSigns = "未登记"
+	}
+	if user.BloodType == "" {
+		user.BloodType = "未登记"
+	}
+	if strings.TrimSpace(user.Allergies) == "" {
+		user.Allergies = "未登记"
+		user.HasAllergies = false
+	} else {
+		user.HasAllergies = true
+	}
+	if strings.TrimSpace(user.ChronicDiseases) == "" {
+		user.ChronicDiseases = "未登记"
+	}
+	if strings.TrimSpace(user.EmergencyContact) == "" {
+		user.EmergencyContact = "未登记"
+	}
+	if strings.TrimSpace(user.EmergencyPhone) == "" {
+		user.EmergencyPhone = "未登记"
+	}
+}
+
+// enrichPatientIdentityProfile WP-13: 零 SQL 身份画像推导（身份证号推性别/年龄），供批量与单查路径共用
+func (s *MedicalService) enrichPatientIdentityProfile(user *model.User) {
 	if len(user.IDCard) == 18 {
 		birthYearStr := user.IDCard[6:10]
 		birthYear, err := strconv.Atoi(birthYearStr)
@@ -465,62 +547,76 @@ func (s *MedicalService) EnrichPatientEmergencyProfile(user *model.User) {
 		user.Gender = "男"
 		user.Age = 38
 	}
+}
 
-	// 2. 从最近就诊记录中获取最新生命体征参数与慢性病信息
-	var latestRec model.MedicalRecord
-	if err := repository.DB.Where("patient_id = ?", user.ID).Order("id desc").First(&latestRec).Error; err == nil {
-		if latestRec.VitalSigns != "" {
-			user.LatestVitalSigns = latestRec.VitalSigns
-		}
+// EnrichPatientEmergencyProfileWithVitals WP-13: 基于预加载的最新生命体征映射的零 SQL 画像增强版本
+func (s *MedicalService) EnrichPatientEmergencyProfileWithVitals(user *model.User, latestVitalSigns string) {
+	if user == nil || user.Role != "patient" {
+		return
 	}
+
+	// 1. 零 SQL 身份画像推导
+	s.enrichPatientIdentityProfile(user)
+
+	// 2. 生命体征由批量预加载映射传入，本函数全程零 SQL
+	if latestVitalSigns != "" {
+		user.LatestVitalSigns = latestVitalSigns
+	}
+
+	// 3. WP-07: 仅展示真实持久化的抢救档案字段，严禁伪造 mock 过敏史/血型/紧急联系人
 	if user.LatestVitalSigns == "" {
-		user.LatestVitalSigns = "BP: 122/80 mmHg, HR: 74 bpm, SpO2: 99%, T: 36.6℃"
+		user.LatestVitalSigns = "未登记"
 	}
-
-	// 3. 拟定抢救黄金档案 (结合患者数据合理生成，便于急救参考)
-	bloodTypes := []string{"O型 (Rh阳性)", "A型 (Rh阳性)", "B型 (Rh阳性)", "AB型 (Rh阳性)"}
-	user.BloodType = bloodTypes[user.ID%uint64(len(bloodTypes))]
-
-	if user.ID%3 == 1 {
-		user.Allergies = "青霉素类抗生素、头孢菌素轻度过敏"
-		user.HasAllergies = true
-		user.ChronicDiseases = "原发性高血压(2级中危), 2型糖尿病"
-		user.EmergencyContact = "李秀兰 (配偶)"
-		user.EmergencyPhone = "13800138021"
-	} else if user.ID%3 == 2 {
-		user.Allergies = "磺胺类药物过敏, 鱼虾等海鲜蛋白过敏"
-		user.HasAllergies = true
-		user.ChronicDiseases = "支气管哮喘, 慢性浅表性胃炎"
-		user.EmergencyContact = "张宏伟 (父亲)"
-		user.EmergencyPhone = "13911223344"
-	} else {
-		user.Allergies = "未发现明确药物过敏史"
+	if user.BloodType == "" {
+		user.BloodType = "未登记"
+	}
+	if strings.TrimSpace(user.Allergies) == "" {
+		user.Allergies = "未登记"
 		user.HasAllergies = false
-		user.ChronicDiseases = "高脂血症, 偶发性心律不齐"
-		user.EmergencyContact = "王晓敏 (家属)"
-		user.EmergencyPhone = "13766554433"
+	} else {
+		user.HasAllergies = true
+	}
+	if strings.TrimSpace(user.ChronicDiseases) == "" {
+		user.ChronicDiseases = "未登记"
+	}
+	if strings.TrimSpace(user.EmergencyContact) == "" {
+		user.EmergencyContact = "未登记"
+	}
+	if strings.TrimSpace(user.EmergencyPhone) == "" {
+		user.EmergencyPhone = "未登记"
 	}
 }
 
 // ListPatients 医生或系统查询患者列表，支持通过姓名、手机号、身份证号精准搜索
 func (s *MedicalService) ListPatients(keyword string) ([]model.User, error) {
-	query := repository.DB.Model(&model.User{}).Where("role = ?", "patient")
-	if keyword != "" {
-		query = query.Where("real_name LIKE ? OR phone LIKE ? OR id_card LIKE ? OR user_no LIKE ?",
-			"%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%")
-	}
-	var list []model.User
-	if err := query.Order("id asc").Find(&list).Error; err != nil {
-		return nil, err
+	users, usrErr := repository.DefaultUserRepository.ListPatients(keyword)
+	if usrErr != nil {
+		return nil, usrErr
 	}
 
-	// 关联分析患者名下的高危传染病携带情况与急诊抢救画像
-	for i := range list {
-		s.EnrichPatientEmergencyProfile(&list[i])
-		if alert, err := GetInfectionService().AnalyzePatientRisks(list[i].ID); err == nil && alert.HasRisk {
-			list[i].InfectionAlert = alert
+	// WP-13: 一次批量查询预加载每位患者最新一条含生命体征的病历，消除循环内逐患者 SQL (N+1 → 1)
+	patientIDs := make([]uint64, 0, len(users))
+	for i := range users {
+		patientIDs = append(patientIDs, users[i].ID)
+	}
+	latestVitalsMap := make(map[uint64]string)
+	if len(patientIDs) > 0 {
+		vitalsRecs, vitalsErr := repository.DefaultMedicalRepository.FindVitalsByPatientIDs(patientIDs)
+		if vitalsErr == nil {
+			for _, r := range vitalsRecs {
+				if _, ok := latestVitalsMap[r.PatientID]; !ok {
+					latestVitalsMap[r.PatientID] = r.VitalSigns
+				}
+			}
 		}
 	}
 
-	return list, nil
+	// WP-07: 批量患者目录仅展示身份识别画像（性别/年龄/最新生命体征等抢救索引信息）；
+	// 严禁在批量列表中逐个调用 AnalyzePatientRisks 暴露 HIV/HBV/梅毒等传染病隐私（同时消除 2N 次全病历 SQL 扫描）
+	for i := range users {
+		s.EnrichPatientEmergencyProfileWithVitals(&users[i], latestVitalsMap[users[i].ID])
+		users[i].InfectionAlert = nil
+	}
+
+	return users, nil
 }

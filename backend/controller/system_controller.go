@@ -25,21 +25,37 @@ var DefaultSystemController = &SystemController{}
 func (ctrl *SystemController) ListUsers(c *gin.Context) {
 	users, _ := repository.DefaultUserRepository.ListAllUsers()
 
+	// 监管角色仅做治理视角，不应看到完整 PII 目录；仅系统管理员保留完整字段
+	isAdmin := c.GetString("role") == "admin"
+
+	// WP-13: 批量预加载机构与科室名称 (WHERE id IN，消除逐条 FindByID 的 N+1)
+	hospIDs := make([]uint64, 0, len(users))
+	deptIDs := make([]uint64, 0, len(users))
 	for i := range users {
 		users[i].HasMedicalKey = (users[i].MedicalKeyHash != "" || users[i].MedicalKey != "")
 		users[i].PasswordHash = ""
 		users[i].MedicalKey = ""
 		users[i].MedicalKeyHash = ""
-
+		// WP-08: 监管方视角脱敏身份证与手机号，防止治理通道沦为 PII 拖库入口
+		if !isAdmin {
+			users[i].IDCard = maskIDCard(users[i].IDCard)
+			users[i].Phone = maskPhone(users[i].Phone)
+		}
 		if users[i].HospitalID > 0 {
-			if hosp, err := repository.DefaultHospitalRepository.FindByID(users[i].HospitalID); err == nil {
-				users[i].HospitalName = hosp.Name
-			}
+			hospIDs = append(hospIDs, users[i].HospitalID)
 		}
 		if users[i].DepartmentID > 0 {
-			if dept, err := repository.DefaultHospitalRepository.FindDepartmentByID(users[i].DepartmentID); err == nil {
-				users[i].DepartmentName = dept.Name
-			}
+			deptIDs = append(deptIDs, users[i].DepartmentID)
+		}
+	}
+	hospMap := loadHospitalsMapBatch(hospIDs)
+	deptMap := loadDepartmentsMapBatch(deptIDs)
+	for i := range users {
+		if h, ok := hospMap[users[i].HospitalID]; ok {
+			users[i].HospitalName = h.Name
+		}
+		if d, ok := deptMap[users[i].DepartmentID]; ok {
+			users[i].DepartmentName = d.Name
 		}
 	}
 
@@ -264,16 +280,31 @@ func (ctrl *SystemController) ListDoctors(c *gin.Context) {
 	hospID, _ := strconv.ParseUint(c.Query("hospital_id"), 10, 64)
 	doctors, _ := repository.DefaultUserRepository.ListDoctors("", hospID)
 
+	// WP-13: 批量预加载机构与科室名称 (WHERE id IN，消除逐条 FindByID 的 N+1)
+	hospIDs := make([]uint64, 0, len(doctors))
+	deptIDs := make([]uint64, 0, len(doctors))
 	for i := range doctors {
+		// WP-08: 医生目录属公开可枚举资源，身份证/手机号一律脱敏，防止任意登录用户拖库
+		doctors[i].IDCard = maskIDCard(doctors[i].IDCard)
+		doctors[i].Phone = maskPhone(doctors[i].Phone)
+		doctors[i].PasswordHash = ""
+		doctors[i].MedicalKey = ""
+		doctors[i].MedicalKeyHash = ""
 		if doctors[i].HospitalID > 0 {
-			if hosp, err := repository.DefaultHospitalRepository.FindByID(doctors[i].HospitalID); err == nil {
-				doctors[i].HospitalName = hosp.Name
-			}
+			hospIDs = append(hospIDs, doctors[i].HospitalID)
 		}
 		if doctors[i].DepartmentID > 0 {
-			if dept, err := repository.DefaultHospitalRepository.FindDepartmentByID(doctors[i].DepartmentID); err == nil {
-				doctors[i].DepartmentName = dept.Name
-			}
+			deptIDs = append(deptIDs, doctors[i].DepartmentID)
+		}
+	}
+	hospMap := loadHospitalsMapBatch(hospIDs)
+	deptMap := loadDepartmentsMapBatch(deptIDs)
+	for i := range doctors {
+		if h, ok := hospMap[doctors[i].HospitalID]; ok {
+			doctors[i].HospitalName = h.Name
+		}
+		if d, ok := deptMap[doctors[i].DepartmentID]; ok {
+			doctors[i].DepartmentName = d.Name
 		}
 	}
 

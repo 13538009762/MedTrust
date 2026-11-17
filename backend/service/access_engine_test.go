@@ -295,3 +295,85 @@ func TestAccessEngine_DetailedSecurityRules(t *testing.T) {
 		t.Fatalf("患者跨账号越权调阅防御失效: allowed=%v, reason=%s", decPatientCross.Allowed, decPatientCross.Reason)
 	}
 }
+
+// TestAccessEngine_ExpiredAuthorizationDenied 验证授权时间窗边界：
+// 已过期的 ACTIVE 授权不得放行（防止 ||/&& 优先级 bug 导致过期凭证永续可用），
+// 处于有效期内的授权方可正常放行。
+func TestAccessEngine_ExpiredAuthorizationDenied(t *testing.T) {
+	cfg, err := config.LoadConfig("../config/config.yaml")
+	if err != nil {
+		t.Fatalf("Load config failed: %v", err)
+	}
+	if _, err = repository.InitDB(); err != nil {
+		t.Fatalf("Init DB failed: %v", err)
+	}
+	service.InitAccessEngine(cfg.Risk.LowThreshold, cfg.Risk.HighThreshold)
+	engine := service.DefaultAccessEngine
+
+	mockNow := time.Date(2026, 10, 26, 14, 0, 0, 0, time.Local)
+	engine.SetClock(func() time.Time { return mockNow })
+	defer engine.SetClock(nil)
+
+	ts := time.Now().UnixNano()
+	hospA := model.Hospital{HospitalNo: fmt.Sprintf("HOSP_EXP_A_%d", ts), Name: "授权测试医院A", Level: "三甲", Status: 1}
+	hospB := model.Hospital{HospitalNo: fmt.Sprintf("HOSP_EXP_B_%d", ts), Name: "授权测试医院B", Level: "三甲", Status: 1}
+	repository.DB.Create(&hospA)
+	repository.DB.Create(&hospB)
+	defer repository.DB.Delete(&hospA)
+	defer repository.DB.Delete(&hospB)
+
+	patient := model.User{UserNo: fmt.Sprintf("PAT_EXP_%d", ts), Username: fmt.Sprintf("PAT_EXP_%d", ts), RealName: "授权测试患者", Role: "patient", Status: "NORMAL"}
+	docOwner := model.User{UserNo: fmt.Sprintf("DOC_OWN_%d", ts), Username: fmt.Sprintf("DOC_OWN_%d", ts), RealName: "开单医生", Role: "doctor", HospitalID: hospA.ID, Status: "NORMAL"}
+	docOut := model.User{UserNo: fmt.Sprintf("DOC_OUT_%d", ts), Username: fmt.Sprintf("DOC_OUT_%d", ts), RealName: "外院医生", Role: "doctor", HospitalID: hospB.ID, Title: "主治医师", Status: "NORMAL"}
+	repository.DB.Create(&patient)
+	repository.DB.Create(&docOwner)
+	repository.DB.Create(&docOut)
+	defer repository.DB.Delete(&patient)
+	defer repository.DB.Delete(&docOwner)
+	defer repository.DB.Delete(&docOut)
+
+	record := model.MedicalRecord{
+		RecordNo:       fmt.Sprintf("REC_EXP_%d", ts),
+		PatientID:      patient.ID,
+		DoctorID:       docOwner.ID,
+		HospitalID:     hospA.ID,
+		DepartmentName: "消化内科",
+		Diagnosis:      "慢性胃炎",
+		CreatedAt:      time.Now(),
+	}
+	repository.DB.Create(&record)
+	defer repository.DB.Delete(&record)
+
+	// 过期授权：StartTime 在过去，但 EndTime 也已过期
+	expiredAuth := model.Authorization{
+		PatientID:      patient.ID,
+		AuthTargetType: "DOCTOR",
+		AuthTargetID:   docOut.ID,
+		ScopeType:      "SINGLE",
+		RecordID:       record.ID,
+		StartTime:      mockNow.Add(-72 * time.Hour),
+		EndTime:        mockNow.Add(-24 * time.Hour), // 已于 24 小时前过期
+		Status:         "ACTIVE",
+		CreatedAt:      time.Now(),
+	}
+	repository.DB.Create(&expiredAuth)
+	defer repository.DB.Delete(&expiredAuth)
+
+	decExpired, err := engine.EvaluateAccess(docOut.ID, patient.ID, record.ID, false)
+	if err != nil {
+		t.Fatalf("过期授权场景评估异常: %v", err)
+	}
+	if decExpired.Allowed || decExpired.Decision != "NEED_BREAK_GLASS" {
+		t.Fatalf("过期授权不应放行: allowed=%v, decision=%s, reason=%s", decExpired.Allowed, decExpired.Decision, decExpired.Reason)
+	}
+
+	// 将同一授权续期至有效窗口后，应恢复放行
+	repository.DB.Model(&model.Authorization{}).Where("id = ?", expiredAuth.ID).Updates(map[string]interface{}{
+		"start_time": mockNow.Add(-1 * time.Hour),
+		"end_time":   mockNow.Add(48 * time.Hour),
+	})
+	decValid, err := engine.EvaluateAccess(docOut.ID, patient.ID, record.ID, false)
+	if err != nil || !decValid.Allowed {
+		t.Fatalf("有效期内授权应放行: allowed=%v, decision=%s, err=%v", decValid.Allowed, decValid.Decision, err)
+	}
+}

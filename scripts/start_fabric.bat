@@ -86,6 +86,6 @@ echo 节点拓扑：
 echo   - Orderer:    orderer.example.com:7050
 echo   - Hospital A: peer0.org1.example.com:7051 (Org1MSP)
 echo   - Hospital B: peer0.org2.example.com:9051 (Org2MSP)
-echo   - 通道:        medchannel
-echo   - 智能合约:    medical (Go Contract-API 1.2)
+echo   - 通道:        medicalchannel (and medchannel)
+echo   - 智能合约:    medical_contract (Go Contract-API 1.2)
 echo =====================================================================

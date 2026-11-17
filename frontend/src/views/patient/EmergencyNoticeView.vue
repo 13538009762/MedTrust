@@ -18,7 +18,7 @@
           <div class="event-header">
             <span class="event-no">事件流水单号: <strong>{{ ev.event_no }}</strong></span>
             <el-tag :type="ev.patient_feedback === 'PENDING' ? 'danger' : (ev.patient_feedback === 'CONFIRMED' ? 'success' : 'danger')" effect="dark">
-              {{ ev.patient_feedback === 'PENDING' ? '待您知情确认' : (ev.patient_feedback === 'CONFIRMED' ? '已确认无异议 (正常抢救)' : '⚠️ 已提出异议投诉') }}
+              {{ ev.patient_feedback === 'PENDING' ? '待您知情确认' : (ev.patient_feedback === 'CONFIRMED' ? '已确认无异议 (正常抢救)' : '已提出异议投诉') }}
             </el-tag>
           </div>
 
@@ -32,7 +32,7 @@
             <div v-if="getExtractedObjection(ev)" class="objection-alert-card mt-2 mb-2">
               <div class="oac-title">
                 <el-icon class="mr-1 text-red-600"><WarningFilled /></el-icon>
-                <span>📢 我的异议申诉记录：</span>
+                <span>我的异议申诉记录：</span>
               </div>
               <p class="oac-text">{{ getExtractedObjection(ev) }}</p>
             </div>
@@ -43,7 +43,7 @@
                 {{ ev.audit_status === 'CLOSED_APPROVED' ? '合规正常结案' : (ev.audit_status === 'CLOSED_VIOLATION' ? '判定违规 (已惩戒医生)' : '调查核实中') }}
               </el-tag>
             </p>
-            <p><strong>上链存证 TxID：</strong><code class="tx-hash mono">{{ formatTxIdClean(ev.fabric_tx_id) }}</code></p>
+            <p><strong>上链存证 TxID：</strong><HashCapsule :value="ev.fabric_tx_id" :prefix-len="10" :suffix-len="8" label="上链存证 TxID" /></p>
             <p><strong>调阅时间：</strong><span class="mono">{{ formatEventTime(ev.created_at) }}</span></p>
           </div>
 
@@ -73,6 +73,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import HashCapsule from '@/components/common/HashCapsule.vue'
 import { listEmergencyEventsApi, submitBreakGlassFeedbackApi } from '../../api'
 
 const events = ref<any[]>([])
@@ -141,11 +142,6 @@ function formatEmergencyReason(reason?: string): string {
   if (reason === 'SEVERE_TRAUMA') return '严重复合多发创伤 (SEVERE_TRAUMA)'
   if (reason === 'ACUTE_STROKE') return '急性脑卒中绿色通道 (ACUTE_STROKE)'
   return reason
-}
-
-function formatTxIdClean(txId?: string): string {
-  if (!txId) return '-'
-  return txId.replace(/^0x/i, '')
 }
 
 function formatEventTime(t?: string): string {

@@ -45,6 +45,8 @@ POST    /api/v1/access/requests
 POST    /api/v1/access/requests/:id/approve
 POST    /api/v1/access/requests/:id/reject
 POST    /api/v1/access/requests/apply-consent
+POST    /api/v1/access/requests/batch-approve
+POST    /api/v1/access/requests/batch-reject
 POST    /api/v1/access/requests/unlock-by-key
 POST    /api/v1/access/unlock-patient-key
 POST    /api/v1/ai/diagnostic-assist

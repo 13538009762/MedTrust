@@ -34,6 +34,12 @@ func (ctrl *AccessController) EmergencyBatchAccess(c *gin.Context) {
 		return
 	}
 
+	// WP-01: 强化抢救说明合理性校验，防止刷单式滥用
+	if len([]rune(strings.TrimSpace(req.Description))) < 15 {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "抢救说明过于简略：请至少以 15 字如实描述患者危急体征与抢救必要性"})
+		return
+	}
+
 	patientPtr, err := repository.DefaultUserRepository.FindByID(req.PatientID)
 	if err != nil || patientPtr == nil {
 		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "患者档案不存在"})
@@ -44,6 +50,34 @@ func (ctrl *AccessController) EmergencyBatchAccess(c *gin.Context) {
 	var doctor model.User
 	if d, err := repository.DefaultUserRepository.FindByID(doctorID); err == nil && d != nil {
 		doctor = *d
+	}
+
+	// WP-01: 零信任守门——受惩戒 RESTRICTED 医生严禁发起批量破窗，立即拦截并落审计
+	if doctor.Status == "RESTRICTED" || doctor.Status == "DISABLED" {
+		service.DefaultAuditService.LogDetailed(service.AuditEntry{
+			UserID:        doctorID,
+			OperationType: "EMERGENCY_BATCH_ACCESS",
+			TargetType:    "PATIENT",
+			TargetID:      patient.UserNo,
+			HospitalID:    doctor.HospitalID,
+			Result:        "INTERCEPTED",
+			RiskLevel:     "CRITICAL",
+			Reason:        "受惩戒限制状态医生尝试发起批量破窗，已被零信任网关拦截",
+			IPAddress:     c.ClientIP(),
+			UserAgent:     c.Request.UserAgent(),
+			Source:        "BREAK_GLASS",
+		})
+		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "权限拦截：您的执业状态处于受限/停用状态，禁止发起紧急破窗调阅，如有异议请联系监管方申诉解除"})
+		return
+	}
+
+	// WP-01: (doctorID, patientID) 对级 1 小时冷却窗口，防止批量破窗刷单滥用
+	if recent, err := repository.DefaultEmergencyRepository.FindRecentByDoctorAndPatient(doctorID, req.PatientID, time.Now().Add(-1*time.Hour)); err == nil && len(recent) > 0 {
+		c.JSON(http.StatusTooManyRequests, model.Response{
+			Code:    429,
+			Message: "操作过于频繁：您在 1 小时内已对该患者执行过紧急破窗放行，急救窗口内请直接通过常规调阅通道 (GET /api/v1/medical-records/:id) 使用既有紧急授权读取病历",
+		})
+		return
 	}
 
 	var records []model.MedicalRecord
@@ -58,8 +92,15 @@ func (ctrl *AccessController) EmergencyBatchAccess(c *gin.Context) {
 		return
 	}
 
+	// WP-01: 逐份经过统一权限引擎 Evaluate (IsEmergency=true) 前置核验，仅对放行记录生成破窗事件
 	var events []model.EmergencyAccessEvent
+	var interceptedCount int
 	for _, rec := range records {
+		decision, evalErr := service.DefaultAccessEngine.EvaluateAccess(doctorID, rec.PatientID, rec.ID, true)
+		if evalErr != nil || decision == nil || !decision.Allowed {
+			interceptedCount++
+			continue
+		}
 		ev, err := service.DefaultEmergencyService.SubmitEmergencyAccess(
 			doctorID,
 			rec.ID,
@@ -70,17 +111,61 @@ func (ctrl *AccessController) EmergencyBatchAccess(c *gin.Context) {
 		)
 		if err == nil && ev != nil {
 			events = append(events, *ev)
+			// 与单笔 BreakGlass 保持一致：每份被破窗的病历都实时推送知情通知给患者，
+			// 否则批量通道等于静默越权（审计报告维度 8-①）。
+			sse.Default.Publish(rec.PatientID, sse.NotifyEvent{
+				Type:    "break_glass",
+				Title:   "紧急救治破窗访问通知",
+				Message: fmt.Sprintf("急诊医生对您的病历（%s）执行了紧急抢救破窗调阅（批量绿色通道），事件已固化上链，请及时在知情面板核查", rec.RecordNo),
+				Payload: map[string]interface{}{
+					"record_id": rec.ID,
+					"record_no": rec.RecordNo,
+					"reason":    req.EmergencyReason,
+					"batch":     true,
+				},
+			})
+		}
+	}
+
+	if interceptedCount > 0 {
+		service.DefaultAuditService.LogDetailed(service.AuditEntry{
+			UserID:        doctorID,
+			OperationType: "EMERGENCY_BATCH_ACCESS",
+			TargetType:    "PATIENT",
+			TargetID:      patient.UserNo,
+			HospitalID:    doctor.HospitalID,
+			Result:        "INTERCEPTED",
+			RiskLevel:     "HIGH",
+			Reason:        fmt.Sprintf("批量破窗中 %d 份病历被统一权限引擎拦截", interceptedCount),
+			IPAddress:     c.ClientIP(),
+			UserAgent:     c.Request.UserAgent(),
+			Source:        "BREAK_GLASS",
+		})
+		if len(events) == 0 {
+			// 全部目标病历均被零信任引擎拦截：严格阻断，禁止落入下方虚假 SUCCESS 审计与 200 OK
+			c.JSON(http.StatusForbidden, model.Response{
+				Code:    403,
+				Message: "零信任网关拦截：目标病历均未满足紧急破窗准入策略",
+				Data: gin.H{
+					"unlocked_count":    0,
+					"intercepted_count": interceptedCount,
+					"events":            events,
+				},
+			})
+			return
 		}
 	}
 
 	service.DefaultAuditService.Log(doctorID, "EMERGENCY_BATCH_ACCESS", "PATIENT", patient.UserNo, doctor.HospitalID, "SUCCESS", "HIGH", c.ClientIP())
 
 	c.JSON(http.StatusOK, model.Response{
-		Code:    200,
-		Message: fmt.Sprintf("【急诊绿色通道已放行】已成功对患者「%s」的 %d 份病历执行紧急破窗调阅，事件与区块链存证已实时固化至 Fabric 分布式账本！", patient.RealName, len(events)),
+		Code: 200,
+		Message: fmt.Sprintf("【急诊绿色通道已放行】已成功对患者「%s」的 %d 份病历执行紧急破窗调阅（另有 %d 份被权限引擎拦截），事件与区块链存证已实时固化至 Fabric 分布式账本！",
+			patient.RealName, len(events), interceptedCount),
 		Data: gin.H{
-			"unlocked_count": len(events),
-			"events":         events,
+			"unlocked_count":   len(events),
+			"intercepted_count": interceptedCount,
+			"events":           events,
 		},
 	})
 }
@@ -162,12 +247,11 @@ func (ctrl *AccessController) BreakGlass(c *gin.Context) {
 	// 检查同一医生针对同一患者及病历在最近 1 小时内是否已经存在状态为有效/待审的紧急访问记录
 	oneHourAgo := time.Now().Add(-1 * time.Hour)
 	if existingEvent, err := repository.DefaultEmergencyRepository.FindRecentActiveEvent(doctorID, rec.PatientID, req.RecordID, oneHourAgo); err == nil && existingEvent != nil && existingEvent.ID > 0 {
-		// 已存在有效破窗凭证，复用并返回病历数据
-		fullRecord, _ := service.DefaultMedicalService.GetRecordByID(req.RecordID)
-		c.JSON(http.StatusOK, model.Response{
-			Code:    200,
-			Message: "该病历在 1 小时内已处于有效急救破窗授权状态，直接复用既有紧急调阅凭证放行",
-			Data:    formatEmergencyEventResponse(existingEvent, fullRecord),
+		// WP-01: 同一病历重复破窗不再静默复用放行 (200)，显式返回 429 指引客户端改走常规调阅通道
+		c.JSON(http.StatusTooManyRequests, model.Response{
+			Code:    429,
+			Message: "该病历在 1 小时内已处于有效急救破窗授权状态：请勿重复发起破窗，直接通过常规调阅接口 GET /api/v1/medical-records/:id 使用既有紧急授权读取病历",
+			Data:    formatEmergencyEventResponse(existingEvent, nil),
 		})
 		return
 	}

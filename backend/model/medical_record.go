@@ -140,3 +140,21 @@ type MedicalExamOrder struct {
 func (MedicalExamOrder) TableName() string {
 	return "medical_exam_orders"
 }
+
+// ConsistencyTask 链上存证失败补偿任务队列 (consistency_tasks)：
+// 当 CommitAsset 失败时落库一条 PENDING_RETRY 任务，由 ConsistencyService 后台自动对账补偿
+type ConsistencyTask struct {
+	ID           uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
+	BusinessType string    `gorm:"size:64;index" json:"business_type"` // MEDICAL_RECORD / AUTHORIZATION / EMERGENCY_AUDIT ...
+	BusinessID   string    `gorm:"size:64;index" json:"business_id"`   // record_no / auth_no / event_no
+	PayloadJSON  string    `gorm:"type:text" json:"payload_json"`      // WP-10: 序列化上链载荷，支持全业务类型自动重放补偿
+	Status       string    `gorm:"size:32;default:'PENDING_RETRY';index" json:"status"` // PENDING_RETRY, DONE, FAILED
+	RetryCount   int       `gorm:"default:0" json:"retry_count"`
+	LastError    string    `gorm:"type:text" json:"last_error"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+func (ConsistencyTask) TableName() string {
+	return "consistency_tasks"
+}

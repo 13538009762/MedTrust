@@ -42,53 +42,38 @@ type AccessDecision struct {
 type DBAccessHistoryProvider struct{}
 
 func (p *DBAccessHistoryProvider) GetRecentAccessCount(doctorID, patientID uint64, duration time.Duration) int {
-	if repository.DB == nil {
+	if !isRepoInit() {
 		return 0
 	}
-	var count int64
-	since := time.Now().Add(-duration)
-	repository.DB.Table("audit_logs").
-		Joins("JOIN medical_records ON audit_logs.target_id = CAST(medical_records.id AS CHAR)").
-		Where("audit_logs.user_id = ? AND medical_records.patient_id = ? AND audit_logs.operation_type = 'ACCESS' AND audit_logs.result = 'SUCCESS' AND audit_logs.created_at >= ?", doctorID, patientID, since).
-		Count(&count)
+	count := repository.DefaultAuditRepository.RecentAuditAccessCount(doctorID, patientID, duration)
 	return int(count)
 }
 
 func (p *DBAccessHistoryProvider) GetDistinctPatientsAccessed(doctorID uint64, duration time.Duration) int {
-	if repository.DB == nil {
+	if !isRepoInit() {
 		return 0
 	}
-	var count int64
-	since := time.Now().Add(-duration)
-	repository.DB.Table("audit_logs").
-		Joins("JOIN medical_records ON audit_logs.target_id = CAST(medical_records.id AS CHAR)").
-		Where("audit_logs.user_id = ? AND audit_logs.operation_type = 'ACCESS' AND audit_logs.result = 'SUCCESS' AND audit_logs.created_at >= ?", doctorID, since).
-		Distinct("medical_records.patient_id").
-		Count(&count)
+	count := repository.DefaultAuditRepository.DistinctPatientsAccessedByDoctor(doctorID, duration)
 	return int(count)
 }
 
 func (p *DBAccessHistoryProvider) GetHistoricalViolationCount(doctorID uint64, days int) int {
-	if repository.DB == nil {
+	if !isRepoInit() {
 		return 0
 	}
-	var count int64
-	since := time.Now().AddDate(0, 0, -days)
-	repository.DB.Model(&model.EmergencyAccessEvent{}).
-		Where("doctor_id = ? AND audit_status = 'CLOSED_VIOLATION' AND created_at >= ?", doctorID, since).
-		Count(&count)
+	count := repository.DefaultEmergencyRepository.CountHistoricalViolations(doctorID, days)
 	return int(count)
 }
 
 func (p *DBAccessHistoryProvider) GetDoctorStatus(doctorID uint64) string {
-	if repository.DB == nil {
+	if !isRepoInit() {
 		return "NORMAL"
 	}
-	var doc model.User
-	if err := repository.DB.Select("status").First(&doc, doctorID).Error; err != nil {
+	status, err := repository.DefaultUserRepository.FindUserStatusByID(doctorID)
+	if err != nil {
 		return "NORMAL"
 	}
-	return doc.Status
+	return status
 }
 
 type AccessEngine struct {
@@ -104,6 +89,11 @@ func InitAccessEngine(low, high int) {
 	DefaultAccessEngine = &AccessEngine{
 		riskEngine: eng,
 	}
+}
+
+// isRepoInit WP-15: 轻量数据库就绪检查（替代直接访问 repository.DB 字段）
+func isRepoInit() bool {
+	return repository.DB != nil
 }
 
 func (e *AccessEngine) SetClock(fn func() time.Time) {
@@ -125,7 +115,7 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 	if e == nil {
 		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "访问控制引擎未初始化"}, errors.New("access engine is nil")
 	}
-	if repository.DB == nil {
+	if !isRepoInit() {
 		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "底层数据库未初始化"}, errors.New("database connection is nil")
 	}
 
@@ -172,7 +162,7 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 				UserAgent:     req.UserAgent,
 			})
 		}
-		if decision != nil && req.UserID > 0 && req.Source != "BENCHMARK" && repository.DB != nil {
+		if decision != nil && req.UserID > 0 && req.Source != "BENCHMARK" && isRepoInit() {
 			var freqRisk, timeRisk, behaviorRisk int
 			for _, f := range decision.RiskEvaluation.Factors {
 				if strings.HasPrefix(f.RuleID, "RULE-F") {
@@ -200,7 +190,7 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 				AnalysisResult:  decision.Reason,
 				CreatedAt:       time.Now(),
 			}
-			_ = repository.DB.Create(&riskRec).Error
+			_ = repository.DefaultAuditRepository.CreateRiskRecord(&riskRec)
 		}
 	}()
 
@@ -224,9 +214,11 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: fmt.Sprintf("非法请求动作(%s)，不在安全白名单内", req.Action)}, nil
 	}
 
-	if err := repository.DB.First(&user, req.UserID).Error; err != nil {
+	userPtr, dbErr := repository.DefaultUserRepository.FindByID(req.UserID)
+	if dbErr != nil {
 		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "未找到调用者身份信息"}, nil
 	}
+	user = *userPtr
 
 	// 校验请求声明角色与用户真实角色一致性，防范客户端角色伪造
 	if req.Role != "" && !strings.EqualFold(req.Role, user.Role) {
@@ -240,8 +232,8 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 	// 1. 患者端访问策略 (只允许查阅自己本人的记录，严格防御水平越权 IDOR)
 	if user.Role == "patient" {
 		if req.RecordID > 0 {
-			var rec model.MedicalRecord
-			if err := repository.DB.First(&rec, req.RecordID).Error; err != nil {
+			rec, recErr := repository.DefaultMedicalRepository.FindRecordByID(req.RecordID)
+			if recErr != nil {
 				return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "目标病历档案不存在"}, nil
 			}
 			if rec.PatientID != user.ID {
@@ -298,9 +290,11 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "未指定目标医疗记录编号"}, nil
 	}
 
-	if err := repository.DB.First(&record, req.RecordID).Error; err != nil {
+	recordPtr, recErr := repository.DefaultMedicalRepository.FindRecordByID(req.RecordID)
+	if recErr != nil {
 		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "目标医疗记录不存在"}, nil
 	}
+	record = *recordPtr
 
 	// IDOR 校验：若请求同时声明了目标 patient_id，必须与病历记录所归属患者严格一致
 	if req.PatientID > 0 && record.PatientID != req.PatientID {
@@ -309,14 +303,14 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 
 	// Decision D1 (ABAC 环境属性校验): 医疗机构启停状态核验
 	if user.HospitalID > 0 {
-		var docHosp model.Hospital
-		if err := repository.DB.Select("id, status").First(&docHosp, user.HospitalID).Error; err == nil && docHosp.Status == 0 {
+		docHosp, hospErr := repository.DefaultUserRepository.FindHospitalByID(user.HospitalID)
+		if hospErr == nil && docHosp.Status == 0 {
 			return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "机构已停用：调阅医生所属医疗机构已暂停接入"}, nil
 		}
 	}
 	if record.HospitalID > 0 {
-		var recHosp model.Hospital
-		if err := repository.DB.Select("id, status").First(&recHosp, record.HospitalID).Error; err == nil && recHosp.Status == 0 {
+		recHosp, hospErr2 := repository.DefaultUserRepository.FindHospitalByID(record.HospitalID)
+		if hospErr2 == nil && recHosp.Status == 0 {
 			return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "机构已停用：目标病历归属医疗机构已暂停接入"}, nil
 		}
 	}
@@ -341,23 +335,24 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 
 	// 规则 2: 本院科室协同与专家会诊 (ABAC 细粒度判定)
 	if !isCrossHospital {
-		var docDept model.Department
 		if user.DepartmentID > 0 {
-			_ = repository.DB.First(&docDept, user.DepartmentID)
-		}
-		isSameDept := user.DepartmentID == 0 || record.DepartmentName == "" ||
-			record.DepartmentName == "综合门诊" || (docDept.Name != "" && docDept.Name == record.DepartmentName)
+			docDept, deptErr := repository.DefaultUserRepository.FindDepartmentByID(user.DepartmentID)
+			if deptErr == nil {
+				isSameDept := user.DepartmentID == 0 || record.DepartmentName == "" ||
+					record.DepartmentName == "综合门诊" || docDept.Name == record.DepartmentName
 
-		if isSameDept {
-			return &AccessDecision{
-				Allowed:         true,
-				Decision:        "ALLOWED",
-				Reason:          "病历归属当前医生所属医院同科室诊疗协同，系统核验放行",
-				AuthorizationOK: true,
-				RiskScore:       5,
-				RiskLevel:       "LOW",
-				RiskEvaluation:  risk.RiskEvaluation{Level: "LOW", TotalScore: 5, SuggestedAction: "DIRECT_ALLOW"},
-			}, nil
+				if isSameDept {
+					return &AccessDecision{
+						Allowed:         true,
+						Decision:        "ALLOWED",
+						Reason:          "病历归属当前医生所属医院同科室诊疗协同，系统核验放行",
+						AuthorizationOK: true,
+						RiskScore:       5,
+						RiskLevel:       "LOW",
+						RiskEvaluation:  risk.RiskEvaluation{Level: "LOW", TotalScore: 5, SuggestedAction: "DIRECT_ALLOW"},
+					}, nil
+				}
+			}
 		}
 	}
 
@@ -366,8 +361,20 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 	if e.nowFunc != nil {
 		now = e.nowFunc()
 	}
-	var auths []model.Authorization
-	repository.DB.Where("patient_id = ? AND status = 'ACTIVE' AND start_time <= ? AND end_time >= ?", record.PatientID, now, now).Find(&auths)
+	auths, authsErr := repository.DefaultAuthPolicyRepository.ListAuthorizations(record.PatientID, "ACTIVE")
+	if authsErr != nil {
+		auths = []model.Authorization{}
+	}
+	// Filter by time window manually since repo method doesn't support time args yet
+	// 必须同时满足：已生效（StartTime <= now）且未过期（EndTime > now）。
+	// 注意 Go 中 && 优先级高于 ||，此处必须显式加括号，否则过期授权会被放行。
+	var filteredAuths []model.Authorization
+	for _, a := range auths {
+		if !a.StartTime.After(now) && a.EndTime.After(now) {
+			filteredAuths = append(filteredAuths, a)
+		}
+	}
+	auths = filteredAuths
 
 	hasConsent := false
 	isAllDoctorsConsent := false
@@ -472,9 +479,9 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 	}
 
 	// 分支 B: 未取得患者授权，检查过去 24 小时紧急救治随访有效放行
-	var pastEmg model.EmergencyAccessEvent
-	if err := repository.DB.Where("doctor_id = ? AND record_id = ? AND created_at >= ? AND audit_status != 'CLOSED_VIOLATION' AND patient_feedback != 'OBJECTED'",
-		user.ID, req.RecordID, now.Add(-24*time.Hour)).First(&pastEmg).Error; err == nil {
+	pastEmg, emgErr := repository.DefaultEmergencyRepository.FindRecentActiveEvent(user.ID, record.PatientID, req.RecordID, now.Add(-24*time.Hour))
+	if emgErr == nil {
+		_ = pastEmg
 		return &AccessDecision{
 			Allowed:         true,
 			IsEmergency:     true,

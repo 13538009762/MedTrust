@@ -55,22 +55,15 @@ func VerifyMedicalKey(key, userNo, storedHash, legacyPlain string) bool {
 
 // MigrateLegacyMedicalKeys 主动扫描迁移数据库中所有残留的明文 medical_key 为安全哈希，消除隐患
 func MigrateLegacyMedicalKeys() error {
-	if repository.DB == nil {
-		return nil
-	}
-	var users []model.User
-	if err := repository.DB.Where("medical_key != '' AND (medical_key_hash = '' OR medical_key_hash IS NULL)").Find(&users).Error; err != nil {
+	users, err := repository.DefaultUserRepository.UsersWithPlainMedicalKey()
+	if err != nil {
 		return err
 	}
 	for _, u := range users {
 		cleanKey := strings.TrimSpace(u.MedicalKey)
 		if len(cleanKey) > 0 && len(cleanKey) < 32 {
 			newHash := HashMedicalKey(cleanKey, u.UserNo)
-			_ = repository.DB.Model(&model.User{}).Where("id = ?", u.ID).Updates(map[string]interface{}{
-				"medical_key_hash": newHash,
-				"medical_key":      "",
-				"updated_at":       time.Now(),
-			})
+			_ = repository.DefaultUserRepository.UpdateMedicalKeyMigration(u.ID, newHash)
 		}
 	}
 	return nil
@@ -126,8 +119,8 @@ func (s *AuthService) LoginWithContext(username, password, clientIP, userAgent s
 		userAgent = "Unknown"
 	}
 
-	var u model.User
-	if err := repository.DB.Where("username = ?", username).First(&u).Error; err != nil {
+	user, err := repository.DefaultUserRepository.FindByUsername(username)
+	if err != nil {
 		DefaultAuditService.LogDetailed(AuditEntry{
 			UserID:        0,
 			OperationType: "LOGIN_FAILED",
@@ -144,13 +137,13 @@ func (s *AuthService) LoginWithContext(username, password, clientIP, userAgent s
 		return "", nil, errors.New("用户名或密码错误")
 	}
 
-	if u.Status == "DISABLED" {
+	if user.Status == "DISABLED" {
 		DefaultAuditService.LogDetailed(AuditEntry{
-			UserID:        u.ID,
+			UserID:        user.ID,
 			OperationType: "LOGIN_BLOCKED",
 			TargetType:    "USER",
-			TargetID:      u.UserNo,
-			HospitalID:    u.HospitalID,
+			TargetID:      user.UserNo,
+			HospitalID:    user.HospitalID,
 			Result:        "INTERCEPTED",
 			RiskLevel:     "HIGH",
 			RiskScore:     80,
@@ -164,14 +157,14 @@ func (s *AuthService) LoginWithContext(username, password, clientIP, userAgent s
 
 	// 检查账号防爆破临时锁定
 	now := time.Now()
-	if u.LockedUntil != nil && u.LockedUntil.After(now) {
-		remaining := int(u.LockedUntil.Sub(now).Minutes()) + 1
+	if user.LockedUntil != nil && user.LockedUntil.After(now) {
+		remaining := int(user.LockedUntil.Sub(now).Minutes()) + 1
 		DefaultAuditService.LogDetailed(AuditEntry{
-			UserID:        u.ID,
+			UserID:        user.ID,
 			OperationType: "LOGIN_LOCKED_ATTEMPT",
 			TargetType:    "USER",
-			TargetID:      u.UserNo,
-			HospitalID:    u.HospitalID,
+			TargetID:      user.UserNo,
+			HospitalID:    user.HospitalID,
 			Result:        "INTERCEPTED",
 			RiskLevel:     "HIGH",
 			RiskScore:     70,
@@ -184,8 +177,8 @@ func (s *AuthService) LoginWithContext(username, password, clientIP, userAgent s
 	}
 
 	// 安全哈希校验（坚决杜绝任何固定密码绕过漏洞）
-	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)); err != nil {
-		newFailed := u.FailedLoginCount + 1
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		newFailed := user.FailedLoginCount + 1
 		updates := map[string]interface{}{
 			"failed_login_count": newFailed,
 		}
@@ -193,11 +186,11 @@ func (s *AuthService) LoginWithContext(username, password, clientIP, userAgent s
 			lockTime := now.Add(15 * time.Minute)
 			updates["locked_until"] = lockTime
 			DefaultAuditService.LogDetailed(AuditEntry{
-				UserID:        u.ID,
+				UserID:        user.ID,
 				OperationType: "LOGIN_LOCKED",
 				TargetType:    "USER",
-				TargetID:      u.UserNo,
-				HospitalID:    u.HospitalID,
+				TargetID:      user.UserNo,
+				HospitalID:    user.HospitalID,
 				Result:        "INTERCEPTED",
 				RiskLevel:     "HIGH",
 				RiskScore:     90,
@@ -208,11 +201,11 @@ func (s *AuthService) LoginWithContext(username, password, clientIP, userAgent s
 			})
 		} else {
 			DefaultAuditService.LogDetailed(AuditEntry{
-				UserID:        u.ID,
+				UserID:        user.ID,
 				OperationType: "LOGIN_FAILED",
 				TargetType:    "USER",
-				TargetID:      u.UserNo,
-				HospitalID:    u.HospitalID,
+				TargetID:      user.UserNo,
+				HospitalID:    user.HospitalID,
 				Result:        "FAILED",
 				RiskLevel:     "MEDIUM",
 				RiskScore:     30 + newFailed*10,
@@ -222,7 +215,7 @@ func (s *AuthService) LoginWithContext(username, password, clientIP, userAgent s
 				UserAgent:     userAgent,
 			})
 		}
-		_ = repository.DB.Model(&model.User{}).Where("id = ?", u.ID).Updates(updates)
+		_ = repository.DefaultUserRepository.UpdateUserFields(user.ID, updates)
 
 		if newFailed >= 5 {
 			return "", nil, errors.New("连续登录失败已达 5 次，该账号已被临时锁定 15 分钟")
@@ -231,54 +224,49 @@ func (s *AuthService) LoginWithContext(username, password, clientIP, userAgent s
 	}
 
 	// 登录成功，重置失败计数与锁定状态
-	if u.FailedLoginCount > 0 || u.LockedUntil != nil {
-		_ = repository.DB.Model(&model.User{}).Where("id = ?", u.ID).Updates(map[string]interface{}{
+	if user.FailedLoginCount > 0 || user.LockedUntil != nil {
+		_ = repository.DefaultUserRepository.UpdateUserFields(user.ID, map[string]interface{}{
 			"failed_login_count": 0,
 			"locked_until":       nil,
 		})
-		u.FailedLoginCount = 0
-		u.LockedUntil = nil
+		user.FailedLoginCount = 0
+		user.LockedUntil = nil
 	}
 
 	// 存量明文医疗密钥自动静默升级为加盐安全哈希存储
-	if u.MedicalKey != "" && u.MedicalKeyHash == "" {
-		newHash := HashMedicalKey(u.MedicalKey, u.UserNo)
-		_ = repository.DB.Model(&model.User{}).Where("id = ?", u.ID).Updates(map[string]interface{}{
-			"medical_key_hash": newHash,
-			"medical_key":      "",
-		})
-		u.MedicalKeyHash = newHash
-		u.MedicalKey = ""
+	if user.MedicalKey != "" && user.MedicalKeyHash == "" {
+		newHash := HashMedicalKey(user.MedicalKey, user.UserNo)
+		_ = repository.DefaultUserRepository.UpdateMedicalKeyMigration(user.ID, newHash)
+		user.MedicalKeyHash = newHash
+		user.MedicalKey = ""
 	}
 
 	// 填补关联名称
-	if u.HospitalID > 0 {
-		var hosp model.Hospital
-		if err := repository.DB.First(&hosp, u.HospitalID).Error; err == nil {
-			u.HospitalName = hosp.Name
+	if user.HospitalID > 0 {
+		if hosp, err := repository.DefaultHospitalRepository.FindByID(user.HospitalID); err == nil {
+			user.HospitalName = hosp.Name
 		}
 	}
-	if u.DepartmentID > 0 {
-		var dept model.Department
-		if err := repository.DB.First(&dept, u.DepartmentID).Error; err == nil {
-			u.DepartmentName = dept.Name
+	if user.DepartmentID > 0 {
+		if dept, err := repository.DefaultHospitalRepository.FindDepartmentByID(user.DepartmentID); err == nil {
+			user.DepartmentName = dept.Name
 		}
 	}
 
-	u.HasMedicalKey = (u.MedicalKeyHash != "" || u.MedicalKey != "")
-	u.MedicalKey = "" // 严格屏蔽明文输出，与 GetProfile 保持完全对称
+	user.HasMedicalKey = (user.MedicalKeyHash != "" || user.MedicalKey != "")
+	user.MedicalKey = "" // 严格屏蔽明文输出，与 GetProfile 保持完全对称
 
-	token, err := middleware.GenerateToken(&u)
+	token, err := middleware.GenerateToken(user)
 	if err != nil {
 		return "", nil, err
 	}
 
 	DefaultAuditService.LogDetailed(AuditEntry{
-		UserID:        u.ID,
+		UserID:        user.ID,
 		OperationType: "LOGIN",
 		TargetType:    "USER",
-		TargetID:      u.UserNo,
-		HospitalID:    u.HospitalID,
+		TargetID:      user.UserNo,
+		HospitalID:    user.HospitalID,
 		Result:        "SUCCESS",
 		RiskLevel:     "LOW",
 		RiskScore:     0,
@@ -287,28 +275,28 @@ func (s *AuthService) LoginWithContext(username, password, clientIP, userAgent s
 		IPAddress:     clientIP,
 		UserAgent:     userAgent,
 	})
-	return token, &u, nil
+	return token, user, nil
 }
 
 func (s *AuthService) GetProfile(userID uint64) (*model.User, error) {
-	var u model.User
-	if err := repository.DB.First(&u, userID).Error; err != nil {
+	u, err := repository.DefaultUserRepository.FindByID(userID)
+	if err != nil {
 		return nil, err
 	}
 	if u.HospitalID > 0 {
-		var hosp model.Hospital
-		_ = repository.DB.First(&hosp, u.HospitalID)
-		u.HospitalName = hosp.Name
+		if hosp, err := repository.DefaultHospitalRepository.FindByID(u.HospitalID); err == nil {
+			u.HospitalName = hosp.Name
+		}
 	}
 	if u.DepartmentID > 0 {
-		var dept model.Department
-		_ = repository.DB.First(&dept, u.DepartmentID)
-		u.DepartmentName = dept.Name
+		if dept, err := repository.DefaultHospitalRepository.FindDepartmentByID(u.DepartmentID); err == nil {
+			u.DepartmentName = dept.Name
+		}
 	}
 
 	u.HasMedicalKey = (u.MedicalKeyHash != "" || u.MedicalKey != "")
 	u.MedicalKey = "" // 严格屏蔽明文输出
-	return &u, nil
+	return u, nil
 }
 
 func (s *AuthService) RegisterPatient(username, password, realName, idCard, phone string) (*model.User, error) {
@@ -332,15 +320,13 @@ func (s *AuthService) RegisterPatientWithContext(username, password, realName, i
 		return nil, errors.New("请填写就诊人真实姓名")
 	}
 
-	var count int64
-	repository.DB.Model(&model.User{}).Where("username = ?", username).Count(&count)
+	count := repository.DefaultUserRepository.CountByUsername(username)
 	if count > 0 {
 		return nil, errors.New("该登录账号名已被占用，请更换其他用户名")
 	}
 
 	if idCard != "" {
-		repository.DB.Model(&model.User{}).Where("id_card = ?", idCard).Count(&count)
-		if count > 0 {
+		if repository.DefaultUserRepository.UserExistsByIDCard(idCard, 0) {
 			return nil, errors.New("该居民身份证号已在健康网络中建档，请直接使用原账号登录")
 		}
 	}
@@ -367,7 +353,7 @@ func (s *AuthService) RegisterPatientWithContext(username, password, realName, i
 		UpdatedAt:    time.Now(),
 	}
 
-	if err := repository.DB.Create(&user).Error; err != nil {
+	if err := repository.DefaultUserRepository.Create(&user); err != nil {
 		return nil, err
 	}
 
@@ -399,8 +385,8 @@ func (s *AuthService) UpdateProfileWithContext(userID uint64, realName, phone, i
 		userAgent = "Unknown"
 	}
 
-	var u model.User
-	if err := repository.DB.First(&u, userID).Error; err != nil {
+	u, err := repository.DefaultUserRepository.FindByID(userID)
+	if err != nil {
 		return nil, errors.New("用户不存在")
 	}
 
@@ -417,9 +403,7 @@ func (s *AuthService) UpdateProfileWithContext(userID uint64, realName, phone, i
 		u.Phone = phone
 	}
 	if idCard != "" && idCard != u.IDCard {
-		var count int64
-		repository.DB.Model(&model.User{}).Where("id_card = ? AND id != ?", idCard, userID).Count(&count)
-		if count > 0 {
+		if repository.DefaultUserRepository.UserExistsByIDCard(idCard, userID) {
 			return nil, errors.New("该居民身份证号已被其他健康档案占用")
 		}
 		updates["id_card"] = idCard
@@ -434,19 +418,19 @@ func (s *AuthService) UpdateProfileWithContext(userID uint64, realName, phone, i
 		u.Avatar = avatar
 	}
 
-	if err := repository.DB.Model(&model.User{}).Where("id = ?", userID).Updates(updates).Error; err != nil {
+	if err := repository.DefaultUserRepository.UpdateUserFields(userID, updates); err != nil {
 		return nil, err
 	}
 
 	if u.HospitalID > 0 {
-		var hosp model.Hospital
-		_ = repository.DB.First(&hosp, u.HospitalID)
-		u.HospitalName = hosp.Name
+		if hosp, err := repository.DefaultHospitalRepository.FindByID(u.HospitalID); err == nil {
+			u.HospitalName = hosp.Name
+		}
 	}
 	if u.DepartmentID > 0 {
-		var dept model.Department
-		_ = repository.DB.First(&dept, u.DepartmentID)
-		u.DepartmentName = dept.Name
+		if dept, err := repository.DefaultHospitalRepository.FindDepartmentByID(u.DepartmentID); err == nil {
+			u.DepartmentName = dept.Name
+		}
 	}
 
 	DefaultAuditService.LogDetailed(AuditEntry{
@@ -462,7 +446,7 @@ func (s *AuthService) UpdateProfileWithContext(userID uint64, realName, phone, i
 		IPAddress:     clientIP,
 		UserAgent:     userAgent,
 	})
-	return &u, nil
+	return u, nil
 }
 
 // UpdateAvatar 更新或清除用户自定义头像
@@ -474,8 +458,8 @@ func (s *AuthService) UpdateAvatar(userID uint64, avatarData, clientIP, userAgen
 		userAgent = "Unknown"
 	}
 
-	var u model.User
-	if err := repository.DB.First(&u, userID).Error; err != nil {
+	u, err := repository.DefaultUserRepository.FindByID(userID)
+	if err != nil {
 		return nil, errors.New("用户不存在")
 	}
 
@@ -484,20 +468,20 @@ func (s *AuthService) UpdateAvatar(userID uint64, avatarData, clientIP, userAgen
 		"updated_at": time.Now(),
 	}
 
-	if err := repository.DB.Model(&model.User{}).Where("id = ?", userID).Updates(updates).Error; err != nil {
+	if err := repository.DefaultUserRepository.UpdateUserFields(userID, updates); err != nil {
 		return nil, err
 	}
 	u.Avatar = avatarData
 
 	if u.HospitalID > 0 {
-		var hosp model.Hospital
-		_ = repository.DB.First(&hosp, u.HospitalID)
-		u.HospitalName = hosp.Name
+		if hosp, err := repository.DefaultHospitalRepository.FindByID(u.HospitalID); err == nil {
+			u.HospitalName = hosp.Name
+		}
 	}
 	if u.DepartmentID > 0 {
-		var dept model.Department
-		_ = repository.DB.First(&dept, u.DepartmentID)
-		u.DepartmentName = dept.Name
+		if dept, err := repository.DefaultHospitalRepository.FindDepartmentByID(u.DepartmentID); err == nil {
+			u.DepartmentName = dept.Name
+		}
 	}
 
 	DefaultAuditService.LogDetailed(AuditEntry{
@@ -515,7 +499,7 @@ func (s *AuthService) UpdateAvatar(userID uint64, avatarData, clientIP, userAgen
 		UserAgent:     userAgent,
 	})
 
-	return &u, nil
+	return u, nil
 }
 
 // ChangePassword 用户自主修改登录密码
@@ -535,8 +519,8 @@ func (s *AuthService) ChangePasswordWithContext(userID uint64, oldPassword, newP
 		return errors.New("新密码长度不能少于 6 位")
 	}
 
-	var u model.User
-	if err := repository.DB.First(&u, userID).Error; err != nil {
+	u, err := repository.DefaultUserRepository.FindByID(userID)
+	if err != nil {
 		return errors.New("用户不存在")
 	}
 
@@ -564,11 +548,11 @@ func (s *AuthService) ChangePasswordWithContext(userID uint64, oldPassword, newP
 		return err
 	}
 
-	if err := repository.DB.Model(&model.User{}).Where("id = ?", userID).Updates(map[string]interface{}{
+	if err := repository.DefaultUserRepository.UpdateUserFields(userID, map[string]interface{}{
 		"password_hash":   string(newHash),
 		"must_change_pwd": false,
 		"updated_at":      time.Now(),
-	}).Error; err != nil {
+	}); err != nil {
 		return err
 	}
 
@@ -606,8 +590,8 @@ func (s *AuthService) UpdateMedicalKeyWithContext(userID uint64, oldKey, newKey,
 		return errors.New("新调阅密钥长度至少为 6 位字符（建议 6 位数字或安全口令）")
 	}
 
-	var u model.User
-	if err := repository.DB.First(&u, userID).Error; err != nil {
+	u, err := repository.DefaultUserRepository.FindByID(userID)
+	if err != nil {
 		return errors.New("用户档案不存在")
 	}
 
@@ -634,11 +618,11 @@ func (s *AuthService) UpdateMedicalKeyWithContext(userID uint64, oldKey, newKey,
 
 	newHash := HashMedicalKey(newKey, u.UserNo)
 
-	if err := repository.DB.Model(&model.User{}).Where("id = ?", userID).Updates(map[string]interface{}{
+	if err := repository.DefaultUserRepository.UpdateUserFields(userID, map[string]interface{}{
 		"medical_key_hash": newHash,
 		"medical_key":      "", // 彻底清空数据库中历史明文残留
 		"updated_at":       time.Now(),
-	}).Error; err != nil {
+	}); err != nil {
 		return err
 	}
 

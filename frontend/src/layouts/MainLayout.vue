@@ -134,16 +134,6 @@
         </div>
 
         <div class="header-right">
-          <!-- 业务演练向导快捷入口 -->
-          <el-button
-            type="primary"
-            size="small"
-            class="defense-guide-launch-btn"
-            @click="defenseModalVisible = true"
-          >
-            业务演练向导
-          </el-button>
-
           <!-- 联盟链与 IPFS 底层实时双状态指示灯 -->
           <el-tooltip :content="chainTooltip" placement="bottom">
             <div
@@ -153,7 +143,7 @@
               title="查看底层联盟链运行状态"
             >
               <span class="mini-pulse-dot" :class="chainDotClass"></span>
-              <span class="chain-badge-text">Fabric ({{ displayChannelName }}) 在线</span>
+              <span class="chain-badge-text">{{ chainBadgeText }}</span>
               <span v-if="chainStatus.latest_block" class="chain-block-num">#{{ chainStatus.latest_block }}</span>
             </div>
           </el-tooltip>
@@ -197,7 +187,7 @@
 
           <!-- 用户真实姓名与所属机构科室常驻展示 -->
           <div class="user-profile clickable" @click="router.push('/personal')" title="点击查看并维护个人信息">
-            <el-avatar size="small" :src="auth.user?.avatar" :style="{ backgroundColor: '#8b5cf6' }">
+            <el-avatar size="small" :src="auth.user?.avatar" :style="{ backgroundColor: '#0284c7' }">
               {{ (auth.user?.real_name || '用').charAt(0) }}
             </el-avatar>
             <div class="user-meta-stacked">
@@ -222,9 +212,6 @@
 
       <!-- 全局受控 AI 助手悬浮窗 -->
       <AiAssistantDialog />
-
-      <!-- 业务场景演练向导大弹窗 -->
-      <DefenseDemoGuideDialog v-model="defenseModalVisible" />
     </el-container>
   </el-container>
 </template>
@@ -235,11 +222,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { Expand, Fold, SwitchButton } from '@element-plus/icons-vue'
 import { useAuthStore } from '../stores/auth'
 import AiAssistantDialog from '../components/AiAssistantDialog.vue'
-import DefenseDemoGuideDialog from '../components/DefenseDemoGuideDialog.vue'
 import { getBlockchainStatusApi, listPendingAccessRequestsApi } from '../api'
 import { useSSE } from '../composables/useSSE'
 
-const defenseModalVisible = ref(false)
 const isCollapse = ref(false)
 const route = useRoute()
 const router = useRouter()
@@ -264,7 +249,7 @@ const chainStatus = ref<BlockchainStatus>({
   network: 'medicalchannel',
   chaincode: 'medical_contract',
   peer: 'peer0.org1.example.com',
-  latest_block: 342,
+  latest_block: 0,
   message: 'Fabric Gateway Connected',
 })
 
@@ -288,20 +273,31 @@ async function fetchChainStatus() {
   } catch {
     chainStatus.value = {
       mode: 'fabric',
-      connected: true,
+      connected: false,
       network: 'medicalchannel',
       chaincode: 'medical_contract',
       peer: 'peer0.org1.example.com',
-      latest_block: 342,
-      message: 'Fabric Unavailable',
+      latest_block: 0,
+      message: 'Fabric Unavailable: Connection Failed',
     }
   }
 }
 
+const chainBadgeText = computed(() => {
+  if (chainStatus.value.mode === 'mock') {
+    return 'Mock 账本 (容灾模式)'
+  }
+  if (chainStatus.value.connected) {
+    return `Fabric (${displayChannelName.value}) 在线`
+  }
+  return `Fabric 节点未连接`
+})
+
 const chainTooltip = computed(() => {
   const net = displayChannelName.value
   const cc = chainStatus.value.chaincode === 'medical' ? 'medical_contract' : (chainStatus.value.chaincode || 'medical_contract')
-  return `运行模式: ${chainStatus.value.mode} | 通道: ${net} | 合约: ${cc} | 节点: ${chainStatus.value.peer || '-'} | 最新高度: #${chainStatus.value.latest_block || 342}`
+  const heightText = chainStatus.value.latest_block ? `#${chainStatus.value.latest_block}` : '待同步'
+  return `运行模式: ${chainStatus.value.mode} | 通道: ${net} | 合约: ${cc} | 节点: ${chainStatus.value.peer || '-'} | 最新高度: ${heightText}`
 })
 
 const chainBadgeClass = computed(() => {
@@ -482,16 +478,17 @@ async function onLogout() {
 }
 .brand-title {
   font-size: 20px;
-  font-weight: 900;
-  color: #8b5cf6;
-  letter-spacing: -0.5px;
+  font-weight: 800;
+  color: var(--mt-primary, #0284c7);
+  letter-spacing: -0.4px;
 }
 .brand-badge {
   font-size: 10px;
-  background: #ede9fe;
-  color: #7c3aed;
+  background: var(--mt-primary-soft, #f0f9ff);
+  color: var(--mt-primary, #0284c7);
+  border: 1px solid var(--mt-primary-border, #bae6fd);
   padding: 2px 6px;
-  border-radius: 6px;
+  border-radius: 4px;
   font-weight: 700;
 }
 .menu-category {
@@ -521,7 +518,7 @@ async function onLogout() {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  background-color: #ef4444;
+  background-color: #dc2626;
   color: #ffffff;
   font-size: 11px;
   font-weight: 700;
@@ -529,8 +526,7 @@ async function onLogout() {
   height: 18px;
   line-height: 18px;
   padding: 0 6px;
-  border-radius: 9999px;
-  box-shadow: 0 1px 3px rgba(239, 68, 68, 0.4);
+  border-radius: 4px;
   margin-left: auto;
   flex-shrink: 0;
 }
@@ -541,9 +537,9 @@ async function onLogout() {
   min-width: 0;
 }
 .medtrust-header {
-  height: 64px;
+  height: 60px;
   background: #ffffff;
-  border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+  border-bottom: 1px solid var(--mt-border-base, #e2e8f0);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -566,7 +562,7 @@ async function onLogout() {
   flex-shrink: 0;
 }
 .collapse-btn:hover {
-  color: #8b5cf6;
+  color: var(--mt-primary, #0284c7);
 }
 .logo-text {
   font-size: 16px;
@@ -613,74 +609,67 @@ async function onLogout() {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 12px;
-  border-radius: 20px;
+  padding: 4px 10px;
+  border-radius: 6px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
   user-select: none;
   white-space: nowrap;
 }
 .badge-fabric-ok {
-  background: rgba(16, 185, 129, 0.12);
-  color: #059669;
-  border: 1px solid rgba(16, 185, 129, 0.35);
+  background: var(--mt-success-soft, #ecfdf5);
+  color: var(--mt-success, #059669);
+  border: 1px solid var(--mt-success-border, #a7f3d0);
 }
 .badge-fabric-ok:hover {
-  background: rgba(16, 185, 129, 0.2);
-  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
+  background: #d1fae5;
 }
 .badge-mock-dev {
-  background: rgba(245, 158, 11, 0.12);
-  color: #d97706;
-  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: var(--mt-warning-soft, #fffbeb);
+  color: var(--mt-warning, #d97706);
+  border: 1px solid var(--mt-warning-border, #fde68a);
 }
 .badge-mock-dev:hover {
-  background: rgba(245, 158, 11, 0.2);
+  background: #fef3c7;
 }
 .badge-fabric-err {
-  background: rgba(239, 68, 68, 0.12);
-  color: #dc2626;
-  border: 1px solid rgba(239, 68, 68, 0.35);
+  background: var(--mt-danger-soft, #fef2f2);
+  color: var(--mt-danger, #dc2626);
+  border: 1px solid var(--mt-danger-border, #fecaca);
 }
 .badge-fabric-err:hover {
-  background: rgba(239, 68, 68, 0.2);
+  background: #fee2e2;
 }
 
 .mini-pulse-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   display: inline-block;
 }
 .dot-green {
-  background-color: #10b981;
-  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
-  animation: pulse-green 2s infinite;
+  background-color: #059669;
 }
 .dot-amber {
-  background-color: #f59e0b;
-  box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7);
-  animation: pulse-amber 2s infinite;
+  background-color: #d97706;
 }
 .dot-red {
-  background-color: #ef4444;
-  box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
-  animation: pulse-red 2s infinite;
+  background-color: #dc2626;
 }
 
 .chain-badge-text {
-  letter-spacing: 0.3px;
+  letter-spacing: 0.2px;
   white-space: nowrap;
 }
 .chain-block-num {
-  font-family: 'JetBrains Mono', 'DIN Alternate', monospace !important;
+  font-family: var(--mt-font-mono, monospace) !important;
   font-variant-numeric: tabular-nums;
-  font-weight: 800;
+  font-weight: 700;
   padding: 1px 6px;
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.06);
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.06);
   white-space: nowrap;
   margin-left: 2px;
 }
@@ -690,21 +679,21 @@ async function onLogout() {
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
-  border-radius: 20px;
-  font-size: 11px;
+  border-radius: 6px;
+  font-size: 11.5px;
   font-weight: 600;
   user-select: none;
   transition: all 0.2s ease;
 }
 .sse-online {
-  background: rgba(16, 185, 129, 0.1);
-  color: #059669;
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: var(--mt-success-soft, #ecfdf5);
+  color: var(--mt-success, #059669);
+  border: 1px solid var(--mt-success-border, #a7f3d0);
 }
 .sse-offline {
-  background: rgba(148, 163, 184, 0.1);
+  background: #f8fafc;
   color: #64748b;
-  border: 1px solid rgba(148, 163, 184, 0.25);
+  border: 1px solid #cbd5e1;
 }
 .sse-pulse-dot {
   width: 7px;
@@ -712,42 +701,25 @@ async function onLogout() {
   border-radius: 50%;
 }
 
-@keyframes pulse-green {
-  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
-  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-}
-@keyframes pulse-amber {
-  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); }
-  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(245, 158, 11, 0); }
-  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
-}
-@keyframes pulse-red {
-  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
-  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
-  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
-}
-
 .header-ipfs-badge {
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 5px 12px;
-  border-radius: 20px;
+  padding: 4px 10px;
+  border-radius: 6px;
   font-size: 12px;
-  font-weight: 700;
-  background: rgba(14, 165, 233, 0.1);
-  color: #0284c7;
-  border: 1px solid rgba(14, 165, 233, 0.35);
+  font-weight: 600;
+  background: var(--mt-primary-soft, #f0f9ff);
+  color: var(--mt-primary, #0284c7);
+  border: 1px solid var(--mt-primary-border, #bae6fd);
   transition: all 0.2s ease;
   user-select: none;
 }
 .header-ipfs-badge:hover {
-  background: rgba(14, 165, 233, 0.18);
-  box-shadow: 0 2px 8px rgba(14, 165, 233, 0.2);
+  background: #e0f2fe;
 }
 .ipfs-badge-text {
-  letter-spacing: 0.3px;
+  letter-spacing: 0.2px;
 }
 
 .header-user-status-tag {
@@ -764,7 +736,7 @@ async function onLogout() {
   display: inline-block;
 }
 .dot-green-mini {
-  background: #10b981;
+  background: #059669;
 }
 .dot-red-mini {
   background: #ffffff;
@@ -784,11 +756,11 @@ async function onLogout() {
 .user-profile.clickable {
   cursor: pointer;
   padding: 4px 8px;
-  border-radius: 8px;
+  border-radius: 6px;
   transition: all 0.2s ease;
 }
 .user-profile.clickable:hover {
-  background: rgba(139, 92, 246, 0.08);
+  background: var(--mt-primary-soft, #f0f9ff);
 }
 
 .user-meta-stacked {
@@ -830,19 +802,6 @@ async function onLogout() {
 .fade-slide-leave-to {
   opacity: 0;
   transform: translate3d(0, -14px, 0);
-}
-.defense-guide-launch-btn {
-  background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%) !important;
-  border: none !important;
-  color: #ffffff !important;
-  font-weight: 600 !important;
-  border-radius: 6px !important;
-  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25) !important;
-  transition: all 0.2s ease !important;
-}
-.defense-guide-launch-btn:hover {
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4) !important;
-  transform: translateY(-1px);
 }
 
 @media (max-width: 1480px) {
@@ -898,10 +857,6 @@ async function onLogout() {
   }
   .header-sse-badge {
     padding: 4px 8px !important;
-    font-size: 11px !important;
-  }
-  .defense-guide-launch-btn {
-    padding: 0 8px !important;
     font-size: 11px !important;
   }
   .medtrust-header {

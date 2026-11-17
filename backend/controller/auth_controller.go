@@ -52,26 +52,12 @@ func (ctrl *AuthController) Login(c *gin.Context) {
 	}
 
 	// 验证图形计算验证码，防御针对账号密码的自动化碰撞与爆破攻击
-	// 若当前调用者已持有合法 JWT (如答辩演示向导切换角色)，且未携带验证码参数，允许平滑切换
+	// WP-04: 已删除「持有合法 JWT 即跳过验证码」捷径——该通道允许任意低权限 JWT
+	// 持有者对 admin/doctor 账号进行无验证码爆破。仅测试模式保留豁免以支撑自动化回归测试。
 	if gin.Mode() != gin.TestMode {
-		bypassCaptcha := false
-		if strings.TrimSpace(req.CaptchaToken) == "" && strings.TrimSpace(req.CaptchaAnswer) == "" {
-			authHeader := c.GetHeader("Authorization")
-			if strings.HasPrefix(authHeader, "Bearer ") {
-				tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
-				claims := &middleware.CustomClaims{}
-				if token, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
-					return []byte(config.AppConfig.Server.JWTSecret), nil
-				}); err == nil && token.Valid && !repository.IsTokenBlacklisted(tokenStr) {
-					bypassCaptcha = true
-				}
-			}
-		}
-		if !bypassCaptcha {
-			if ok, errMsg := captcha.VerifyCaptcha(req.CaptchaToken, req.CaptchaAnswer); !ok {
-				c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: errMsg})
-				return
-			}
+		if ok, errMsg := captcha.VerifyCaptcha(req.CaptchaToken, req.CaptchaAnswer); !ok {
+			c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: errMsg})
+			return
 		}
 	}
 
@@ -396,4 +382,3 @@ func (ctrl *AuthController) CreateSSETicket(c *gin.Context) {
 		},
 	})
 }
-

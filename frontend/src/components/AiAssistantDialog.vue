@@ -1,9 +1,9 @@
 <template>
   <div class="ai-assistant-wrapper">
     <!-- 悬浮触发微标按钮 -->
-    <div class="ai-float-badge" @click="visible = !visible" title="唤起 MedTrust 受控 AI 助手">
-      <el-icon :size="26" class="sparkle-icon"><MagicStick /></el-icon>
-      <span class="badge-text">AI 助手</span>
+    <div class="ai-float-badge" @click="visible = !visible" title="唤起 MedTrust 医疗数据受控检索助手">
+      <el-icon :size="20" class="sparkle-icon"><Search /></el-icon>
+      <span class="badge-text">受控检索</span>
     </div>
 
     <!-- 弹窗式对话抽屉 / 面板 -->
@@ -144,7 +144,7 @@
 <script setup lang="ts">
 import { ref, nextTick } from 'vue'
 import axios from 'axios'
-import { MagicStick, CircleCheck, Loading, Connection } from '@element-plus/icons-vue'
+import { Search, CircleCheck, Loading, Connection } from '@element-plus/icons-vue'
 import { useAuthStore } from '../stores/auth'
 
 const visible = ref(false)
@@ -174,7 +174,7 @@ interface Message {
 const messages = ref<Message[]>([
   {
     sender: 'ai',
-    text: '您好！我是 MedTrust 医疗数据受控 AI 助手。您可以向我咨询病历检索、跨院既往史 SOAP 汇总、患者授权策略或发起防篡改核验。\n\n⚠️ 合规声明：本助手仅用于辅助安全查询与合规审计，不涉及任何疾病诊断与处方建议。\n\n示例提问：\n• "查询张三最近的检查记录"\n• "我现在授权了哪些医生？"\n• "核验病历1的区块链防篡改哈希"',
+    text: '您好！我是 MedTrust 医疗数据受控检索助手。您可以查询病历检索、跨院既往史 SOAP 汇总、患者授权策略或发起防篡改核验。\n\n合规声明：本工具仅用于辅助安全查询与合规审计，不涉及任何疾病诊断与处方建议。\n\n示例提问：\n• "查询张三最近的检查记录"\n• "我现在授权了哪些医生？"\n• "核验病历1的区块链防篡改哈希"',
   }
 ])
 
@@ -270,7 +270,7 @@ async function handleSend() {
         ]
       },
       '核验': {
-        reply: '已完成病历 1 的三阶段动态防篡改核验：\n- 本地多维 SHA-256 哈希: 3a5f8b9c1d2e...\n- Fabric 账本固化哈希: 3a5f8b9c1d2e...\n- 验真状态: VERIFIED · 100% 真实完整，数据未被篡改。',
+        reply: '已完成病历 1 的三阶段动态防篡改核验：\n- 本地多维 SHA-256 哈希: 3a5f8b9c1d2e...\n- Fabric 账本固化哈希: 3a5f8b9c1d2e...\n- 验真状态: VERIFIED · 核验一致，数据完整未篡改。',
         tool: 'verify_integrity',
         trace: [
           {
@@ -347,23 +347,22 @@ function scrollToBottom() {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 16px;
-  background: linear-gradient(135deg, #2563eb 0%, #059669 100%);
-  color: white;
-  border-radius: 20px;
-  box-shadow: 0 4px 14px rgba(5, 150, 105, 0.25);
-  border: 1px solid rgba(255, 255, 255, 0.25);
+  padding: 8px 14px;
+  background: var(--mt-primary, #0284c7);
+  color: #ffffff;
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
+  border: 1px solid var(--mt-primary-hover, #0369a1);
   cursor: pointer;
-  transition: all 0.25s ease;
+  transition: background-color 0.2s ease;
 }
 .ai-float-badge:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 18px rgba(5, 150, 105, 0.35);
+  background: var(--mt-primary-hover, #0369a1);
 }
 .badge-text {
   font-weight: 600;
   font-size: 13px;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.2px;
 }
 .ai-safety-notice {
   display: flex;
@@ -383,18 +382,17 @@ function scrollToBottom() {
   padding: 12px 4px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
 .chat-bubble {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   max-width: 92%;
 }
 .ai-msg-avatar {
   width: 32px;
   height: 32px;
   object-fit: contain;
-  filter: drop-shadow(0 2px 6px rgba(14, 165, 233, 0.35));
 }
 .user-msg {
   align-self: flex-end;
@@ -405,22 +403,19 @@ function scrollToBottom() {
 }
 .bubble-content {
   background: #f1f5f9;
-  padding: 12px 16px;
-  border-radius: 14px;
-  font-size: 14px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 13.5px;
   line-height: 1.5;
   color: #1e293b;
 }
 .user-msg .bubble-content {
-  background: #8b5cf6;
-  color: white;
-  border-bottom-right-radius: 2px;
+  background: var(--mt-primary, #0284c7);
+  color: #ffffff;
 }
 .ai-msg .bubble-content {
-  border-bottom-left-radius: 2px;
   background: #ffffff;
   border: 1px solid #e2e8f0;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
 }
 .tool-tag {
   margin-top: 8px;
@@ -430,7 +425,7 @@ function scrollToBottom() {
 .tool-trace-block {
   background: #f8fafc;
   border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  border-radius: 6px;
   padding: 10px 12px;
 }
 .trace-header {
@@ -457,11 +452,13 @@ function scrollToBottom() {
   background: #ffffff;
   border-radius: 6px;
   padding: 8px 10px;
-  border-left: 3px solid #10b981;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  border-left: 3px solid #059669;
+  border-top: 1px solid #e2e8f0;
+  border-right: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
 }
 .trace-card.trace-intercept {
-  border-left-color: #ef4444;
+  border-left-color: #dc2626;
 }
 .trace-card-top {
   display: flex;
@@ -488,7 +485,7 @@ function scrollToBottom() {
   color: #64748b;
 }
 .meta-row .val-mono {
-  font-family: monospace;
+  font-family: var(--mt-font-mono, monospace);
   color: #475569;
   background: #f1f5f9;
   padding: 1px 4px;
@@ -513,14 +510,14 @@ function scrollToBottom() {
 }
 .prompt-chip {
   cursor: pointer;
-  border-radius: 14px;
+  border-radius: 4px;
   font-size: 12px;
   transition: all 0.2s;
 }
 .prompt-chip:hover {
-  background: #ede9fe;
-  color: #7c3aed;
-  border-color: #c4b5fd;
+  background: var(--mt-primary-soft, #f0f9ff);
+  color: var(--mt-primary, #0284c7);
+  border-color: var(--mt-primary-border, #bae6fd);
 }
 .chat-input-row {
   margin-top: 4px;

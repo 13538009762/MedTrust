@@ -40,8 +40,10 @@ type CreateEncounterInitialParams struct {
 // CreateEncounterInitial 医生创建初诊记录并开具医技检查申请单
 func (s *MedicalService) CreateEncounterInitial(p CreateEncounterInitialParams) (*model.MedicalRecord, []*model.MedicalExamOrder, error) {
 	var doc model.User
-	if err := repository.DB.First(&doc, p.DoctorID).Error; err != nil {
+	if d, err := repository.DefaultUserRepository.FindByID(p.DoctorID); err != nil || d == nil {
 		return nil, nil, fmt.Errorf("医生不存在: %w", err)
+	} else {
+		doc = *d
 	}
 
 	randBytes := make([]byte, 4)
@@ -86,7 +88,7 @@ func (s *MedicalService) CreateEncounterInitial(p CreateEncounterInitialParams) 
 		CreatedAt:        time.Now(),
 	}
 
-	if err := repository.DB.Create(&record).Error; err != nil {
+	if err := repository.DefaultMedicalRepository.CreateRecord(&record); err != nil {
 		return nil, nil, fmt.Errorf("创建就诊记录失败: %w", err)
 	}
 
@@ -114,9 +116,9 @@ func (s *MedicalService) CreateEncounterInitial(p CreateEncounterInitialParams) 
 				CreatedAt:      time.Now(),
 				UpdatedAt:      time.Now(),
 			}
-			if err := repository.DB.Create(order).Error; err == nil {
-				createdOrders = append(createdOrders, order)
-			}
+			if err := repository.DefaultExamOrderRepository.CreateExamOrder(order); err == nil {
+					createdOrders = append(createdOrders, order)
+				}
 		}
 	}
 
@@ -140,61 +142,71 @@ func (s *MedicalService) CreateEncounterInitial(p CreateEncounterInitialParams) 
 
 // ListExamOrders 医技检查中心查询检查单列表
 func (s *MedicalService) ListExamOrders(status string, hospitalID uint64, patientID uint64) ([]model.MedicalExamOrder, error) {
-	query := repository.DB.Model(&model.MedicalExamOrder{})
-	if status != "" && status != "ALL" {
-		query = query.Where("status = ?", status)
-	}
-	if hospitalID > 0 {
-		query = query.Where("hospital_id = ?", hospitalID)
-	}
-	if patientID > 0 {
-		query = query.Where("patient_id = ?", patientID)
-	}
-
-	var list []model.MedicalExamOrder
-	if err := query.Order("id desc").Find(&list).Error; err != nil {
+	list, err := repository.DefaultExamOrderRepository.ListExamOrdersByFilter(status, hospitalID, patientID)
+	if err != nil {
 		return nil, err
 	}
 
-	for i := range list {
-		var pat model.User
-		if err := repository.DB.First(&pat, list[i].PatientID).Error; err == nil {
-			list[i].PatientName = pat.RealName
-			list[i].PatientIDCard = pat.IDCard
-			list[i].PatientPhone = pat.Phone
-		}
-		var doc model.User
-		if err := repository.DB.First(&doc, list[i].DoctorID).Error; err == nil {
-			list[i].DoctorName = doc.RealName
-		}
-		var hosp model.Hospital
-		if err := repository.DB.First(&hosp, list[i].HospitalID).Error; err == nil {
-			list[i].HospitalName = hosp.Name
-		}
-		var rec model.MedicalRecord
-		if err := repository.DB.First(&rec, list[i].RecordID).Error; err == nil {
-			list[i].RecordNo = rec.RecordNo
-			list[i].PatientChiefComplaint = rec.ChiefComplaint
-			if list[i].PatientChiefComplaint == "" {
-				list[i].PatientChiefComplaint = rec.Symptoms
+	// WP-13: 先单遍收集外键 ID，再批量 WHERE id IN 查询，内存组装展示字段 (消除 N+1)
+	if len(list) > 0 {
+		userIDSet := make([]uint64, 0, len(list)*2)
+		hospIDSet := make([]uint64, 0, len(list)*2)
+		recordIDSet := make([]uint64, 0, len(list))
+		cidSet := make([]string, 0, len(list))
+		for i := range list {
+			userIDSet = append(userIDSet, list[i].PatientID, list[i].DoctorID)
+			hospIDSet = append(hospIDSet, list[i].HospitalID)
+			if list[i].RecordID > 0 {
+				recordIDSet = append(recordIDSet, list[i].RecordID)
 			}
-			list[i].PatientInitialDiagnosis = rec.InitialDiagnosis
-			list[i].PatientDiagnosticBasis = rec.DiagnosticBasis
-			list[i].PatientVitalSigns = rec.VitalSigns
-			list[i].EncounterType = rec.EncounterType
-		}
-		if list[i].IPFSCID != "" {
-			var mf model.MedicalFile
-			if err := repository.DB.Where("ipfs_cid = ?", list[i].IPFSCID).First(&mf).Error; err == nil {
-				list[i].FileID = mf.ID
+			if list[i].IPFSCID != "" {
+				cidSet = append(cidSet, list[i].IPFSCID)
+			}
+			if list[i].TechnicianID > 0 {
+				userIDSet = append(userIDSet, list[i].TechnicianID)
 			}
 		}
-		if list[i].TechnicianID > 0 {
-			var tech model.User
-			if err := repository.DB.First(&tech, list[i].TechnicianID).Error; err == nil {
-				if tech.HospitalID > 0 {
-					var thosp model.Hospital
-					if err := repository.DB.First(&thosp, tech.HospitalID).Error; err == nil {
+
+		userMap := loadUsersBatchService(userIDSet)
+		hospMap := loadHospitalsBatchService(hospIDSet)
+		recMap := loadRecordsBatchService(recordIDSet)
+		cidFileMap := make(map[string]uint64)
+		if len(cidSet) > 0 {
+			cidFileMap, _ = repository.DefaultExamOrderRepository.FindFileIDsByCIDs(cidSet)
+		}
+
+		for i := range list {
+			if pat, ok := userMap[list[i].PatientID]; ok {
+				list[i].PatientName = pat.RealName
+				// WP-08: 列表端点统一脱敏患者身份证/手机号，降低批量拖库风险
+				list[i].PatientIDCard = maskIDCardService(pat.IDCard)
+				list[i].PatientPhone = maskPhoneService(pat.Phone)
+			}
+			if doc, ok := userMap[list[i].DoctorID]; ok {
+				list[i].DoctorName = doc.RealName
+			}
+			if hosp, ok := hospMap[list[i].HospitalID]; ok {
+				list[i].HospitalName = hosp.Name
+			}
+			if rec, ok := recMap[list[i].RecordID]; ok {
+				list[i].RecordNo = rec.RecordNo
+				list[i].PatientChiefComplaint = rec.ChiefComplaint
+				if list[i].PatientChiefComplaint == "" {
+					list[i].PatientChiefComplaint = rec.Symptoms
+				}
+				list[i].PatientInitialDiagnosis = rec.InitialDiagnosis
+				list[i].PatientDiagnosticBasis = rec.DiagnosticBasis
+				list[i].PatientVitalSigns = rec.VitalSigns
+				list[i].EncounterType = rec.EncounterType
+			}
+			if list[i].IPFSCID != "" {
+				if fid, ok := cidFileMap[list[i].IPFSCID]; ok {
+					list[i].FileID = fid
+				}
+			}
+			if list[i].TechnicianID > 0 {
+				if tech, ok := userMap[list[i].TechnicianID]; ok && tech.HospitalID > 0 {
+					if thosp, ok := hospMap[tech.HospitalID]; ok {
 						list[i].TechnicianHospitalName = thosp.Name
 					}
 				}
@@ -208,20 +220,21 @@ func (s *MedicalService) ListExamOrders(status string, hospitalID uint64, patien
 // ProcessExamOrder 医技科室将检查单置为处理中
 func (s *MedicalService) ProcessExamOrder(orderID uint64, technicianID uint64, technicianName string) error {
 	var order model.MedicalExamOrder
-	if err := repository.DB.First(&order, orderID).Error; err != nil {
+	if o, err := repository.DefaultMedicalRepository.FindExamOrderByID(orderID); err != nil || o == nil {
 		return fmt.Errorf("检查单不存在: %w", err)
+	} else {
+		order = *o
 	}
 	order.Status = "PROCESSING"
 	order.TechnicianID = technicianID
 	order.TechnicianName = technicianName
 	order.UpdatedAt = time.Now()
-	if err := repository.DB.Save(&order).Error; err != nil {
+	if err := repository.DefaultExamOrderRepository.SaveExamOrder(&order); err != nil {
 		return err
 	}
 
 	// 同步就诊记录状态为 检查进行中
-	repository.DB.Model(&model.MedicalRecord{}).Where("id = ? AND status = 'WAITING_EXAM'", order.RecordID).Update("status", "PROCESSING_EXAM")
-	return nil
+	return repository.DefaultExamOrderRepository.UpdateRecordStatusIf(order.RecordID, "WAITING_EXAM", "PROCESSING_EXAM")
 }
 
 // CompleteExamOrderParams 医技科室提交检查结果
@@ -240,8 +253,10 @@ type CompleteExamOrderParams struct {
 // CompleteExamOrder 医技人员提交报告，回传至就诊记录
 func (s *MedicalService) CompleteExamOrder(p CompleteExamOrderParams) (*model.MedicalExamOrder, error) {
 	var order model.MedicalExamOrder
-	if err := repository.DB.First(&order, p.OrderID).Error; err != nil {
+	if o, err := repository.DefaultMedicalRepository.FindExamOrderByID(p.OrderID); err != nil || o == nil {
 		return nil, fmt.Errorf("检查单不存在: %w", err)
+	} else {
+		order = *o
 	}
 
 	now := time.Now()
@@ -252,18 +267,24 @@ func (s *MedicalService) CompleteExamOrder(p CompleteExamOrderParams) (*model.Me
 	order.ExamConclusion = p.ExamConclusion
 	order.ExecutedAt = &now
 	order.UpdatedAt = now
+	// WP-10: 附件/检查单/就诊记录多表写统一延迟到事务内原子提交
+	var pendingFiles []*model.MedicalFile
 
 	// 若上传了影像/报告附件
 	if len(p.FileData) > 0 {
 		var rec model.MedicalRecord
-		_ = repository.DB.First(&rec, order.RecordID)
+		if rPtr, err := repository.DefaultMedicalRepository.FindRecordByID(order.RecordID); err == nil && rPtr != nil {
+			rec = *rPtr
+		}
 		targetRecordNo := order.OrderNo
 		if rec.RecordNo != "" {
 			targetRecordNo = rec.RecordNo
 		}
-		pack, fileHash, err := crypto.EncryptRecordFile(p.FileData, order.PatientID, targetRecordNo)
+		// WP-09: 统一 AES-256-GCM 信封加密 (随机 DEK + MasterKey 封装 + AAD 绑定)，EncryptedDEK/IVNonce 持久化至 medical_files
+		masterKey := config.AppConfig.GetAESMasterKey()
+		cipherData, encDEK, ivNonce, fileHash, err := crypto.EncryptMedicalFile(p.FileData, order.PatientID, targetRecordNo, masterKey)
 		if err == nil {
-			cid, err := s.ipfsService.PutData(pack)
+			cid, err := s.ipfsService.PutData(cipherData)
 			if err == nil {
 				finalFileName := p.FileName
 				if p.FileTitle != "" {
@@ -289,28 +310,24 @@ func (s *MedicalService) CompleteExamOrder(p CompleteExamOrderParams) (*model.Me
 
 				// 插入 MedicalFile 记录并绑定到当前 RecordID，确保全院/跨院调阅病历时能够穿透查看附件 (零本地明文落地)
 				medFile := model.MedicalFile{
-					RecordID:  order.RecordID,
-					FileName:  finalFileName,
-					FileType:  p.FileType,
-					FileSize:  uint64(len(p.FileData)),
-					IPFSCID:   cid,
-					FileHash:  fileHash,
-					CreatedAt: now,
+					RecordID:     order.RecordID,
+					FileName:     finalFileName,
+					FileType:     p.FileType,
+					FileSize:     uint64(len(p.FileData)),
+					IPFSCID:      cid,
+					FileHash:     fileHash,
+					EncryptedDEK: encDEK,
+					IVNonce:      ivNonce,
+					CreatedAt:    now,
 				}
-				if err := repository.DB.Create(&medFile).Error; err == nil {
-					order.FileID = medFile.ID
-				}
+				// WP-10: 附件落库延迟到与检查单/就诊记录同一事务中原子提交
+				pendingFiles = append(pendingFiles, &medFile)
 			}
 		}
 	}
 
-	if err := repository.DB.Save(&order).Error; err != nil {
-		return nil, fmt.Errorf("更新检查单失败: %w", err)
-	}
-
 	// 查询该就诊下的所有检查单，汇总报告回写至 MedicalRecord
-	var allOrders []model.MedicalExamOrder
-	repository.DB.Where("record_id = ?", order.RecordID).Find(&allOrders)
+	allOrders, _ := repository.DefaultExamOrderRepository.FindExamOrdersByRecordID(order.RecordID)
 
 	allCompleted := true
 	var sb strings.Builder
@@ -320,13 +337,7 @@ func (s *MedicalService) CompleteExamOrder(p CompleteExamOrderParams) (*model.Me
 		} else {
 			techHosp := ""
 			if o.TechnicianID > 0 {
-				var tu model.User
-				if err := repository.DB.First(&tu, o.TechnicianID).Error; err == nil && tu.HospitalID > 0 {
-					var th model.Hospital
-					if err := repository.DB.First(&th, tu.HospitalID).Error; err == nil {
-						techHosp = th.Name
-					}
-				}
+				techHosp = repository.DefaultExamOrderRepository.FindUserHospitalName(o.TechnicianID)
 			}
 			cleanTechName := strings.TrimSpace(o.TechnicianName)
 			if cleanTechName == "" {
@@ -345,7 +356,10 @@ func (s *MedicalService) CompleteExamOrder(p CompleteExamOrderParams) (*model.Me
 	}
 
 	var rec model.MedicalRecord
-	if err := repository.DB.First(&rec, order.RecordID).Error; err == nil {
+	var recFound bool
+	if rPtr, err := repository.DefaultMedicalRepository.FindRecordByID(order.RecordID); err == nil && rPtr != nil {
+		rec = *rPtr
+		recFound = true
 		rec.ExamResult = strings.TrimSpace(sb.String())
 		cleanDoc := strings.TrimSpace(p.TechnicianName)
 		if cleanDoc == "" {
@@ -362,7 +376,27 @@ func (s *MedicalService) CompleteExamOrder(p CompleteExamOrderParams) (*model.Me
 		} else {
 			rec.Status = "PROCESSING_EXAM"
 		}
-		repository.DB.Save(&rec)
+	}
+
+	// WP-10: 附件、检查单、就诊记录多表写包裹在同一本地事务中，保证原子性
+	if err := repository.Transaction(func(tx *repository.TxRunner) error {
+		for _, f := range pendingFiles {
+			if err := tx.Create(f); err != nil {
+				return fmt.Errorf("归档检验附件失败: %w", err)
+			}
+			if order.FileID == 0 {
+				order.FileID = f.ID
+			}
+		}
+		if err := tx.Save(&order); err != nil {
+			return fmt.Errorf("更新检查单失败: %w", err)
+		}
+		if recFound {
+			return tx.Save(&rec)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
 	return &order, nil
@@ -381,13 +415,17 @@ type CompleteEncounterFinalParams struct {
 // CompleteEncounterFinal 医生确认最终确诊并执行可信存证上链
 func (s *MedicalService) CompleteEncounterFinal(p CompleteEncounterFinalParams) (*model.MedicalRecord, error) {
 	var rec model.MedicalRecord
-	if err := repository.DB.First(&rec, p.RecordID).Error; err != nil {
+	if rPtr, err := repository.DefaultMedicalRepository.FindRecordByID(p.RecordID); err != nil || rPtr == nil {
 		return nil, fmt.Errorf("就诊记录不存在: %w", err)
+	} else {
+		rec = *rPtr
 	}
 
 	var doc model.User
-	if err := repository.DB.First(&doc, p.DoctorID).Error; err != nil {
+	if dPtr, err := repository.DefaultUserRepository.FindByID(p.DoctorID); err != nil || dPtr == nil {
 		return nil, fmt.Errorf("医生信息不存在: %w", err)
+	} else {
+		doc = *dPtr
 	}
 
 	rec.Diagnosis = p.Diagnosis
@@ -428,16 +466,14 @@ func (s *MedicalService) CompleteEncounterFinal(p CompleteEncounterFinalParams) 
 
 	// 补充就诊人与机构基础信息
 	if rec.PatientName == "" {
-		var pat model.User
-		if err := repository.DB.First(&pat, rec.PatientID).Error; err == nil {
+		if pat, err := repository.DefaultUserRepository.FindByID(rec.PatientID); err == nil && pat != nil {
 			rec.PatientName = pat.RealName
 			rec.PatientIDCard = pat.IDCard
 			rec.PatientPhone = pat.Phone
 		}
 	}
 	if rec.HospitalName == "" {
-		var hosp model.Hospital
-		if err := repository.DB.First(&hosp, doc.HospitalID).Error; err == nil {
+		if hosp, err := repository.DefaultHospitalRepository.FindByID(doc.HospitalID); err == nil && hosp != nil {
 			rec.HospitalName = hosp.Name
 		}
 	}
@@ -511,10 +547,7 @@ func (s *MedicalService) CompleteEncounterFinal(p CompleteEncounterFinalParams) 
 	rec.FabricTxID = txID
 	rec.BlockHeight = height
 
-	if err := repository.DB.Save(&rec).Error; err != nil {
-		return nil, fmt.Errorf("保存就诊最终记录失败: %w", err)
-	}
-
+	// WP-10: 就诊记录与归档附件必须原子持久化，杜绝"记录已更新但附件缺失"的中间态
 	// 4. 保存归档文件凭据到 medical_files（使用标准 Base64 封装的 EncryptedDEK 与 IVNonce）
 	fileRecord := model.MedicalFile{
 		RecordID:     rec.ID,
@@ -527,7 +560,14 @@ func (s *MedicalService) CompleteEncounterFinal(p CompleteEncounterFinalParams) 
 		FileHash:     fileHash,
 		CreatedAt:    time.Now(),
 	}
-	repository.DB.Create(&fileRecord)
+	if err := repository.Transaction(func(tx *repository.TxRunner) error {
+		if err := tx.Save(&rec); err != nil {
+			return err
+		}
+		return tx.Create(&fileRecord)
+	}); err != nil {
+		return nil, fmt.Errorf("保存就诊最终记录失败: %w", err)
+	}
 	rec.Files = []model.MedicalFile{fileRecord}
 
 	s.VerifyRecord(&rec)

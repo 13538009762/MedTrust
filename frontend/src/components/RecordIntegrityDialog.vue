@@ -17,7 +17,7 @@
           </el-icon>
           <div>
             <div class="banner-title">
-              {{ result.verified ? 'VERIFIED: 数据真实完整 · 链上链下哈希 100% 一致' : 'TAMPERED: 检测到数据已被篡改！' }}
+              {{ result.verified ? 'VERIFIED: 数据真实完整 · 链上链下哈希完全一致' : 'TAMPERED: 检测到数据已被篡改！' }}
             </div>
             <div class="banner-sub">
               就诊编号：<span class="mono bold">{{ result.record_no }}</span> | 经治背书：Hyperledger Fabric 2.5
@@ -57,8 +57,8 @@
         <!-- 底部区块链元数据 -->
         <div class="chain-meta-card mt-3">
           <div><strong>Fabric TxID：</strong><code class="mono">{{ formatTxId(result.fabric_tx_id) }}</code></div>
-          <div><strong>存证区块高度：</strong><span class="mono">#{{ result.block_height || 108 }}</span> | <strong>通道：</strong><span class="mono">medicalchannel</span> | <strong>合约：</strong><span class="mono">medical_contract</span></div>
-          <div><strong>IPFS 密文 CID：</strong><code class="mono">{{ result.cid || result.ipfs_cid || '-' }}</code></div>
+          <div><strong>存证区块高度：</strong><span class="mono">{{ result.block_height ? `#${result.block_height}` : '待同步' }}</span> | <strong>通道：</strong><span class="mono">medicalchannel</span> | <strong>合约：</strong><span class="mono">medical_contract</span></div>
+          <div><strong>IPFS 密文 CID：</strong><code class="mono">{{ result.cid || result.ipfs_cid || '—' }}</code></div>
           <div><strong>加密算法：</strong><span class="mono">AES-256-GCM (AAD 关联认证数据绑定)</span></div>
         </div>
       </div>

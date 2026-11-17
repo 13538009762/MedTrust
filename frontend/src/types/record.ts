@@ -70,6 +70,8 @@ export interface RecordQueryParams {
   only_cross_accessed?: boolean
   data_type?: string
   keyword?: string
+  page?: number
+  page_size?: number
 }
 
 export interface InfectionRiskItem {

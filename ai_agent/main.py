@@ -1,3 +1,5 @@
+import os
+
 import uvicorn
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,9 +13,15 @@ app = FastAPI(
     version="2.0.0"
 )
 
+# WP-04: 收紧 CORS——禁止 allow_origins=["*"] 与 allow_credentials=True 组合 (浏览器会拒绝且构成安全风险)
+# 允许来源从环境变 MEDTRUST_CORS_ORIGINS 读取 (逗号分隔)，默认仅放行本地前端/网关开发端口
+_default_origins = ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:8080"]
+_origins_raw = os.environ.get("MEDTRUST_CORS_ORIGINS", "")
+allow_origins = [o.strip() for o in _origins_raw.split(",") if o.strip()] if _origins_raw else _default_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

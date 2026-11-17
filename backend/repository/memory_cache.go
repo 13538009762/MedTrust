@@ -70,6 +70,22 @@ func (c *MemoryCache) Delete(key string) {
 	c.data.Delete(key)
 }
 
+// GetAndDelete 原子地取出并删除键 (sync.Map.LoadAndDelete)，供一次性票据等防重放场景使用。
+func (c *MemoryCache) GetAndDelete(key string) (interface{}, bool) {
+	v, ok := c.data.LoadAndDelete(key)
+	if !ok {
+		return nil, false
+	}
+	item, ok := v.(memoryCacheItem)
+	if !ok {
+		return nil, false
+	}
+	if time.Now().After(item.expireAt) {
+		return nil, false
+	}
+	return item.val, true
+}
+
 func (c *MemoryCache) Close() {
 	select {
 	case <-c.stop:

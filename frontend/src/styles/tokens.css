@@ -1,0 +1,158 @@
+/* src/styles/tokens.css — MedTrust 2.0 企业级医疗 B 端设计基线 (Design Tokens) */
+:root {
+  /* 1. 画布、容器与结构边框（低饱和高对比冷中性灰，禁用半透明毛玻璃） */
+  --mt-bg-canvas: #f8fafc;
+  --mt-bg-surface: #ffffff;
+  --mt-bg-subtle: #f1f5f9;
+  --mt-bg-hover: #f8fafc;
+  --mt-border-base: #e2e8f0;
+  --mt-border-strong: #cbd5e1;
+
+  /* 2. 文字层级（WCAG AA 对比度保障） */
+  --mt-text-primary: #0f172a;
+  --mt-text-regular: #334155;
+  --mt-text-secondary: #64748b;
+  --mt-text-muted: #94a3b8;
+
+  /* 3. 医疗临床主色（彻底废除紫粉渐变） */
+  --mt-primary: #0284c7;
+  --mt-primary-hover: #0369a1;
+  --mt-primary-soft: #f0f9ff;
+  --mt-primary-border: #bae6fd;
+
+  /* 4. 医疗与区块链核心语义色 */
+  --mt-success: #059669;
+  --mt-success-soft: #ecfdf5;
+  --mt-success-border: #a7f3d0;
+
+  --mt-warning: #d97706;
+  --mt-warning-soft: #fffbeb;
+  --mt-warning-border: #fde68a;
+
+  --mt-danger: #dc2626;
+  --mt-danger-soft: #fef2f2;
+  --mt-danger-border: #fecaca;
+
+  /* 5. 标准圆角规范（医疗 B 端严控 <= 8px） */
+  --mt-radius-xs: 4px;
+  --mt-radius-sm: 6px;
+  --mt-radius-md: 8px;
+
+  /* 6. 极轻克制投影 */
+  --mt-shadow-none: none;
+  --mt-shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.04);
+  --mt-shadow-card: 0 1px 3px 0 rgba(15, 23, 42, 0.06);
+
+  /* 7. 医疗高密度字号阶梯 */
+  --mt-text-xs: 12px;
+  --mt-text-sm: 13px;
+  --mt-text-base: 14px;
+  --mt-text-lg: 16px;
+  --mt-text-xl: 20px;
+
+  /* 8. 密码学与体征等宽字体栈 */
+  --mt-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --mt-font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+/* 统一防篡改安全阻断弹窗结构样式（供 useTamperWarning 调用，消除内联样式） */
+.mt-tamper-modal {
+  text-align: left;
+  padding: 4px 0;
+}
+
+.mt-tamper-modal__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.mt-tamper-modal__badge {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--mt-radius-sm);
+  background: var(--mt-danger-soft);
+  border: 1px solid var(--mt-danger);
+  color: var(--mt-danger);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-weight: 800;
+  font-size: 16px;
+}
+
+.mt-tamper-modal__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #991b1b;
+  margin-bottom: 4px;
+}
+
+.mt-tamper-modal__desc {
+  font-size: var(--mt-text-sm);
+  color: #7f1d1d;
+  line-height: 1.55;
+}
+
+.mt-tamper-modal__compare {
+  background: var(--mt-danger-soft);
+  border: 1px solid var(--mt-danger-border);
+  border-radius: var(--mt-radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  font-size: var(--mt-text-xs);
+  line-height: 1.6;
+}
+
+.mt-tamper-modal__compare-title {
+  color: #991b1b;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.mt-tamper-modal__row {
+  margin-bottom: 6px;
+}
+
+.mt-tamper-modal__row:last-child {
+  margin-bottom: 0;
+}
+
+.mt-tamper-modal__label {
+  color: var(--mt-text-secondary);
+  font-weight: 600;
+}
+
+.mt-tamper-modal__code {
+  display: block;
+  padding: 4px 8px;
+  border-radius: var(--mt-radius-xs);
+  font-family: var(--mt-font-mono);
+  font-size: 11px;
+  word-break: break-all;
+  margin-top: 2px;
+}
+
+.mt-tamper-modal__code--danger {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid var(--mt-danger-border);
+}
+
+.mt-tamper-modal__code--chain {
+  background: var(--mt-bg-subtle);
+  color: var(--mt-text-primary);
+  border: 1px solid var(--mt-border-strong);
+}
+
+.mt-tamper-modal__notice {
+  background: var(--mt-danger-soft);
+  border-left: 4px solid var(--mt-danger);
+  padding: 10px 12px;
+  border-radius: var(--mt-radius-xs);
+  font-size: var(--mt-text-xs);
+  color: #991b1b;
+  line-height: 1.55;
+}

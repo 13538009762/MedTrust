@@ -249,7 +249,7 @@
             </div>
             <div class="comp-summary-note mt-3">
               <el-icon class="mr-1 text-emerald-600"><CircleCheckFilled /></el-icon>
-              <span>数据主权指标：经患者自主授权激活后，密文授权凭证全生命周期锚定 Fabric 联盟链通道，支持患者随时一键撤销作废。</span>
+              <span>数据主权指标：经患者自主授权激活后，密文授权凭证全生命周期锚定 Fabric 联盟链通道，支持患者随时撤销作废。</span>
             </div>
           </div>
         </el-card>
@@ -266,6 +266,13 @@
               <span class="slb-dot"></span>
               LIVE 持续监听
             </span>
+            <el-tooltip
+              v-if="showingDemoEvents"
+              content="当前审计事件不足或后端暂不可达，列表前部混入演示数据用于展示版式；后端恢复后将自动替换为真实链上审计事件"
+              placement="top"
+            >
+              <el-tag size="small" type="warning" effect="plain" class="ml-1">演示数据</el-tag>
+            </el-tooltip>
           </div>
           <div class="stream-filter-box">
             <el-radio-group v-model="eventFilter" size="small">
@@ -356,7 +363,7 @@
         <el-table-column prop="block_height" label="区块高度" width="110" align="center">
           <template #default="{ row }">
             <el-tag size="small" type="primary" effect="plain" class="mono font-semibold">
-              #{{ row.block_height || 108 }}
+              {{ row.block_height ? `#${row.block_height}` : '待同步' }}
             </el-tag>
           </template>
         </el-table-column>
@@ -491,6 +498,9 @@ const chartInstances: any[] = []
 
 const securityEvents = ref<any[]>([])
 const loadingEvents = ref(false)
+// 当前事件列表是否混入了演示数据（真实服务端事件不足或拉取失败时）。
+// 仅供模板显式标注「演示数据」，不得当作业务状态使用。
+const showingDemoEvents = ref(false)
 const eventFilter = ref('ALL')
 let pollTimer: any = null
 
@@ -523,15 +533,19 @@ async function fetchSecurityEvents() {
       const hasNonLogin = serverLogs.some((e: any) => e.operation_type && e.operation_type !== 'LOGIN')
       if (!hasNonLogin || serverLogs.length < 3) {
         securityEvents.value = [...demoSecurityStream, ...serverLogs]
+        showingDemoEvents.value = true
       } else {
         securityEvents.value = serverLogs
+        showingDemoEvents.value = false
       }
     } else {
       securityEvents.value = demoSecurityStream
+      showingDemoEvents.value = true
     }
   } catch (err) {
     console.warn('fetchSecurityEvents error', err)
     securityEvents.value = demoSecurityStream
+    showingDemoEvents.value = true
   } finally {
     loadingEvents.value = false
   }
@@ -579,27 +593,21 @@ async function fetchBlockchainTransactions() {
     }
   } catch (err) {
     console.warn('fetchBlockchainTransactions fallback error', err)
-    if (!blockchainTransactions.value.length) {
-      blockchainTransactions.value = [
-        { id: 1, tx_id: '7b2f8a19c4d3e5f60a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f', block_height: 108, channel_name: 'medicalchannel', chaincode_name: 'medical_contract', function_name: 'UploadMedicalRecord', payload_hash: '3a5f8b9c...d4e1', status: 'CONFIRMED', created_at: new Date().toISOString() },
-        { id: 2, tx_id: '4c8e1a7b2d9f0c3e5a6b7d8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b', block_height: 107, channel_name: 'medicalchannel', chaincode_name: 'medical_contract', function_name: 'GrantConsentPolicy', payload_hash: '9e2b1c4a...7f3d', status: 'CONFIRMED', created_at: new Date().toISOString() },
-        { id: 3, tx_id: '1f3a5b7c9e0d2f4a6b8c0d2e4f6a8b0c2d4e6f8a0b2c4d6e8f0a2b4c6d8e0f2a', block_height: 106, channel_name: 'medicalchannel', chaincode_name: 'medical_contract', function_name: 'BreakGlassEmergencyAccess', payload_hash: '5d8e2f0a...1c4b', status: 'CONFIRMED', created_at: new Date().toISOString() }
-      ]
-    }
+    blockchainTransactions.value = []
   } finally {
     loadingTx.value = false
   }
 }
 
 function formatTxId(txId?: string) {
-  if (!txId) return '7b2f...8e7f'
+  if (!txId) return '—'
   const clean = String(txId).replace(/^0x/i, '')
   if (clean.length <= 20) return clean
   return `${clean.slice(0, 10)}...${clean.slice(-8)}`
 }
 
 function formatPayloadHash(hash?: string) {
-  if (!hash) return '-'
+  if (!hash) return '—'
   if (hash.length <= 16) return hash
   return `${hash.slice(0, 8)}...${hash.slice(-6)}`
 }
@@ -1009,7 +1017,7 @@ function renderFunnelChart(funnelData: any) {
   margin-bottom: 16px;
 }
 .metric-card {
-  border-radius: 12px;
+  border-radius: 8px;
 }
 .metric-title {
   font-size: 13px;
@@ -1018,20 +1026,20 @@ function renderFunnelChart(funnelData: any) {
   margin-bottom: 6px;
 }
 .metric-num {
-  font-size: 30px;
-  font-weight: 900;
+  font-size: 28px;
+  font-weight: 800;
   margin-bottom: 6px;
 }
-.text-primary { color: #3b82f6; }
-.text-purple { color: #8b5cf6; }
-.text-danger { color: #ef4444; }
-.text-success { color: #10b981; }
+.text-primary { color: #0284c7; }
+.text-purple { color: #0369a1; }
+.text-danger { color: #dc2626; }
+.text-success { color: #059669; }
 .metric-foot {
   font-size: 12px;
-  color: #94a3b8;
+  color: #64748b;
 }
 .chart-card {
-  border-radius: 12px;
+  border-radius: 8px;
 }
 .chart-header-row {
   display: flex;
@@ -1056,10 +1064,11 @@ function renderFunnelChart(funnelData: any) {
 }
 
 .blockchain-status-card {
-  border-radius: 12px;
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-  color: #f8fafc;
-  border: 1px solid #334155;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #0f172a;
+  border: 1px solid #e2e8f0;
+  border-left: 4px solid var(--mt-primary, #0284c7);
 }
 .mb-4 {
   margin-bottom: 16px;
@@ -1075,7 +1084,7 @@ function renderFunnelChart(funnelData: any) {
 .chain-status-left {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 .chain-badge-wrapper {
   display: flex;
@@ -1083,56 +1092,34 @@ function renderFunnelChart(funnelData: any) {
   gap: 10px;
 }
 .status-pulse-dot {
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   display: inline-block;
   position: relative;
 }
 .dot-green {
-  background-color: #10b981;
-  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
-  animation: pulse-green 2s infinite;
+  background-color: #059669;
 }
 .dot-amber {
-  background-color: #f59e0b;
-  box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7);
-  animation: pulse-amber 2s infinite;
+  background-color: #d97706;
 }
 .dot-red {
-  background-color: #ef4444;
-  box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
-  animation: pulse-red 2s infinite;
-}
-
-@keyframes pulse-green {
-  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-  70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
-  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-}
-@keyframes pulse-amber {
-  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); }
-  70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(245, 158, 11, 0); }
-  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
-}
-@keyframes pulse-red {
-  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
-  70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
-  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  background-color: #dc2626;
 }
 
 .status-title-text {
-  font-size: 16px;
-  font-weight: 800;
-  letter-spacing: 0.5px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
 }
-.text-status-green { color: #34d399; }
-.text-status-amber { color: #fbbf24; }
-.text-status-red { color: #f87171; }
+.text-status-green { color: #059669; }
+.text-status-amber { color: #d97706; }
+.text-status-red { color: #dc2626; }
 
 .chain-sub-desc {
   font-size: 12px;
-  color: #94a3b8;
+  color: #64748b;
 }
 .chain-status-meta {
   display: flex;
@@ -1154,14 +1141,14 @@ function renderFunnelChart(funnelData: any) {
 .meta-val {
   font-size: 13px;
   font-weight: 600;
-  color: #cbd5e1;
-  font-family: monospace;
+  color: #1e293b;
+  font-family: var(--mt-font-mono, monospace);
 }
 .meta-val.highlight {
-  color: #38bdf8;
+  color: #0284c7;
 }
 .meta-val.block-height {
-  color: #a78bfa;
+  color: #0369a1;
   font-size: 15px;
 }
 .action-box {

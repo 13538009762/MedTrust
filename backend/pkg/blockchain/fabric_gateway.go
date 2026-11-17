@@ -44,6 +44,206 @@ type FabricGatewayService struct {
 	blockCount    uint64
 	txCount       int
 	mu            sync.RWMutex
+	stopChan      chan struct{}
+	reconnectOnce sync.Once
+}
+
+// resolveCryptoPath 智能多级候选路径解析，适配宿主机、测试目录、跨工作区与 Docker 多种运行环境
+func resolveCryptoPath(path string) string {
+	if path == "" {
+		return path
+	}
+	if _, err := os.Stat(path); err == nil {
+		return path
+	}
+	clean := filepath.Clean(path)
+	candidates := []string{
+		filepath.Join(".", clean),
+		filepath.Join("backend", clean),
+		filepath.Join("..", clean),
+		filepath.Join("..", "..", clean),
+	}
+	if idx := strings.Index(clean, "fabric_crypto"); idx != -1 {
+		sub := clean[idx+len("fabric_crypto"):]
+		sub = strings.TrimPrefix(sub, string(filepath.Separator))
+		sub = strings.TrimPrefix(sub, "/")
+		candidates = append(candidates,
+			filepath.Join("deploy", "fabric", "crypto-config", sub),
+			filepath.Join("..", "deploy", "fabric", "crypto-config", sub),
+			filepath.Join("..", "..", "deploy", "fabric", "crypto-config", sub),
+			filepath.Join("backend", "fabric_crypto", sub),
+			filepath.Join(".", "fabric_crypto", sub),
+		)
+	}
+	for _, cand := range candidates {
+		if _, err := os.Stat(cand); err == nil {
+			return cand
+		}
+	}
+	return path
+}
+
+func isNetworkErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "transport is closing") ||
+		strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "broken pipe") ||
+		strings.Contains(msg, "code = Unavailable") ||
+		strings.Contains(msg, "all SubConns are in TransientFailure")
+}
+
+// tryConnect 尝试建立与 Fabric 网关的真实连接 (具备双向端点嗅探与证书自适应加载)
+func (s *FabricGatewayService) tryConnect() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.connected && s.clientConn != nil {
+		return nil
+	}
+
+	// 清理旧资源
+	if s.gw != nil {
+		_ = s.gw.Close()
+		s.gw = nil
+	}
+	if s.clientConn != nil {
+		_ = s.clientConn.Close()
+		s.clientConn = nil
+	}
+	s.network = nil
+	s.contract = nil
+
+	// 1. TCP 探活与双向端点回退 (支持宿主机 127.0.0.1 与容器内 peer0.org1.example.com 双向自适应探测)
+	endpoint := s.cfg.PeerEndpoint
+	conn, err := net.DialTimeout("tcp", endpoint, 1500*time.Millisecond)
+	if err != nil {
+		host, port, splitErr := net.SplitHostPort(endpoint)
+		if splitErr == nil {
+			var fallbacks []string
+			if host != "127.0.0.1" && host != "localhost" {
+				fallbacks = append(fallbacks, fmt.Sprintf("127.0.0.1:%s", port))
+			} else {
+				fallbacks = append(fallbacks, fmt.Sprintf("%s:%s", s.cfg.GatewayPeer, port))
+			}
+
+			for _, fb := range fallbacks {
+				fbConn, fbErr := net.DialTimeout("tcp", fb, 1500*time.Millisecond)
+				if fbErr == nil {
+					log.Printf("[FabricGateway] 💡 成功探测到候选端点 %s，自动切换 PeerEndpoint -> %s", fb, fb)
+					endpoint = fb
+					s.cfg.PeerEndpoint = fb
+					conn = fbConn
+					err = nil
+					break
+				}
+			}
+		}
+	}
+
+	if err != nil {
+		s.connected = false
+		s.statusMessage = fmt.Sprintf("connection refused at %s (%v)", s.cfg.PeerEndpoint, err)
+		return fmt.Errorf("fabric peer unreachable at %s: %w", s.cfg.PeerEndpoint, err)
+	}
+	if conn != nil {
+		_ = conn.Close()
+	}
+
+	// 2. 智能候选路径加载证书与私钥
+	certPath := resolveCryptoPath(s.cfg.CertPath)
+	id, err := loadIdentity(certPath, s.cfg.MSPID)
+	if err != nil {
+		s.connected = false
+		s.statusMessage = fmt.Sprintf("Load identity failed: %v", err)
+		log.Printf("[FabricGateway] ❌ 读取 MSP 证书失败 (%s): %v", certPath, err)
+		return err
+	}
+
+	keyPath := resolveCryptoPath(s.cfg.KeyPath)
+	sign, err := loadSigner(keyPath)
+	if err != nil {
+		s.connected = false
+		s.statusMessage = fmt.Sprintf("Load private key failed: %v", err)
+		log.Printf("[FabricGateway] ❌ 读取私钥失败 (%s): %v", keyPath, err)
+		return err
+	}
+
+	// 3. 读取 TLS CA 证书建立 gRPC 连接
+	tlsCertPath := resolveCryptoPath(s.cfg.TLSCertPath)
+	grpcConn, err := newGrpcConnection(endpoint, tlsCertPath, s.cfg.GatewayPeer)
+	if err != nil {
+		s.connected = false
+		s.statusMessage = fmt.Sprintf("gRPC connection failed: %v", err)
+		log.Printf("[FabricGateway] ❌ 建立 TLS gRPC 连接失败: %v", err)
+		return err
+	}
+
+	// 4. 初始化 Fabric Gateway Client
+	gw, err := client.Connect(
+		id,
+		client.WithSign(sign),
+		client.WithClientConnection(grpcConn),
+		client.WithEvaluateTimeout(5*time.Second),
+		client.WithEndorseTimeout(15*time.Second),
+		client.WithSubmitTimeout(15*time.Second),
+		client.WithCommitStatusTimeout(1*time.Minute),
+	)
+	if err != nil {
+		_ = grpcConn.Close()
+		s.connected = false
+		s.statusMessage = fmt.Sprintf("Gateway client connect failed: %v", err)
+		log.Printf("[FabricGateway] ❌ Fabric Gateway 连接失败: %v", err)
+		return err
+	}
+
+	// 5. 获取 Network 与 Contract
+	network := gw.GetNetwork(s.cfg.ChannelID)
+	contract := network.GetContractWithName(s.cfg.ChaincodeID, "MedicalContract")
+	if contract == nil {
+		contract = network.GetContract(s.cfg.ChaincodeID)
+	}
+
+	s.clientConn = grpcConn
+	s.gw = gw
+	s.network = network
+	s.contract = contract
+	s.connected = true
+	s.statusMessage = "Connected to Fabric Gateway successfully"
+
+	log.Printf("[FabricGateway] ✅ 成功连接至 Hyperledger Fabric 2.5 网关通道: %s, 智能合约: %s, 节点: %s",
+		s.cfg.ChannelID, s.cfg.ChaincodeID, s.cfg.GatewayPeer)
+
+	return nil
+}
+
+// startReconnectLoop 启动常驻后台自愈协程 (每 3 秒检测连通状态，失联自动重试)
+func (s *FabricGatewayService) startReconnectLoop() {
+	s.reconnectOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(3 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-s.stopChan:
+					return
+				case <-ticker.C:
+					s.mu.RLock()
+					connected := s.connected
+					s.mu.RUnlock()
+
+					if !connected {
+						if err := s.tryConnect(); err == nil {
+							log.Printf("[FabricGateway] 🔄 后台自愈引擎已成功恢复与 Hyperledger Fabric 2.5 Gateway 连接")
+						}
+					}
+				}
+			}
+		}()
+	})
 }
 
 // NewFabricGatewayService 实例化 Fabric 官方网关服务 (严格连接与防伪装校验)
@@ -54,6 +254,7 @@ func NewFabricGatewayService(cfg FabricGatewayConfig) *FabricGatewayService {
 		statusMessage: "Initializing Fabric Gateway",
 		blockCount:    1,
 		txCount:       0,
+		stopChan:      make(chan struct{}),
 	}
 
 	if s.cfg.ChannelID == "" {
@@ -72,86 +273,22 @@ func NewFabricGatewayService(cfg FabricGatewayConfig) *FabricGatewayService {
 	log.Printf("[FabricGateway] 正在建立与 Hyperledger Fabric 2.5 Gateway 真实连接: Peer=%s, Channel=%s, Chaincode=%s, MSP=%s",
 		cfg.PeerEndpoint, s.cfg.ChannelID, s.cfg.ChaincodeID, s.cfg.MSPID)
 
-	// 1. TCP 探活
-	conn, err := net.DialTimeout("tcp", cfg.PeerEndpoint, 1500*time.Millisecond)
-	if err != nil {
-		s.connected = false
-		s.statusMessage = fmt.Sprintf("connection refused at %s (%v)", cfg.PeerEndpoint, err)
-		log.Printf("[FabricGateway] ❌ Fabric Peer 节点网络不可达 (%s): %v。已明确标记 Fabric Unavailable，拒绝伪装上链", cfg.PeerEndpoint, err)
-		return s
-	}
-	_ = conn.Close()
-
-	// 2. 读取证书与私钥
-	id, err := loadIdentity(s.cfg.CertPath, s.cfg.MSPID)
-	if err != nil {
-		s.connected = false
-		s.statusMessage = fmt.Sprintf("Load identity failed: %v", err)
-		log.Printf("[FabricGateway] ❌ 读取 MSP 证书失败 (%s): %v", s.cfg.CertPath, err)
-		return s
+	if err := s.tryConnect(); err != nil {
+		log.Printf("[FabricGateway] ⚠️ 初始连接 Fabric 暂不可达 (%v)，后台自愈重试协程已启动...", err)
 	}
 
-	sign, err := loadSigner(s.cfg.KeyPath)
-	if err != nil {
-		s.connected = false
-		s.statusMessage = fmt.Sprintf("Load private key failed: %v", err)
-		log.Printf("[FabricGateway] ❌ 读取私钥失败 (%s): %v", s.cfg.KeyPath, err)
-		return s
-	}
-
-	// 3. 读取 TLS CA 证书建立 gRPC 连接
-	grpcConn, err := newGrpcConnection(s.cfg.PeerEndpoint, s.cfg.TLSCertPath, s.cfg.GatewayPeer)
-	if err != nil {
-		s.connected = false
-		s.statusMessage = fmt.Sprintf("gRPC connection failed: %v", err)
-		log.Printf("[FabricGateway] ❌ 建立 TLS gRPC 连接失败: %v", err)
-		return s
-	}
-	s.clientConn = grpcConn
-
-	// 4. 初始化 Fabric Gateway Client
-	gw, err := client.Connect(
-		id,
-		client.WithSign(sign),
-		client.WithClientConnection(grpcConn),
-		client.WithEvaluateTimeout(5*time.Second),
-		client.WithEndorseTimeout(15*time.Second),
-		client.WithSubmitTimeout(15*time.Second),
-		client.WithCommitStatusTimeout(1*time.Minute),
-	)
-	if err != nil {
-		s.connected = false
-		s.statusMessage = fmt.Sprintf("Gateway client connect failed: %v", err)
-		log.Printf("[FabricGateway] ❌ Fabric Gateway 连接失败: %v", err)
-		return s
-	}
-	s.gw = gw
-
-	// 5. 获取 Network 与 Contract
-	network := gw.GetNetwork(s.cfg.ChannelID)
-	contract := network.GetContractWithName(s.cfg.ChaincodeID, "MedicalContract")
-	if contract == nil {
-		contract = network.GetContract(s.cfg.ChaincodeID)
-	}
-	s.network = network
-	s.contract = contract
-
-	s.connected = true
-	s.statusMessage = "Connected to Fabric Gateway successfully"
-
-	log.Printf("[FabricGateway] ✅ 成功连接至 Hyperledger Fabric 2.5 网关通道: %s, 智能合约: %s, 节点: %s",
-		s.cfg.ChannelID, s.cfg.ChaincodeID, s.cfg.GatewayPeer)
-
+	s.startReconnectLoop()
 	return s
 }
 
 // loadIdentity 从 PEM 证书读取 X.509 身份
 func loadIdentity(certPath, mspID string) (*identity.X509Identity, error) {
+	certPath = resolveCryptoPath(certPath)
 	info, err := os.Stat(certPath)
 	if err == nil && info.IsDir() {
 		files, _ := os.ReadDir(certPath)
 		for _, f := range files {
-			if strings.HasSuffix(f.Name(), ".pem") {
+			if strings.HasSuffix(f.Name(), ".pem") || strings.HasSuffix(f.Name(), ".crt") {
 				certPath = filepath.Join(certPath, f.Name())
 				break
 			}
@@ -160,7 +297,7 @@ func loadIdentity(certPath, mspID string) (*identity.X509Identity, error) {
 		dir := filepath.Dir(certPath)
 		if files, rErr := os.ReadDir(dir); rErr == nil {
 			for _, f := range files {
-				if strings.HasSuffix(f.Name(), ".pem") {
+				if strings.HasSuffix(f.Name(), ".pem") || strings.HasSuffix(f.Name(), ".crt") {
 					certPath = filepath.Join(dir, f.Name())
 					break
 				}
@@ -181,6 +318,7 @@ func loadIdentity(certPath, mspID string) (*identity.X509Identity, error) {
 
 // loadSigner 从文件或 keystore 目录读取私钥并构建数字签名器
 func loadSigner(keyPath string) (identity.Sign, error) {
+	keyPath = resolveCryptoPath(keyPath)
 	var keyFile string
 	info, err := os.Stat(keyPath)
 	if err != nil {
@@ -197,6 +335,9 @@ func loadSigner(keyPath string) (identity.Sign, error) {
 				keyFile = filepath.Join(keyPath, file.Name())
 				break
 			}
+		}
+		if keyFile == "" && len(files) == 1 && !files[0].IsDir() {
+			keyFile = filepath.Join(keyPath, files[0].Name())
 		}
 		if keyFile == "" {
 			return nil, fmt.Errorf("no private key found in keystore directory: %s", keyPath)
@@ -220,6 +361,7 @@ func loadSigner(keyPath string) (identity.Sign, error) {
 
 // newGrpcConnection 建立带 TLS 证书校验的 gRPC 连接
 func newGrpcConnection(endpoint, tlsCertPath, gatewayPeer string) (*grpc.ClientConn, error) {
+	tlsCertPath = resolveCryptoPath(tlsCertPath)
 	tlsCert, err := os.ReadFile(tlsCertPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read TLS CA cert %s: %w", tlsCertPath, err)
@@ -241,6 +383,10 @@ func (s *FabricGatewayService) IsLiveFabric() bool {
 }
 
 func (s *FabricGatewayService) GetBlockchainStatus() BlockchainStatusDTO {
+	if !s.IsLiveFabric() {
+		_ = s.tryConnect()
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -263,6 +409,10 @@ func (s *FabricGatewayService) GetBlockchainStatus() BlockchainStatusDTO {
 }
 
 func (s *FabricGatewayService) CommitAsset(assetType, assetID string, payload map[string]interface{}) (txID string, height uint64, err error) {
+	if !s.IsLiveFabric() {
+		_ = s.tryConnect()
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -405,22 +555,38 @@ func (s *FabricGatewayService) CommitAsset(assetType, assetID string, payload ma
 	// 真实提交 Proposal 并获取真实 Fabric Transaction ID 与 BlockNumber
 	proposal, err := s.contract.NewProposal(methodName, client.WithArguments(args...))
 	if err != nil {
+		if isNetworkErr(err) {
+			s.connected = false
+			s.statusMessage = fmt.Sprintf("proposal error: %v", err)
+		}
 		return "", 0, fmt.Errorf("failed to create Fabric proposal for %s: %w", methodName, err)
 	}
 
 	txID = proposal.TransactionID()
 	endorsed, err := proposal.Endorse()
 	if err != nil {
+		if isNetworkErr(err) {
+			s.connected = false
+			s.statusMessage = fmt.Sprintf("endorse error: %v", err)
+		}
 		return "", 0, fmt.Errorf("failed to endorse Fabric transaction %s: %w", txID, err)
 	}
 
 	commit, err := endorsed.Submit()
 	if err != nil {
+		if isNetworkErr(err) {
+			s.connected = false
+			s.statusMessage = fmt.Sprintf("submit error: %v", err)
+		}
 		return "", 0, fmt.Errorf("failed to submit Fabric transaction %s: %w", txID, err)
 	}
 
 	status, err := commit.Status()
 	if err != nil {
+		if isNetworkErr(err) {
+			s.connected = false
+			s.statusMessage = fmt.Sprintf("commit status error: %v", err)
+		}
 		return txID, 0, fmt.Errorf("failed to obtain commit status for %s: %w", txID, err)
 	}
 
@@ -443,6 +609,10 @@ func (s *FabricGatewayService) CommitAsset(assetType, assetID string, payload ma
 }
 
 func (s *FabricGatewayService) QueryAsset(assetID string) (map[string]interface{}, bool) {
+	if !s.IsLiveFabric() {
+		_ = s.tryConnect()
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -453,9 +623,17 @@ func (s *FabricGatewayService) QueryAsset(assetID string) (map[string]interface{
 	// 优先以 QueryMedicalAsset 查询统一模型
 	result, err := s.contract.EvaluateTransaction("QueryMedicalAsset", assetID)
 	if err != nil {
+		if isNetworkErr(err) {
+			s.connected = false
+			s.statusMessage = fmt.Sprintf("evaluate error: %v", err)
+		}
 		// 备用 QueryMedicalRecord
 		result, err = s.contract.EvaluateTransaction("QueryMedicalRecord", assetID)
 		if err != nil {
+			if isNetworkErr(err) {
+				s.connected = false
+				s.statusMessage = fmt.Sprintf("evaluate error: %v", err)
+			}
 			return nil, false
 		}
 	}
@@ -479,6 +657,10 @@ func (s *FabricGatewayService) GetStats() (totalTx int, currentHeight uint64) {
 }
 
 func (s *FabricGatewayService) GetHistory(assetID string) ([]ChainRecord, error) {
+	if !s.IsLiveFabric() {
+		_ = s.tryConnect()
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if !s.connected || s.contract == nil {
@@ -486,6 +668,10 @@ func (s *FabricGatewayService) GetHistory(assetID string) ([]ChainRecord, error)
 	}
 	result, err := s.contract.EvaluateTransaction("QueryAuditLogs", assetID)
 	if err != nil {
+		if isNetworkErr(err) {
+			s.connected = false
+			s.statusMessage = fmt.Sprintf("evaluate error: %v", err)
+		}
 		return nil, err
 	}
 	var logs []*AuditLog

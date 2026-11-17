@@ -70,6 +70,30 @@ export function rejectAccessRequestApi(id: number): Promise<ApiEnvelope<any>> {
   return client.post(`/access/requests/${id}/reject`)
 }
 
+export interface BatchProcessConsentReq {
+  request_ids?: number[]
+  all?: boolean
+}
+
+export function batchApproveAccessRequestsApi(data: BatchProcessConsentReq): Promise<ApiEnvelope<{
+  total_count: number
+  success_count: number
+  failed_count: number
+  auth_nos?: string[]
+  errors?: string[]
+}>> {
+  return client.post('/access/requests/batch-approve', data)
+}
+
+export function batchRejectAccessRequestsApi(data: BatchProcessConsentReq): Promise<ApiEnvelope<{
+  total_count: number
+  success_count: number
+  failed_count: number
+  errors?: string[]
+}>> {
+  return client.post('/access/requests/batch-reject', data)
+}
+
 export function unlockByKeyApi(data: KeyUnlockVerifyRecordReq): Promise<ApiEnvelope<any>> {
   return client.post('/access/requests/unlock-by-key', data)
 }

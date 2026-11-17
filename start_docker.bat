@@ -14,21 +14,21 @@ echo    [INFO] 探测到 Docker 守护进程未启动，正在尝试唤醒 Docke
 set "DOCKER_EXE="
 if exist "C:\Program Files\Docker\Docker\Docker Desktop.exe" set "DOCKER_EXE=C:\Program Files\Docker\Docker\Docker Desktop.exe"
 if not defined DOCKER_EXE if exist "%ProgramFiles%\Docker\Docker\Docker Desktop.exe" set "DOCKER_EXE=%ProgramFiles%\Docker\Docker\Docker Desktop.exe"
-if not defined DOCKER_EXE if exist "%LOCALAPPDATA%\Programs\Docker\Docker Desktop.exe" set "DOCKER_EXE=%LOCALAPPDATA%\Programs\Docker\Docker Desktop.exe"
+if not defined DOCKER_EXE if exist "%LOCALAPPDATA%\Programs\Docker\Docker Desktop.exe" set "DOCKER_EXE=%LOCALAPPDATA%\Programs\Docker\Docker\Docker Desktop.exe"
 
-if defined DOCKER_EXE (
-    start "" "%DOCKER_EXE%"
-    echo    [WAIT] 正在等待 Docker Engine 引擎初始化就绪（约 15~30 秒）...
-    set /a RETRY_COUNT=0
-    :WAIT_DOCKER_LOOP
-    timeout /t 3 /nobreak >nul
-    set /a RETRY_COUNT+=3
-    docker info >nul 2>&1
-    if %errorlevel% equ 0 goto DOCKER_READY
-    if %RETRY_COUNT% geq 90 goto DOCKER_TIMEOUT
-    echo    [WAIT] Docker 引擎启动中... (已等待 %RETRY_COUNT% 秒)
-    goto WAIT_DOCKER_LOOP
-)
+if not defined DOCKER_EXE goto DOCKER_TIMEOUT
+start "" "%DOCKER_EXE%"
+echo    [WAIT] 正在等待 Docker Engine 引擎初始化就绪（约 15~30 秒）...
+set /a RETRY_COUNT=0
+
+:WAIT_DOCKER_LOOP
+timeout /t 3 /nobreak >nul
+set /a RETRY_COUNT+=3
+docker info >nul 2>&1
+if %errorlevel% equ 0 goto DOCKER_READY
+if %RETRY_COUNT% geq 90 goto DOCKER_TIMEOUT
+echo    [WAIT] Docker 引擎启动中... (已等待 %RETRY_COUNT% 秒)
+goto WAIT_DOCKER_LOOP
 
 :DOCKER_TIMEOUT
 echo ==============================================================================
@@ -42,32 +42,34 @@ echo    [OK] Docker 引擎运行正常.
 
 :: 2. 检查本地开发端口占用情况 (防范与 start_all.bat 冲突)
 netstat -ano | findstr ":8080 " | findstr "LISTENING" >nul 2>&1
-if %errorlevel% equ 0 (
-    docker ps | findstr "medtrust-backend" >nul 2>&1
-    if %errorlevel% neq 0 (
-        echo.
-        echo    [WARN] 探测到宿主机端口 8080 已被本地进程占用！
-        echo    如果您刚才运行了本地模式 (start_all.bat)，请先双击 stop_all.bat 释放端口。
-        echo.
-    )
-)
+if %errorlevel% neq 0 goto CHECK_FABRIC_CLUSTER
+docker ps 2>nul | findstr "medtrust-backend" >nul 2>&1
+if %errorlevel% equ 0 goto CHECK_FABRIC_CLUSTER
+echo.
+echo    [WARN] 探测到宿主机端口 8080 已被本地进程占用！
+echo    如果您刚才运行了本地模式 (start_all.bat)，请先双击 stop_all.bat 释放端口。
+echo.
 
+:CHECK_FABRIC_CLUSTER
 :: 3. 检查并拉起 Hyperledger Fabric 2.5 区块链网络
 echo.
 echo [2/4] 检查 Hyperledger Fabric 区块链容器集群与智能合约...
-docker ps | findstr "peer0.org1.example.com" >nul 2>&1
-if %errorlevel% equ 0 (
-    echo    [OK] Fabric 区块链集群已在运行.
-) else (
-    echo    [INIT] 正在启动 Fabric 容器集群 (Orderer, Org1 Peer, Org2 Peer, CLI)...
-    docker compose -f deploy\fabric\docker-compose-test-net.yaml up -d
-    timeout /t 3 /nobreak >nul
-    echo    [INIT] 正在加入 medchannel 统一医疗通道...
-    docker exec cli /bin/bash /opt/gopath/src/github.com/hyperledger/fabric/peer/scripts/network.sh channel
-    echo    [INIT] 正在部署 medical 链上智能合约...
-    docker exec cli /bin/bash /opt/gopath/src/github.com/hyperledger/fabric/peer/scripts/network.sh deploy
-    echo    [OK] 区块链智能合约部署完成.
-)
+docker ps 2>nul | findstr "peer0.org1.example.com" >nul 2>&1
+if %errorlevel% equ 0 goto FABRIC_RUNNING
+echo    [INIT] 正在启动 Fabric 容器集群 (Orderer, Org1 Peer, Org2 Peer, CLI)...
+docker compose -f deploy\fabric\docker-compose-test-net.yaml up -d
+timeout /t 3 /nobreak >nul
+echo    [INIT] 正在加入 medchannel 统一医疗通道...
+docker exec cli /bin/bash /opt/gopath/src/github.com/hyperledger/fabric/peer/scripts/network.sh channel
+echo    [INIT] 正在部署 medical 链上智能合约...
+docker exec cli /bin/bash /opt/gopath/src/github.com/hyperledger/fabric/peer/scripts/network.sh deploy
+echo    [OK] 区块链智能合约部署完成.
+goto START_APP_STACK
+
+:FABRIC_RUNNING
+echo    [OK] Fabric 区块链集群已在运行.
+
+:START_APP_STACK
 
 :: 4. 构建并启动 MedTrust 全栈容器集群 (MySQL, Redis, Backend, AI Agent, Frontend)
 echo.
@@ -104,7 +106,7 @@ echo   [4] 卫健监管专员:             supervisor / 123456
 echo   [5] 平台系统管理员:           admin / 123456
 echo ==============================================================================
 echo 正在为您打开默认浏览器进入登录系统...
-start http://localhost:5173/login
+start "" "http://localhost:5173/login"
 echo.
 echo 如需停止 Docker 全栈集群，请直接双击运行 stop_docker.bat！
 pause

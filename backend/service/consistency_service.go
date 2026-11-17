@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"medtrust-backend/config"
 	"medtrust-backend/model"
 	"medtrust-backend/pkg/blockchain"
 	"medtrust-backend/pkg/crypto"
@@ -29,15 +30,31 @@ const (
 )
 
 type ConsistencyService struct {
-	mu sync.Mutex
+	// keyLocks 按 key（idempotencyKey 或 recordID）粒度加锁：同一业务键的并发请求串行化，
+	// 不同键并行执行，避免单个全局 Mutex 把整条"IPFS+Fabric+DB"流水线变成全局串行瓶颈。
+	// 仅用于进程内互斥；真正的幂等由 idempotency_key 唯一约束 + 查询兜底保证。
+	keyLocks sync.Map
 }
 
 var DefaultConsistencyService = &ConsistencyService{}
 
+// lockKey 取出（或创建）该业务键专属的互斥锁并加锁，返回解锁函数。
+func (s *ConsistencyService) lockKey(key string) func() {
+	v, _ := s.keyLocks.LoadOrStore(key, &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
+
 // CreateRecordWithConsistency 基于状态机流水线创建病历，支持幂等去重与跨分布式节点事务补偿
 func (s *ConsistencyService) CreateRecordWithConsistency(p UploadRecordParams, idempotencyKey string) (*model.MedicalRecord, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	lockKey := idempotencyKey
+	if lockKey == "" {
+		// 无幂等键时退化为"医生+患者+纳秒"随机键：等效于不互斥，但保持 unlock 语义一致
+		lockKey = fmt.Sprintf("anon:%d:%d", p.DoctorID, time.Now().UnixNano())
+	}
+	unlock := s.lockKey(lockKey)
+	defer unlock()
 
 	// 1. 幂等性校验 (Idempotency Key Check)
 	if idempotencyKey != "" && repository.DB != nil {
@@ -148,11 +165,13 @@ func (s *ConsistencyService) CreateRecordWithConsistency(p UploadRecordParams, i
 		CreatedAt:        time.Now(),
 	}
 
-	// 阶段 1: 密文上链下存储 (IPFS)
-	pack, fileHash, err := crypto.EncryptRecordFile(p.FileData, p.PatientID, recordNo)
+	// 阶段 1: 密文上链下存储 (IPFS) — WP-09: 统一 AES-256-GCM 信封加密 (随机 DEK + MasterKey 封装 + AAD 绑定)
+	masterKey := config.AppConfig.GetAESMasterKey()
+	cipherData, encDEK, ivNonce, fileHash, err := crypto.EncryptMedicalFile(p.FileData, p.PatientID, recordNo, masterKey)
 	if err != nil {
-		return nil, fmt.Errorf("AES-256-GCM 加密失败: %w", err)
+		return nil, fmt.Errorf("AES-256-GCM 信封加密失败: %w", err)
 	}
+	pack := cipherData
 
 	ipfsSvc := DefaultMedicalService.GetIPFSService()
 	cid, err := ipfsSvc.PutData(pack)
@@ -167,12 +186,14 @@ func (s *ConsistencyService) CreateRecordWithConsistency(p UploadRecordParams, i
 	record.SyncStatus = SyncStatusIPFSSuccess
 
 	fileRecord := model.MedicalFile{
-		FileName:  p.FileName,
-		FileType:  p.FileType,
-		FileSize:  uint64(len(p.FileData)),
-		IPFSCID:   cid,
-		FileHash:  fileHash,
-		CreatedAt: time.Now(),
+		FileName:     p.FileName,
+		FileType:     p.FileType,
+		FileSize:     uint64(len(p.FileData)),
+		IPFSCID:      cid,
+		FileHash:     fileHash,
+		EncryptedDEK: encDEK,
+		IVNonce:      ivNonce,
+		CreatedAt:    time.Now(),
 	}
 	record.Files = []model.MedicalFile{fileRecord}
 
@@ -250,8 +271,9 @@ func (s *ConsistencyService) CreateRecordWithConsistency(p UploadRecordParams, i
 
 // ReconcileRecord 对指定病历执行幂等补偿与一致性修复
 func (s *ConsistencyService) ReconcileRecord(recordID uint64) (*model.MedicalRecord, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	// 按 recordID 粒度互斥：同一病历的并发对账串行，不同病历互不阻塞
+	unlock := s.lockKey(fmt.Sprintf("reconcile:%d", recordID))
+	defer unlock()
 
 	if repository.DB == nil {
 		return nil, errors.New("数据库未就绪")

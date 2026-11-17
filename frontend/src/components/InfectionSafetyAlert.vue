@@ -54,7 +54,7 @@
           effect="plain"
           class="mr-1"
         >
-          🛡️ {{ g }}
+          {{ g }}
         </el-tag>
       </div>
     </div>
@@ -129,7 +129,7 @@
             :key="idx"
             class="gear-item"
           >
-            <div class="g-icon">🛡️</div>
+            <div class="g-icon"><el-icon><Lock /></el-icon></div>
             <div class="g-text">{{ gear }}</div>
           </div>
         </div>
@@ -164,7 +164,7 @@
 
         <!-- 检出溯源病历信息 -->
         <div v-if="alert.detected_from && alert.detected_from.length > 0" class="trace-section mt-4">
-          <div class="trace-title">🔍 跨机构档案与检验检出原始凭证：</div>
+          <div class="trace-title">跨机构档案与检验检出原始凭证：</div>
           <div v-for="(src, idx) in alert.detected_from" :key="idx" class="trace-item mono text-xs">
             • {{ src }}
           </div>

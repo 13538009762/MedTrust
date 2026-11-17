@@ -1,9 +1,14 @@
+import json
+import os
 import re
 from typing import Dict, Any
 from tools import (
     ControlledMedicalTools,
+    PermissionError,
     extract_jwt_claims,
     is_tool_allowed_for_role,
+    MEDTRUST_JWT_SECRET,
+    GO_BACKEND_URL,
 )
 
 def sanitize_agent_output(text: str) -> str:
@@ -21,6 +26,107 @@ def sanitize_agent_output(text: str) -> str:
     text = re.sub(r'(password|passwd|secret|medical_key|root_key|mysql_pwd)\s*[:=]\s*[^\s,;]+', r'\1=********', text, flags=re.IGNORECASE)
     return text
 
+# WP-06: 外部 LLM (OpenAI/DeepSeek 兼容协议) Function-Calling 配置检测
+_LLM_API_KEY = os.getenv("OPENAI_API_KEY") or os.getenv("DEEPSEEK_API_KEY") or os.getenv("AI_API_KEY", "")
+_LLM_API_URL = os.getenv("OPENAI_API_URL") or os.getenv("AI_API_URL", "")
+_LLM_MODEL = os.getenv("AI_MODEL", "deepseek-chat")
+
+# 受控工具的 OpenAI function-calling 声明 (4 个白名单工具)
+CONTROLLED_TOOLS_SCHEMA = [
+    {
+        "type": "function",
+        "function": {
+            "name": "search_medical_records",
+            "description": "检索当前用户有权查看的医疗记录 (严格携带 JWT 经 Go 网关鉴权)",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "keyword": {"type": "string", "description": "患者姓名或病历单号"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_consent_status",
+            "description": "查询患者知情授权策略状态列表",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_audit_trail",
+            "description": "检索审计日志与高风险访问行为记录",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "risk_level": {"type": "string", "enum": ["LOW", "MEDIUM", "HIGH"]},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "summarize_patient_soap",
+            "description": "生成患者跨院 SOAP 病程摘要 (仅医生可用，零诊断零处方)",
+            "parameters": {
+                "type": "object",
+                "properties": {"patient_id": {"type": "integer", "description": "患者 ID"}},
+                "required": ["patient_id"],
+            },
+        },
+    },
+]
+
+_FORBIDDEN_DIAGNOSIS_INTENT = [
+    "开处方", "推荐药物", "诊断我", "得了什么病", "该吃什么药", "确诊", "自动确诊",
+    "替我授权", "代我审批", "自动审批",
+]
+
+# 非本软件领域的问题探测特征 (Out-of-Domain Detection Patterns)
+OUT_OF_DOMAIN_PATTERNS = [
+    r"天气",
+    r"写.*?(?:诗|歌词|散文|作文|故事|文章|小说)",
+    r"(?:讲|说).*?笑话",
+    r"翻译.*?(?:英语|英文|中文|日文|日语|法语|韩语)",
+    r"(?:写|编写|实现).*?(?:代码|程序|脚本|快速排序|二叉树|冒泡|算法)",
+    r"(?:帮我|给我)?(?:算一下|计算一下)",
+    r"(?:你觉得|你认识|知道).*?(?:明星|游戏|王者荣耀|原神|电影|动漫)",
+    r"(?:法国|美国|英国|中国|日本).*?首都是",
+    r"世界.*?有多少",
+    r"聊(?:聊)?天",
+]
+
+STANDARD_OUT_OF_DOMAIN_REPLY = (
+    "【服务范畴受限提醒】\n"
+    "您好！我是 MedTrust 跨机构医疗数据可信共享系统的专有受控 AI 助手。\n"
+    "依据系统安全策略与合规界定，本助手仅服务于本平台内部的【病历调阅、知情授权、区块链存证核验与合规审计】业务，坚决不回答与本软件无关的通用问题（如日常闲聊、天气查询、代码编写、文学诗歌、外部常识等）。\n"
+    "如需办理医疗数据业务，请向我发送与本系统相关的病历查询、授权管理、存证核验或审计追溯指令。"
+)
+
+
+def _is_forbidden_diagnosis_intent(msg: str) -> bool:
+    return any(w in msg for w in _FORBIDDEN_DIAGNOSIS_INTENT)
+
+
+def _execute_controlled_tool(tools: ControlledMedicalTools, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """受控工具分发——LLM 只能调用这 4 个白名单工具，全部经 JWT 转发 Go 网关"""
+    if name == "search_medical_records":
+        return tools.query_patient_records(keyword=args.get("keyword", ""))
+    if name == "check_consent_status":
+        return tools.query_my_authorizations()
+    if name == "get_audit_trail":
+        return tools.analyze_audit_anomalies(risk_level=args.get("risk_level", ""))
+    if name == "summarize_patient_soap":
+        return tools.summarize_patient_soap(args.get("patient_id", 0))
+    return {"code": 400, "message": f"未知或未授权的工具: {name}", "data": None}
+
+
 class MedTrustAgent:
     """
     MedTrust 受控医疗数据 AI 智能体 (Controlled Assistant Agent)
@@ -35,6 +141,102 @@ class MedTrustAgent:
     def __init__(self):
         pass
 
+    def _run_function_calling(self, msg: str, tools: ControlledMedicalTools, user_role: str, user_name: str):
+        """WP-06: OpenAI 兼容 Controlled Tool Calling 模式。
+        - LLM 仅可在 4 个白名单工具中选择，工具入参模式由 schema 限定；
+        - 每次调用前仍执行角色-工具白名单 (is_tool_allowed_for_role)；
+        - 任何异常 (网络/解析/超时) 返回 None，由外层确定性意图路由接管，保障离线可用。"""
+        import requests
+
+        tool_name_map = {
+            "search_medical_records": "tool_query_medical_records",
+            "check_consent_status": "tool_query_authorizations",
+            "get_audit_trail": "tool_query_audit_logs",
+            "summarize_patient_soap": "tool_summarize_soap",  # WP-06: SOAP 临床聚合仅 doctor，与 supervisor 的核验工具严格隔离
+        }
+        try:
+            system_prompt = (
+                "你是 MedTrust 跨医院医疗数据可信共享系统的专有受控 AI 助手。\n"
+                "【严格领域服务边界】：你仅被授权处理与「MedTrust 医疗数据共享平台」直接相关的内部业务，包含且仅包含："
+                "1) 经授权的跨机构电子病历与检查档案检索；2) 患者知情同意与授权策略状态查询；3) 区块链存证完整性与防篡改核验；4) 急诊破窗与安全审计追溯。\n"
+                "【绝对负向约束】：严禁回答任何非本软件相关的通用问题（包括闲聊日常、天气预报、文学诗歌、代码编程、数学计算、历史百科、影视娱乐、中英翻译等）。"
+                "严禁提供脱离系统病历记录的外部疾病确诊、处方推荐或自动代行授权。\n"
+                "【统一拒答规范】：若用户提问超出上述 MedTrust 系统业务范围，你必须坚决且礼貌地予以拒答，明确告知用户你仅服务于 MedTrust 医疗数据可信共享系统，无法回答非本系统相关的问题。"
+            )
+            resp = requests.post(
+                _LLM_API_URL.rstrip("/") + "/chat/completions",
+                headers={"Authorization": f"Bearer {_LLM_API_KEY}", "Content-Type": "application/json"},
+                json={
+                    "model": _LLM_MODEL,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": msg},
+                    ],
+                    "tools": CONTROLLED_TOOLS_SCHEMA,
+                    "tool_choice": "auto",
+                    "temperature": 0.2,
+                },
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                return None
+            choices = resp.json().get("choices", [])
+            if not choices:
+                return None
+            message = choices[0].get("message", {})
+
+            # 纯文本回复 (无工具调用)
+            if not message.get("tool_calls"):
+                reply = message.get("content") or ""
+                if any(re.search(pat, msg, re.IGNORECASE) for pat in OUT_OF_DOMAIN_PATTERNS):
+                    return {
+                        "reply": STANDARD_OUT_OF_DOMAIN_REPLY,
+                        "tool_called": "REJECTED_AS_OUT_OF_DOMAIN",
+                        "tool_status": "INTERCEPTED",
+                        "tool_trace": tools.trace_logs,
+                    }
+                return {
+                    "reply": sanitize_agent_output(reply) or "请明确您要检索的病历、授权、审计或摘要内容。",
+                    "tool_called": None,
+                    "tool_status": "SKIPPED",
+                    "tool_trace": tools.trace_logs,
+                }
+
+            # 逐个执行受控工具调用 (仅第一个；多轮会话本版本不展开)
+            call = message["tool_calls"][0]
+            fn = call.get("function", {})
+            name = fn.get("name", "")
+            try:
+                args = json.loads(fn.get("arguments") or "{}")
+            except json.JSONDecodeError:
+                args = {}
+
+            rbac_name = tool_name_map.get(name)
+            if rbac_name is None or (user_role and not is_tool_allowed_for_role(rbac_name, user_role)):
+                return {
+                    "reply": f"【角色权限拦截 (403 Forbidden)】当前角色「{user_role or '未知'}」无权调用工具 {name}。",
+                    "tool_called": name,
+                    "tool_status": "INTERCEPTED",
+                    "tool_trace": tools.trace_logs,
+                }
+
+            result = _execute_controlled_tool(tools, name, args)
+            data_preview = json.dumps(result.get("data"), ensure_ascii=False)[:1500] if isinstance(result, dict) else ""
+            reply = (
+                f"已通过受控工具 {name} 检索完成 (HTTP {result.get('code', 500)})。\n"
+                f"结果摘要: {data_preview or result.get('message', '无数据')}\n"
+                "安全提示：以上数据经由 Go 统一安全网关鉴权与脱敏后返回。"
+            )
+            return {
+                "reply": sanitize_agent_output(reply),
+                "tool_called": name,
+                "tool_status": "EXECUTED",
+                "tool_trace": tools.trace_logs,
+            }
+        except Exception:
+            # 网络/解析异常——静默回落到确定性意图路由
+            return None
+
     def run(self, user_message: str, token: str) -> dict:
         msg = user_message.strip()
         msg_lower = msg.lower()
@@ -45,11 +247,21 @@ class MedTrustAgent:
         tools = ControlledMedicalTools(token)
 
         # 0.0 解析 JWT 提取调用者身份角色与上下文
-        claims = extract_jwt_claims(token)
+        # WP-06: HMAC-SHA256 签名 + exp 过期密码学校验，伪造/过期 token 直接 401 拒绝
+        try:
+            claims = extract_jwt_claims(token)
+        except PermissionError as exc:
+            return {
+                "reply": f"【鉴权失败 (401 Unauthorized)】JWT 令牌校验未通过：{exc}。请重新登录获取有效会话凭证。",
+                "tool_called": None,
+                "tool_status": "AUTH_REJECTED",
+                "tool_trace": tools.trace_logs
+            }
         user_role = claims.get("role", "").lower()
         user_name = claims.get("username", "调用者")
 
         # 0.1 提示词注入与越狱探测防御 (Prompt Injection & Jailbreak Defense)
+        # 必须前置于任何外部 LLM 调用与工具执行，杜绝恶意提示词直通大模型
         injection_patterns = [
             r"ignore\s+(?:all\s+)?(?:previous\s+)?instructions",
             r"system\s+prompt",
@@ -82,6 +294,7 @@ class MedTrustAgent:
                 }
 
         # 0.2 安全合规红线拦截：自动处方、自动确诊与自动授权越权行为坚决阻断
+        # 同样必须前置于任何外部 LLM 调用，确保合规红线不可被大模型提示词绕过
         if any(w in msg for w in ["开处方", "推荐药物", "诊断我", "得了什么病", "自动确诊", "替我授权", "代我审批", "自动审批", "该吃什么药", "生了什么病", "帮我确诊"]):
             return {
                 "reply": (
@@ -95,8 +308,50 @@ class MedTrustAgent:
                 "tool_trace": tools.trace_logs
             }
 
+        # 0.2b 跨领域/非本软件相关问题坚决拒识 (Out-of-Domain Guardrail)
+        if any(re.search(pat, msg, re.IGNORECASE) for pat in OUT_OF_DOMAIN_PATTERNS):
+            return {
+                "reply": STANDARD_OUT_OF_DOMAIN_REPLY,
+                "tool_called": "REJECTED_AS_OUT_OF_DOMAIN",
+                "tool_status": "INTERCEPTED",
+                "tool_trace": tools.trace_logs
+            }
+
+        # 0.3 外部 LLM Function-Calling 模式 (已配置 API Key 时启用；安全与红线已在上方 0.1/0.2 严格把关)
+        if _LLM_API_KEY and _LLM_API_URL:
+            llm_result = self._run_function_calling(msg, tools, user_role, user_name)
+            if llm_result is not None:
+                return llm_result
+
+        # 0.9 受控 SOAP 病程摘要 (doctor 专属；统一走 Go /ai/diagnostic-assist 边界)
+        if any(w in msg for w in ["SOAP", "soap", "病程摘要", "摘要", "小结"]) and user_role == "doctor":
+            m_pid = re.search(r'(\d+)', msg)
+            pid = int(m_pid.group(1)) if m_pid else 0
+            if pid <= 0:
+                return {
+                    "reply": "请明确患者 ID（例如：“生成患者 3 的 SOAP 病程摘要”），以便经统一安全网关调取其授权病历。",
+                    "tool_called": "NEED_PARAMETER",
+                    "tool_status": "PROMPT_USER",
+                    "tool_trace": tools.trace_logs
+                }
+            tool_called = f"summarize_patient_soap(patient_id={pid})"
+            tool_result = tools.summarize_patient_soap(pid)
+            if tool_result.get("code") == 200:
+                d = tool_result.get("data") or {}
+                soap = d.get("soap_summary") or {}
+                reply = (
+                    f"【SOAP 跨院病程摘要】患者: {d.get('patient_name')} | 授权病历: {d.get('authorized_record_count')} 份\n"
+                    f"* S (主诉): {soap.get('subjective', '')}\n"
+                    f"* O (客观): {soap.get('objective', '')}\n"
+                    f"* A (评估): {soap.get('assessment', '')}\n"
+                    f"* P (计划): {soap.get('plan', '')}\n"
+                    "合规声明：以上为已授权历史病历客观摘要，不含新诊断与新处方。"
+                )
+            else:
+                reply = f"SOAP 摘要生成失败或被拦截: {tool_result.get('message')}"
+
         # 1. 动态防篡改完整性核验
-        if any(w in msg for w in ["核验", "防篡改", "真实性", "哈希", "完整性", "篡改"]):
+        elif any(w in msg for w in ["核验", "防篡改", "真实性", "哈希", "完整性", "篡改"]):
             tool_name = "tool_verify_integrity"
             if user_role and not is_tool_allowed_for_role(tool_name, user_role):
                 return {
@@ -260,15 +515,29 @@ class MedTrustAgent:
                 reply = f"查询失败: {tool_result.get('message', '未知错误')}"
 
         else:
-            reply = (
-                f"您好，{user_name}！我是 MedTrust 医疗数据受控 AI 智能助手。\n"
-                f"当前已识别您的会话角色为「{user_role or '匿名/受访者'}」。我可以协助您执行以下受控自然语言指令：\n\n"
-                "1. 医生查询：例如“查询患者张伟的历史病历记录”、“调阅张伟历史用药与既往病史”\n"
-                "2. 患者中心：例如“我现在授权了哪些医生或机构？”、“查看我的有效授权策略”、“谁访问过我的数据”\n"
-                "3. 完整性核验：例如“核验病历1的数据真实完整性与区块链存证哈希”\n"
-                "4. 安全监管：例如“今天有哪些高风险调阅事件？”、“查看最近的审计流水”\n\n"
-                "安全边界声明：本助手不直连任何底层数据库或 IPFS 节点，所有指令均携带当前用户会话 Token 经由 Go 统一安全网关进行鉴权与风险评分过滤。"
-            )
+            # 判断提问是否明显缺少业务关键词
+            has_business_kw = any(w in msg_lower for w in ["病历", "档案", "就诊", "医生", "患者", "授权", "策略", "申请", "破窗", "核验", "区块链", "存证", "审计", "soap", "化验", "检查", "风险", "流水", "你好", "您好", "帮助", "功能", "说明"])
+            if not has_business_kw and len(msg) > 1:
+                reply = (
+                    "【未识别到 MedTrust 业务指令】\n"
+                    "抱歉，系统未能识别到与 MedTrust 医疗数据共享系统相关的操作指令。\n"
+                    "本 AI 助手仅受控回答本软件内部的病历检索、知情授权、区块链存证及审计问题，不提供通用闲聊或非本系统业务咨询。\n"
+                    "常用指令示例：\n"
+                    "• 调阅病历：“查询患者张伟的病历记录”\n"
+                    "• 授权管理：“查看我的授权策略列表”\n"
+                    "• 存证核验：“核验病历1的数据真实完整性”\n"
+                    "• 监管审计：“检索今日高风险调阅流水”"
+                )
+            else:
+                reply = (
+                    f"您好，{user_name}！我是 MedTrust 医疗数据受控 AI 智能助手。\n"
+                    f"当前已识别您的会话角色为「{user_role or '匿名/受访者'}」。我可以协助您执行以下受控自然语言指令：\n\n"
+                    "1. 医生查询：例如“查询患者张伟的历史病历记录”、“调阅张伟历史用药与既往病史”\n"
+                    "2. 患者中心：例如“我现在授权了哪些医生或机构？”、“查看我的有效授权策略”、“谁访问过我的数据”\n"
+                    "3. 完整性核验：例如“核验病历1的数据真实完整性与区块链存证哈希”\n"
+                    "4. 安全监管：例如“今天有哪些高风险调阅事件？”、“查看最近的审计流水”\n\n"
+                    "安全边界声明：本助手不直连任何底层数据库或 IPFS 节点，所有指令均携带当前用户会话 Token 经由 Go 统一安全网关进行鉴权与风险评分过滤。"
+                )
 
         sanitized_reply = sanitize_agent_output(reply)
 

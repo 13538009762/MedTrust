@@ -8,7 +8,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"medtrust-backend/model"
-	"medtrust-backend/pkg/blockchain"
 	"medtrust-backend/pkg/sse"
 	"medtrust-backend/repository"
 	"medtrust-backend/service"
@@ -38,7 +37,7 @@ func (ctrl *NotificationController) Stream(c *gin.Context) {
 	ch := sse.Default.Subscribe(userID)
 	defer sse.Default.Unsubscribe(userID, ch)
 
-	// 发送初次握手确认
+	// 发送初始握手确认
 	_, _ = fmt.Fprintf(c.Writer, "event: connected\ndata: {\"online\":true,\"user_id\":%d}\n\n", userID)
 	c.Writer.Flush()
 
@@ -68,7 +67,7 @@ func (ctrl *NotificationController) Stream(c *gin.Context) {
 	}
 }
 
-// ConfirmAccessRequest 患者在线确认加急访问申请 (POST /api/v1/access-requests/:req_no/confirm)
+// ConfirmAccessRequest 患者在线确认紧急访问申请 (POST /api/v1/access-requests/:req_no/confirm)
 func (ctrl *NotificationController) ConfirmAccessRequest(c *gin.Context) {
 	patientID := c.GetUint64("user_id")
 	reqNo := c.Param("req_no")
@@ -78,7 +77,7 @@ func (ctrl *NotificationController) ConfirmAccessRequest(c *gin.Context) {
 
 	req, err := repository.DefaultAuthPolicyRepository.FindPatientAccessRequest(patientID, reqNo)
 	if err != nil {
-		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "未找到待确认的加急访问申请记录"})
+		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "未找到待确认的紧急访问申请记录"})
 		return
 	}
 
@@ -93,7 +92,7 @@ func (ctrl *NotificationController) ConfirmAccessRequest(c *gin.Context) {
 	endTime := now.Add(24 * time.Hour)
 	authNo := fmt.Sprintf("AUTH%s%04d", now.Format("20060102150405"), req.ID%10000)
 
-	txID, _, _ := blockchain.DefaultService.CommitAsset("AUTHORIZATION", authNo, map[string]interface{}{
+	txID, _, _ := service.CommitAssetWithCompensation("AUTHORIZATION", authNo, map[string]interface{}{
 		"auth_no":     authNo,
 		"patient_id":  patientID,
 		"target_type": "DOCTOR",
@@ -129,9 +128,9 @@ func (ctrl *NotificationController) ConfirmAccessRequest(c *gin.Context) {
 
 	// SSE 实时推送到医生工作台
 	sse.Default.Publish(req.DoctorID, sse.NotifyEvent{
-		Type:    "request_approved",
-		Title:   "加急访问申请已获患者确认同意",
-		Message: fmt.Sprintf("申请单 %s 已获患者在线核准同意，临时调阅凭据已生效并在区块链存证", req.RequestNo),
+		Type:  "request_approved",
+		Title: "紧急访问申请已获患者确认同意",
+		Message: fmt.Sprintf("申请单 %s 已获患者在线核准同意，临时调阅凭证已生效并在区块链存证", req.RequestNo),
 		Payload: map[string]interface{}{
 			"request_id": req.ID,
 			"request_no": req.RequestNo,
@@ -142,7 +141,7 @@ func (ctrl *NotificationController) ConfirmAccessRequest(c *gin.Context) {
 
 	c.JSON(http.StatusOK, model.Response{
 		Code:    200,
-		Message: "患者已在线确认同意加急访问，授权凭证已在区块链存证激活",
+		Message: "患者已在线确认同意紧急访问，授权凭证已在区块链存证激活",
 		Data:    auth,
 	})
 }
@@ -165,7 +164,7 @@ func (ctrl *NotificationController) ListNotifications(c *gin.Context) {
 			list = append(list, map[string]interface{}{
 				"id":         r.ID,
 				"type":       "access_request",
-				"title":      "待确认的加急访问申请",
+				"title":      "待确认的紧急访问申请",
 				"message":    fmt.Sprintf("医生发起了关于就诊记录 #%d 的跨院调阅申请，等待您的确认", r.RecordID),
 				"created_at": r.CreatedAt,
 				"payload":    r,

@@ -85,6 +85,41 @@ export function getDisplayEtiology(rec?: any): string {
   return '临床病理机制明确，机体靶器官早期功能性改变，与本次实验室检验指标吻合'
 }
 
+// ==================== WP-16: 跨院检索视图展示格式化纯函数 (从 CrossQueryView 迁入) ====================
+
+const defaultPatientNames = ['陈晨', '李四', '王秀英', '赵建平', '钱小芳', '孙明浩', '周桂珍', '张三']
+
+export function formatPatientName(rec?: { patient_name?: string; patientName?: string; patient_id?: number; patientId?: number; id?: number }): string {
+  if (!rec) return '陈晨'
+  const name = rec.patient_name || rec.patientName
+  if (name && name !== '患者' && !name.startsWith('患者#')) {
+    return name
+  }
+  const id = Number(rec.patient_id || rec.patientId || rec.id || 0)
+  return defaultPatientNames[id % defaultPatientNames.length] || '陈晨'
+}
+
+export function formatRecordStatus(st?: string): string {
+  if (st === 'COMPLETED' || st === '已接诊' || st === '已归档存证' || !st) return '已归档存证'
+  if (st === 'WAITING_EXAM') return '待医技检查'
+  if (st === 'PROCESSING_EXAM') return '检查进行中'
+  if (st === 'EXAM_COMPLETED') return '检查完成/待确诊'
+  if (st === 'INITIAL_DIAGNOSIS') return '初诊完成/待确诊'
+  return st
+}
+
+export function formatHospName(hId?: number) {
+  if (hId === 1) return '第一人民医院'
+  if (hId === 2) return '省立中心医院'
+  if (hId === 3) return '协和医学中心'
+  return '医疗中心'
+}
+
+export function maskIDCard(idCard?: string) {
+  if (!idCard || idCard.length < 8) return idCard || '已脱敏保护'
+  return idCard.substring(0, 6) + '********' + idCard.substring(idCard.length - 4)
+}
+
 export interface BarcodeResult {
   bars: Array<{ x: number; w: number }>
   totalWidth: number

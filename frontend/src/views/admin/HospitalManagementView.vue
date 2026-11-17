@@ -62,15 +62,15 @@
           </el-table>
         </el-card>
 
-        <!-- 🌐 联盟链多组织节点拓扑与证书健康状态 -->
-        <el-card shadow="hover" class="box-card mt-4 topology-card">
+        <!-- 联盟链多组织节点拓扑与证书健康状态 -->
+        <el-card shadow="never" class="box-card mt-4 topology-card">
           <template #header>
             <div class="card-header flex justify-between items-center">
               <div class="flex items-center gap-2">
-                <el-icon class="text-emerald-400"><Connection /></el-icon>
-                <span class="text-white font-bold">🌐 联盟链多组织节点拓扑与证书健康状态</span>
+                <el-icon class="text-sky-600"><Connection /></el-icon>
+                <span class="font-bold">联盟链多组织节点拓扑与证书健康状态</span>
               </div>
-              <el-tag size="small" :type="blockchainStatus.connected ? 'success' : (blockchainStatus.mode === 'mock' ? 'info' : 'warning')" effect="dark">
+              <el-tag size="small" :type="blockchainStatus.connected ? 'success' : (blockchainStatus.mode === 'mock' ? 'info' : 'warning')" effect="light">
                 {{ blockchainStatus.mode === 'fabric' ? (blockchainStatus.connected ? 'Fabric 2.5 官方网关在线' : 'Fabric 节点离线') : '本地模拟账本 (离线容灾模式)' }}
               </el-tag>
             </div>
@@ -82,9 +82,9 @@
                 <div class="tn-name-row">
                   <span class="mini-pulse-dot dot-green mr-1"></span>
                   <strong class="tn-name">{{ node.name }}</strong>
-                  <el-tag size="small" type="primary" effect="dark" class="mono ml-auto">{{ node.msp }}</el-tag>
+                  <el-tag size="small" type="primary" effect="plain" class="mono ml-auto">{{ node.msp }}</el-tag>
                 </div>
-                <div class="tn-peer mono text-xs mt-1 text-slate-300">
+                <div class="tn-peer mono text-xs mt-1 text-slate-500">
                   <el-icon class="mr-1"><Platform /></el-icon>{{ node.peer }}
                 </div>
               </div>
@@ -92,11 +92,11 @@
               <div class="tn-bottom">
                 <div class="tn-info-row">
                   <span class="k">X.509 根证书：</span>
-                  <span class="v text-emerald-400 font-semibold">{{ node.certExpire }}</span>
+                  <span class="v text-emerald-700 font-semibold">{{ node.certExpire }}</span>
                 </div>
                 <div class="tn-info-row">
                   <span class="k">TLS 传输加密：</span>
-                  <span class="v text-cyan-300 mono">{{ node.tlsVersion }} (双向 mTLS)</span>
+                  <span class="v text-sky-700 mono">{{ node.tlsVersion }} (双向 mTLS)</span>
                 </div>
                 <div class="tn-info-row">
                   <span class="k">共识区块高度：</span>
@@ -613,40 +613,40 @@ onMounted(async () => {
   color: #64748b;
 }
 .box-card {
-  border-radius: 14px;
+  border-radius: 8px;
 }
 .card-header {
   font-weight: 700;
   color: #1e293b;
 }
 
-/* 🌐 联盟链拓扑卡片深色科技感 */
+/* 联盟链拓扑卡片样式（白底实体卡片 + 左侧状态色条） */
 .topology-card {
-  background: linear-gradient(145deg, #0f172a 0%, #1e293b 100%) !important;
-  color: #f8fafc !important;
-  border: 1px solid #334155 !important;
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #e2e8f0 !important;
+  border-left: 4px solid var(--mt-primary, #0284c7) !important;
+  border-radius: 6px !important;
 }
 .topology-card :deep(.el-card__header) {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-bottom: 1px solid #e2e8f0 !important;
 }
 
 .topology-grid {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .topo-node-box {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  padding: 12px 14px;
-  transition: all 0.2s ease;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 10px 14px;
+  transition: border-color 0.2s ease;
 }
 .topo-node-box:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(56, 189, 248, 0.3);
-  transform: translateY(-1px);
+  border-color: #cbd5e1;
 }
 
 .tn-name-row {
@@ -654,13 +654,13 @@ onMounted(async () => {
   align-items: center;
 }
 .tn-name {
-  color: #f8fafc;
+  color: #0f172a;
   font-size: 13px;
 }
 
 .tn-divider {
   height: 1px;
-  background: rgba(255, 255, 255, 0.06);
+  background: #e2e8f0;
   margin: 8px 0;
 }
 
@@ -668,7 +668,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 11px;
+  font-size: 11.5px;
 }
 
 .tn-info-row {
@@ -677,7 +677,7 @@ onMounted(async () => {
   align-items: center;
 }
 .tn-info-row .k {
-  color: #94a3b8;
+  color: #64748b;
 }
 
 .mini-pulse-dot {
@@ -687,7 +687,6 @@ onMounted(async () => {
   display: inline-block;
 }
 .dot-green {
-  background-color: #10b981;
-  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  background-color: #059669;
 }
 </style>

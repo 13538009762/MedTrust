@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"medtrust-backend/model"
-	"medtrust-backend/pkg/blockchain"
 	"medtrust-backend/repository"
 	"medtrust-backend/service"
 	"net/http"
@@ -42,6 +41,10 @@ func (ctrl *AccessController) CreateAuthorization(c *gin.Context) {
 	}
 
 	if req.Days > 0 {
+		if req.Days > service.MaxAuthDays {
+			c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: fmt.Sprintf("授权有效天数超过上限（最多 %d 天），请缩短授权窗口", service.MaxAuthDays)})
+			return
+		}
 		req.StartTime = time.Now()
 		req.EndTime = req.StartTime.Add(time.Duration(req.Days) * 24 * time.Hour)
 	} else {
@@ -49,15 +52,21 @@ func (ctrl *AccessController) CreateAuthorization(c *gin.Context) {
 			req.StartTime = time.Now()
 		}
 		if req.EndTime.IsZero() {
-			req.EndTime = time.Now().Add(365 * 24 * time.Hour)
+			// 未指定窗口时默认授予，但同样不得超过统一上限
+			req.EndTime = time.Now().Add(time.Duration(service.MaxAuthDays) * 24 * time.Hour)
 		}
+	}
+	// 显式指定 EndTime 的路径也要受上限约束（EndTime 由 Days 派生时必然已合规）
+	if !req.EndTime.IsZero() && req.EndTime.Sub(time.Now()) > time.Duration(service.MaxAuthDays)*24*time.Hour {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: fmt.Sprintf("授权截止时间超过上限（自现在起最多 %d 天），请缩短授权窗口", service.MaxAuthDays)})
+		return
 	}
 
 	randBytes := make([]byte, 3)
 	_, _ = rand.Read(randBytes)
 	authNo := fmt.Sprintf("AUTH%s%s", time.Now().Format("20060102"), hex.EncodeToString(randBytes))
 
-	txID, _, _ := blockchain.DefaultService.CommitAsset("AUTHORIZATION", authNo, map[string]interface{}{
+	txID, _, _ := service.CommitAssetWithCompensation("AUTHORIZATION", authNo, map[string]interface{}{
 		"auth_no":     authNo,
 		"patient_id":  patientID,
 		"target_type": req.AuthTargetType,
@@ -91,12 +100,28 @@ func (ctrl *AccessController) ListAuthorizations(c *gin.Context) {
 	patientID := c.GetUint64("user_id")
 	role := c.GetString("role")
 
-	patientFilter := uint64(0)
-	if role == "patient" {
-		patientFilter = patientID
-	}
 	statusFilter := strings.ToUpper(strings.TrimSpace(c.Query("status")))
-	list, _ := repository.DefaultAuthPolicyRepository.ListAuthorizations(patientFilter, statusFilter)
+
+	// WP-03: RBAC + 行级租户过滤
+	var list []model.Authorization
+	switch role {
+	case "patient":
+		list, _ = repository.DefaultAuthPolicyRepository.ListAuthorizations(patientID, statusFilter)
+	case "doctor":
+		doctorHospID := c.GetUint64("hospital_id")
+		if doctorHospID == 0 {
+			if doc, dErr := repository.DefaultUserRepository.FindByID(patientID); dErr == nil && doc != nil {
+				doctorHospID = doc.HospitalID
+			}
+		}
+		list, _ = repository.DefaultAuthPolicyRepository.ListAuthorizationsForDoctor(patientID, doctorHospID, statusFilter)
+	case "supervisor":
+		// 监管全局审计视图
+		list, _ = repository.DefaultAuthPolicyRepository.ListAuthorizations(0, statusFilter)
+	default:
+		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "权限拦截：系统管理员按临床隐私隔离原则禁止调阅患者授权策略"})
+		return
+	}
 
 	docIDs := make([]uint64, 0, len(list))
 	hospIDs := make([]uint64, 0, len(list))
@@ -130,7 +155,7 @@ func (ctrl *AccessController) ListAuthorizations(c *gin.Context) {
 
 	for i := range list {
 		if list[i].AuthTargetType == "ALL_DOCTORS" {
-			list[i].TargetName = "全体执业医生 (全联盟公开)"
+			list[i].TargetName = "全体执业医生 (全网公开)"
 		} else if list[i].AuthTargetType == "DOCTOR" {
 			if doc, ok := docMap[list[i].AuthTargetID]; ok {
 				hospSuffix := ""
@@ -153,6 +178,15 @@ func (ctrl *AccessController) ListAuthorizations(c *gin.Context) {
 				if hosp, ok := hospMap[rec.HospitalID]; ok {
 					list[i].RecordHospitalName = hosp.Name
 				}
+			}
+		}
+	}
+
+	// WP-03: 监管视角全局审计脱敏——临床诊断对非诊疗关联方保密
+	if role == "supervisor" {
+		for i := range list {
+			if list[i].RecordDiagnosis != "" {
+				list[i].RecordDiagnosis = "*** [监管脱敏] ***"
 			}
 		}
 	}

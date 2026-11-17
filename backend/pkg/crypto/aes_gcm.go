@@ -11,9 +11,36 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"strings"
+	"sync"
 )
 
+// DefaultMasterSecret 仅作为最后兜底：优先读取 MEDTRUST_CRYPTO_MASTER_KEY / AES_MASTER_KEY 环境变量。
+// 生产与 Fabric 模式下 ValidateCryptoConfig 已保证主密钥已显式配置，此常量不会生效。
 const DefaultMasterSecret = "MedTrust_System_Master_Key_AES256_GCM_2026"
+
+// ValidateCryptoConfig 启动期加密配置校验 (WP-09)：
+// - production 或 fabric 模式下未配置 MEDTRUST_CRYPTO_MASTER_KEY / AESMasterKey 时 fail-fast；
+// - dev/test 模式下仅通过 sync.Once 输出一次显著 [SECURITY WARNING] 日志。
+// 返回 error 供调用方在 boot 阶段 log.Fatal。
+func ValidateCryptoConfig(envMode string, fabricMode bool, aesMasterKeyConfigured bool) error {
+	dangerous := !aesMasterKeyConfigured
+	if envMode == "production" || fabricMode {
+		if dangerous {
+			return errors.New("[CRYPTO BOOT VALIDATION] 生产/Fabric 联盟链模式下必须配置 MEDTRUST_CRYPTO_MASTER_KEY (32 字节或 base64: 前缀 32 字节编码)，禁止回退到内置默认主密钥")
+		}
+		return nil
+	}
+	if dangerous {
+		warnCryptoOnce.Do(func() {
+			fmt.Println("[SECURITY WARNING] 未配置 AES 主密钥 (MEDTRUST_CRYPTO_MASTER_KEY)，当前 dev/test 模式回退到默认主密钥，严禁用于生产环境！")
+		})
+	}
+	return nil
+}
+
+var warnCryptoOnce sync.Once
 
 // ComputeSHA256 计算输入字节流的 SHA-256 十六进制摘要
 func ComputeSHA256(data []byte) string {
@@ -26,12 +53,28 @@ func CalculateSHA256(data []byte) string {
 	return ComputeSHA256(data)
 }
 
+var warnDeriveOnce sync.Once
+
+// resolveMasterSecret 解析旧派生加密使用的 masterSecret：
+// 显式入参 > MEDTRUST_CRYPTO_MASTER_KEY / AES_MASTER_KEY 环境变量 > 内置兜底常量。
+func resolveMasterSecret(masterSecret string) string {
+	if s := strings.TrimSpace(masterSecret); s != "" {
+		return s
+	}
+	for _, env := range []string{"MEDTRUST_CRYPTO_MASTER_KEY", "AES_MASTER_KEY"} {
+		if v := strings.TrimSpace(os.Getenv(env)); v != "" {
+			return v
+		}
+	}
+	warnDeriveOnce.Do(func() {
+		fmt.Println("[SECURITY WARNING] 未配置主密钥 (MEDTRUST_CRYPTO_MASTER_KEY/AES_MASTER_KEY)，旧版 DeriveRecordKey 回退到内置常量，严禁用于生产环境！")
+	})
+	return DefaultMasterSecret
+}
+
 // DeriveRecordKey 基于主密钥与病历唯一编号派生 256 位对称加密密钥 (HKDF/HMAC-SHA256 机制)
 func DeriveRecordKey(masterSecret, recordNo string) []byte {
-	if masterSecret == "" {
-		masterSecret = DefaultMasterSecret
-	}
-	mac := hmac.New(sha256.New, []byte(masterSecret))
+	mac := hmac.New(sha256.New, []byte(resolveMasterSecret(masterSecret)))
 	mac.Write([]byte("MedTrust:RecordKey:" + recordNo))
 	return mac.Sum(nil)
 }
@@ -84,6 +127,9 @@ func DecryptAES256GCM(key, iv, ciphertext, aad []byte) ([]byte, error) {
 }
 
 // EncryptRecordFile 高阶流式加密：计算明文 SHA-256 指纹，派生密钥，执行 AAD 绑定加密并输出 [12-byte IV][密文+Tag] 密文包
+//
+// Deprecated: WP-09 起所有新写入路径统一使用 EncryptMedicalFile 信封加密 (随机 DEK + MasterKey 封装 + AAD 绑定)。
+// 本函数仅保留用于历史遗留读取兼容，新代码请勿调用。
 func EncryptRecordFile(plainData []byte, patientID uint64, recordNo string) (pack []byte, fileHash string, err error) {
 	fileHash = CalculateSHA256(plainData)
 	key := DeriveRecordKey("", recordNo)
@@ -104,13 +150,18 @@ func EncryptRecordFile(plainData []byte, patientID uint64, recordNo string) (pac
 
 // DecryptRecordFile 高阶内存流式解密：从密文包解析 IV，重新派生密钥并基于 AAD 校验解密，全程内存运算零磁盘落地
 func DecryptRecordFile(ciphertextPack []byte, patientID uint64, recordNo string) ([]byte, error) {
+	return DecryptRecordFileWithSecret(ciphertextPack, patientID, recordNo, "")
+}
+
+// DecryptRecordFileWithSecret 使用指定主密钥材料执行旧派生流式解密，供非生产环境向下兼容历史存量密文。
+func DecryptRecordFileWithSecret(ciphertextPack []byte, patientID uint64, recordNo, masterSecret string) ([]byte, error) {
 	if len(ciphertextPack) < 12+16 {
 		return nil, fmt.Errorf("密文数据包长度不足 (需至少包含 12 字节 IV 与 16 字节 GCM Tag)")
 	}
 
 	iv := ciphertextPack[:12]
 	ciphertext := ciphertextPack[12:]
-	key := DeriveRecordKey("", recordNo)
+	key := DeriveRecordKey(masterSecret, recordNo)
 	aad := []byte(fmt.Sprintf("%d:%s", patientID, recordNo))
 
 	return DecryptAES256GCM(key, iv, ciphertext, aad)
@@ -256,4 +307,3 @@ func RewrapDEK(oldEncryptedDEK string, oldMasterKey, newMasterKey []byte) (strin
 
 	return base64.StdEncoding.EncodeToString(newSealedDEK), nil
 }
-

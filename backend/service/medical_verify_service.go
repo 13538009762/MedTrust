@@ -14,9 +14,8 @@ import (
 
 // VerifyRecord 对病历执行区块链分布式防篡改核验（含 IPFS 密文拉取 + AES-256-GCM 解密验签 + 结构化综合哈希比对）
 func (s *MedicalService) VerifyRecord(r *model.MedicalRecord) {
-	if len(r.Files) == 0 && r.ID > 0 && repository.DB != nil {
-		var files []model.MedicalFile
-		if err := repository.DB.Where("record_id = ?", r.ID).Order("id asc").Find(&files).Error; err == nil {
+	if len(r.Files) == 0 && r.ID > 0 {
+		if files, err := repository.DefaultMedicalRepository.FindFilesByRecordID(r.ID); err == nil {
 			r.Files = files
 		}
 	}
@@ -35,9 +34,21 @@ func (s *MedicalService) VerifyRecord(r *model.MedicalRecord) {
 		currentHash := ComputeRecordHash(r)
 		r.CurrentHash = currentHash
 		r.Verified = false
-		r.IsTampered = true
+		r.IsTampered = false
 		r.ChainHash = ""
-		r.TamperReason = "【区块链安全告警】区块链存证服务未就绪，无法比对账本指纹"
+		r.TamperReason = "【区块链连接提示】区块链存证服务未就绪，暂未执行账本指纹比对"
+		return
+	}
+
+	// 检查底层区块链服务在线状态：若处于离线/不可达状态，明确提示网络降级，严禁将网络离线误判为数据被恶意篡改
+	status := blockchain.DefaultService.GetBlockchainStatus()
+	if !status.Connected {
+		currentHash := ComputeRecordHash(r)
+		r.CurrentHash = currentHash
+		r.Verified = false
+		r.IsTampered = false
+		r.ChainHash = ""
+		r.TamperReason = fmt.Sprintf("【区块链连接提示】区块链存证网关当前未连通 (%s)，暂未完成链上指纹背书比对（底层数据完整性待网络恢复后复核）", status.Message)
 		return
 	}
 
@@ -46,9 +57,16 @@ func (s *MedicalService) VerifyRecord(r *model.MedicalRecord) {
 		currentHash := ComputeRecordHash(r)
 		r.CurrentHash = currentHash
 		r.Verified = false
+		if r.FabricTxID == "" {
+			r.IsTampered = false
+			r.ChainHash = ""
+			r.TamperReason = "【区块链存证提示】该病历尚未完成区块链分布式账本存证共识"
+			return
+		}
+		// 若数据库明确登记已上链（FabricTxID 非空），但分布式账本中彻底缺失该资产，判定为存证缺失
 		r.IsTampered = true
 		r.ChainHash = ""
-		r.TamperReason = "【区块链安全告警】该病历在区块链分布式账本中存证缺失，未通过可信背书核验！"
+		r.TamperReason = "【区块链安全告警】该病历已登记存证交易，但在区块链分布式账本中数据缺失，未通过可信背书核验！"
 		return
 	}
 
@@ -85,32 +103,23 @@ func (s *MedicalService) VerifyRecord(r *model.MedicalRecord) {
 				return
 			}
 			// 兼容未配置独立信封密钥的早期存量病历与单测基准：核验链上登记的附件哈希是否吻合
-			fileMatched := (primaryFile.FileHash == chainFileHash || chainFileHash == "")
-			if !fileMatched && len(r.Files) > 1 {
-				for _, f := range r.Files {
-					if f.FileHash == chainFileHash {
-						fileMatched = true
-						break
-					}
-				}
-			}
-			if chainFileHash != "" && !fileMatched {
+			if _, fileMatched := MatchRecordChainFileHash(r.Files, primaryFile, "", chainFileHash); chainFileHash != "" && !fileMatched {
 				r.CurrentHash = ComputeRecordHash(r)
 				r.IsTampered = true
 				r.Verified = false
-				r.TamperReason = fmt.Sprintf("【区块链安全告警】病历附件指纹 (%s...) 与链上登记文件指纹 (%s...) 不匹配！附件可能遭离线篡改！", primaryFile.FileHash[:16], chainFileHash[:16])
+				r.TamperReason = fmt.Sprintf("【区块链安全告警】病历附件指纹 (%s...) 与链上登记文件指纹 (%s...) 不匹配！附件可能遭离线篡改！", ShortHashPrefix(primaryFile.FileHash), ShortHashPrefix(chainFileHash))
 				return
 			}
 		} else {
-			expectedFH := chainFileHash
-			if expectedFH == "" {
-				expectedFH = primaryFile.FileHash
-			}
-			if expectedFH != "" && decryptedFileHash != expectedFH {
+			if _, fileMatched := MatchRecordChainFileHash(r.Files, primaryFile, decryptedFileHash, chainFileHash); !fileMatched {
+				expectedFH := chainFileHash
+				if expectedFH == "" {
+					expectedFH = primaryFile.FileHash
+				}
 				r.CurrentHash = ComputeRecordHash(r)
 				r.IsTampered = true
 				r.Verified = false
-				r.TamperReason = fmt.Sprintf("【IPFS 密文安全告警】IPFS 解密明文 SHA-256 (%s...) 与链上登记文件指纹 (%s...) 不匹配！", decryptedFileHash[:16], expectedFH[:16])
+				r.TamperReason = fmt.Sprintf("【IPFS 密文安全告警】IPFS 解密明文 SHA-256 (%s...) 与链上登记文件指纹 (%s...) 不匹配！", ShortHashPrefix(decryptedFileHash), ShortHashPrefix(expectedFH))
 				return
 			}
 		}
@@ -165,7 +174,7 @@ func (s *MedicalService) VerifyRecord(r *model.MedicalRecord) {
 
 // EnsureBaselineLedgerAnchored 初始化或补充链上初始资产存证，确保种子病历在数据库被攻击篡改前已将基准哈希固化在 Fabric 账本中
 func EnsureBaselineLedgerAnchored() {
-	if repository.DB == nil || blockchain.DefaultService == nil {
+	if blockchain.DefaultService == nil {
 		return
 	}
 
@@ -244,16 +253,21 @@ func EnsureBaselineLedgerAnchored() {
 	ipfsSvc := DefaultMedicalService.GetIPFSService()
 
 	for _, seed := range seedRecordDefinitions {
-		var pat, doc model.User
-		if err := repository.DB.Where("username = ? OR user_no = ?", seed.PatientUserNo, seed.PatientUserNo).First(&pat).Error; err != nil {
+		pat, err := repository.DefaultUserRepository.FindUserByIDOrNoOrUsername(seed.PatientUserNo)
+		if err != nil {
 			continue
 		}
-		if err := repository.DB.Where("username = ? OR user_no = ?", seed.DoctorUserNo, seed.DoctorUserNo).First(&doc).Error; err != nil {
+		doc, err := repository.DefaultUserRepository.FindUserByIDOrNoOrUsername(seed.DoctorUserNo)
+		if err != nil {
 			continue
 		}
 
-		var existing model.MedicalRecord
-		recFound := (repository.DB.Where("record_no = ?", seed.RecordNo).First(&existing).Error == nil)
+		var existing *model.MedicalRecord
+		recFound := false
+		if candidate, recErr := repository.DefaultMedicalRepository.RecordByNoSimple(seed.RecordNo); recErr == nil {
+			existing = candidate
+			recFound = true
+		}
 
 		fileData := []byte(seed.FileContent)
 		expectedFileHash := crypto.ComputeSHA256(fileData)
@@ -262,12 +276,11 @@ func EnsureBaselineLedgerAnchored() {
 
 		// 幂等检查：若数据库记录、IPFS 密文块以及链上存证均已完整且一致，避免每次重启重新生成随机 CID 覆盖链上存证
 		if recFound && existing.FabricTxID != "" {
-			var existingFile model.MedicalFile
-			if repository.DB.Where("record_id = ?", existing.ID).First(&existingFile).Error == nil && existingFile.IPFSCID != "" {
-				if _, decFH, decErr := DefaultMedicalService.DecryptFileAndComputeHash(&existing, &existingFile); decErr == nil && decFH == expectedFileHash {
+			if ef, efErr := repository.DefaultMedicalRepository.FindFilesByRecordID(existing.ID); efErr == nil && len(ef) > 0 && ef[0].IPFSCID != "" {
+				if _, decFH, decErr := DefaultMedicalService.DecryptFileAndComputeHash(existing, &ef[0]); decErr == nil && decFH == expectedFileHash {
 					if chainData, ok := blockchain.DefaultService.QueryAsset(seed.RecordNo); ok && chainData != nil {
-						if fmt.Sprintf("%v", chainData["clinical_hash"]) == expectedClinicalHash && ComputeRecordHash(&existing) == expectedClinicalHash {
-							log.Printf("[EnsureBaselineLedgerAnchored] ✅ 种子病历 %s 已处于完整一致状态 (CID=%s, TxID=%s)，跳过重复加密上链", seed.RecordNo, existingFile.IPFSCID, existing.FabricTxID)
+						if fmt.Sprintf("%v", chainData["clinical_hash"]) == expectedClinicalHash && ComputeRecordHash(existing) == expectedClinicalHash {
+							log.Printf("[EnsureBaselineLedgerAnchored] ✅ 种子病历 %s 已处于完整一致状态 (CID=%s, TxID=%s)，跳过重复加密上链", seed.RecordNo, ef[0].IPFSCID, existing.FabricTxID)
 							continue
 						}
 					}
@@ -330,7 +343,7 @@ func EnsureBaselineLedgerAnchored() {
 				SyncStatus:     SyncStatusCompleted,
 				CreatedAt:      time.Now(),
 			}
-			repository.DB.Create(&record)
+			_ = repository.DefaultMedicalRepository.CreateRecord(&record)
 			fileRec := model.MedicalFile{
 				RecordID:     record.ID,
 				FileName:     fmt.Sprintf("规范诊疗记录_%s.pdf", seed.RecordNo),
@@ -342,9 +355,9 @@ func EnsureBaselineLedgerAnchored() {
 				FileHash:     fileHash,
 				CreatedAt:    time.Now(),
 			}
-			repository.DB.Create(&fileRec)
+			_ = repository.DefaultMedicalRepository.CreateFile(&fileRec)
 		} else {
-			repository.DB.Model(&existing).Updates(map[string]interface{}{
+			_ = repository.DefaultMedicalRepository.UpdateMedicalRecordFields(existing.ID, map[string]interface{}{
 				"fabric_tx_id":    txID,
 				"block_height":    height,
 				"diagnosis":       seed.Diagnosis,
@@ -357,35 +370,14 @@ func EnsureBaselineLedgerAnchored() {
 				"encounter_type":  seed.EncounterType,
 				"department_name": seed.DepartmentName,
 			})
-			var existingFile model.MedicalFile
-			if repository.DB.Where("record_id = ?", existing.ID).First(&existingFile).Error == nil {
-				repository.DB.Model(&existingFile).Updates(map[string]interface{}{
-					"ipfs_cid":      cid,
-					"encrypted_dek": encDEK,
-					"iv_nonce":      ivNonce,
-					"file_hash":     fileHash,
-				})
-			} else {
-				fileRec := model.MedicalFile{
-					RecordID:     existing.ID,
-					FileName:     fmt.Sprintf("规范诊疗记录_%s.pdf", seed.RecordNo),
-					FileType:     "pdf",
-					FileSize:     uint64(len(fileData)),
-					IPFSCID:      cid,
-					EncryptedDEK: encDEK,
-					IVNonce:      ivNonce,
-					FileHash:     fileHash,
-					CreatedAt:    time.Now(),
-				}
-				repository.DB.Create(&fileRec)
-			}
+			_ = repository.DefaultMedicalRepository.UpsertRecordFile(existing.ID, fmt.Sprintf("规范诊疗记录_%s.pdf", seed.RecordNo), "pdf", uint64(len(fileData)), cid, encDEK, ivNonce, fileHash)
 		}
 		log.Printf("[EnsureBaselineLedgerAnchored] ✅ 种子病历 %s 已真实加密注入 IPFS 并锚定账本: TxID=%s, Height=%d", seed.RecordNo, txID, height)
 	}
 
 	// 2. 检查其余动态上传的病历并确保上链锚定
-	var list []model.MedicalRecord
-	if err := repository.DB.Preload("Files").Find(&list).Error; err != nil {
+	list, err := repository.DefaultMedicalRepository.ListAllRecordsPreloaded()
+	if err != nil {
 		return
 	}
 
@@ -423,7 +415,7 @@ func EnsureBaselineLedgerAnchored() {
 				"create_time":   rec.CreatedAt.Format(time.RFC3339),
 			})
 			if err == nil {
-				repository.DB.Model(&model.MedicalRecord{}).Where("id = ?", rec.ID).Updates(map[string]interface{}{
+				_ = repository.DefaultMedicalRepository.UpdateMedicalRecordFields(rec.ID, map[string]interface{}{
 					"fabric_tx_id": txID,
 					"block_height": height,
 				})

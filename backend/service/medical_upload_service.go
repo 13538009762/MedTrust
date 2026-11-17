@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"gorm.io/gorm"
 	"log"
 	"medtrust-backend/config"
 	"medtrust-backend/model"
@@ -50,16 +49,16 @@ type UploadRecordParams struct {
 // UploadRecord 录入就诊事件并在本地完成 AES-256-GCM 加密，存入 IPFS，上链锚定存证 (具备幂等拦截与 DB.Transaction 强原子事务保护)
 func (s *MedicalService) UploadRecord(p UploadRecordParams) (*model.MedicalRecord, error) {
 	// 0. 幂等性校验拦截 (防止网络抖动并发重复录入相同就诊事件)
-	if p.IdempotencyKey != "" && repository.DB != nil {
-		var existing model.MedicalRecord
-		if err := repository.DB.Where("idempotency_key = ?", p.IdempotencyKey).Preload("Files").First(&existing).Error; err == nil && existing.ID > 0 {
+	if p.IdempotencyKey != "" {
+		existing, err := repository.DefaultMedicalRepository.FindByIdempotencyKeyWithFiles(p.IdempotencyKey)
+		if err == nil && existing.ID > 0 {
 			log.Printf("[MedicalService] ⚠️ 触发幂等拦截: IdempotencyKey=%s, 复用既有就诊记录 ID=%d, RecordNo=%s", p.IdempotencyKey, existing.ID, existing.RecordNo)
-			return &existing, nil
+			return existing, nil
 		}
 	}
 
-	var doc model.User
-	if err := repository.DB.First(&doc, p.DoctorID).Error; err != nil {
+	doc, err := repository.DefaultUserRepository.FindByID(p.DoctorID)
+	if err != nil {
 		return nil, fmt.Errorf("医生不存在: %w", err)
 	}
 
@@ -91,14 +90,13 @@ func (s *MedicalService) UploadRecord(p UploadRecordParams) (*model.MedicalRecor
 	// 若未单独上传附件，系统自动为本次就诊生成规范电子病历归档切片凭证 (符合 PDF 1.4 标准)
 	if len(p.FileData) == 0 {
 		patName := "陈晨"
-		var pat model.User
-		if err := repository.DB.First(&pat, p.PatientID).Error; err == nil && pat.RealName != "" {
-			patName = pat.RealName
+		patient, err := repository.DefaultUserRepository.FindByID(p.PatientID)
+		if err == nil && patient.RealName != "" {
+			patName = patient.RealName
 		}
 		hospName := doc.HospitalName
 		if hospName == "" && doc.HospitalID > 0 {
-			var hosp model.Hospital
-			if err := repository.DB.First(&hosp, doc.HospitalID).Error; err == nil && hosp.Name != "" {
+			if hosp, err := repository.DefaultHospitalRepository.FindByID(doc.HospitalID); err == nil && hosp.Name != "" {
 				hospName = hosp.Name
 			}
 		}
@@ -158,6 +156,18 @@ func (s *MedicalService) UploadRecord(p UploadRecordParams) (*model.MedicalRecor
 	if err != nil {
 		return nil, fmt.Errorf("区块链存证失败: %w", err)
 	}
+	// 上链成功但后续 DB 落库可能失败：注册一个回滚钩子，DB 失败时清理 IPFS 孤儿密文。
+	// 说明：链上存证按设计不可撤销，此处只保证"无 DB 记录却留密文"的存储泄漏被消除。
+	dbCommitted := false
+	defer func() {
+		if !dbCommitted {
+			if delErr := s.ipfsService.Delete(cid); delErr != nil {
+				log.Printf("[UploadCleanup] ⚠️ 上传失败后清理 IPFS 孤儿密文失败 cid=%s err=%v（需人工核查存储泄漏）", cid, delErr)
+			} else {
+				log.Printf("[UploadCleanup] 已清理 IPFS 孤儿密文 cid=%s（DB 落库失败，链上锚点保留待对账）", cid)
+			}
+		}
+	}()
 
 	// 5. 写入 MySQL 数据库
 	record := model.MedicalRecord{
@@ -205,12 +215,12 @@ func (s *MedicalService) UploadRecord(p UploadRecordParams) (*model.MedicalRecor
 	}
 
 	// 5. 使用关系型数据库事务 (ACID) 强原子落库，确保病历主表与附件表原子一致，任何失败全量回滚
-	err = repository.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(&record).Error; err != nil {
+	err = repository.Transaction(func(tx *repository.TxRunner) error {
+		if err := tx.Create(&record); err != nil {
 			return fmt.Errorf("创建病历数据库记录失败: %w", err)
 		}
 		fileRecord.RecordID = record.ID
-		if err := tx.Create(&fileRecord).Error; err != nil {
+		if err := tx.Create(&fileRecord); err != nil {
 			return fmt.Errorf("保存病历附件记录失败: %w", err)
 		}
 		return nil
@@ -218,6 +228,7 @@ func (s *MedicalService) UploadRecord(p UploadRecordParams) (*model.MedicalRecor
 	if err != nil {
 		return nil, err
 	}
+	dbCommitted = true
 
 	record.Files = []model.MedicalFile{fileRecord}
 	// 严格遵循链下密文存储规范，服务端本地磁盘零明文落地，数据均以 AES-256-GCM 密文托管于 IPFS
@@ -231,9 +242,8 @@ func (s *MedicalService) UploadRecord(p UploadRecordParams) (*model.MedicalRecor
 
 // ComputeRecordHash 计算结构化病历与影像哈希综合指纹，任何字段被篡改均会导致哈希不符
 func ComputeRecordHash(r *model.MedicalRecord) string {
-	if len(r.Files) == 0 && r.ID > 0 && repository.DB != nil {
-		var files []model.MedicalFile
-		if err := repository.DB.Where("record_id = ?", r.ID).Order("id asc").Find(&files).Error; err == nil {
+	if len(r.Files) == 0 && r.ID > 0 {
+		if files, err := repository.DefaultMedicalRepository.FindFilesByRecordID(r.ID); err == nil {
 			r.Files = files
 		}
 	}
@@ -271,11 +281,17 @@ func (s *MedicalService) DecryptFileAndComputeHash(rec *model.MedicalRecord, fil
 	if file.EncryptedDEK != "" && file.IVNonce != "" {
 		masterKey := config.AppConfig.GetAESMasterKey()
 		plainData, decErr = crypto.DecryptMedicalFile(cipherPack, file.EncryptedDEK, file.IVNonce, rec.PatientID, rec.RecordNo, masterKey)
-	}
-	if len(plainData) == 0 {
+	} else {
 		plainData, decErr = crypto.DecryptRecordFile(cipherPack, rec.PatientID, rec.RecordNo)
 		if decErr != nil {
 			plainData, decErr = crypto.DecryptRecordFile(cipherPack, rec.PatientID, "")
+		}
+		// 非生产环境下向下兼容未配置独立 AES_MASTER_KEY 前生成的旧派生密文
+		if decErr != nil && !config.AppConfig.IsProduction() {
+			plainData, decErr = crypto.DecryptRecordFileWithSecret(cipherPack, rec.PatientID, rec.RecordNo, crypto.DefaultMasterSecret)
+			if decErr != nil {
+				plainData, decErr = crypto.DecryptRecordFileWithSecret(cipherPack, rec.PatientID, "", crypto.DefaultMasterSecret)
+			}
 		}
 	}
 	if decErr != nil || len(plainData) == 0 {
@@ -297,4 +313,39 @@ func SelectPrimaryMedicalFile(r *model.MedicalRecord) *model.MedicalFile {
 		}
 	}
 	return target
+}
+
+// MatchRecordChainFileHash 统一校验主归档附件或同病历多附件与链上登记 file_hash 的一致性。
+// 当提供 decryptedHash 时，首先要求其与 primaryFile.FileHash（若非空）一致；在主附件通过校验的前提下，
+// 若链上 file_hash 锚定于同病历的其他历史附件，也视为多附件归档场景一致。
+func MatchRecordChainFileHash(files []model.MedicalFile, primaryFile *model.MedicalFile, decryptedHash, chainFileHash string) (string, bool) {
+	if primaryFile == nil {
+		return "", chainFileHash == ""
+	}
+	localHash := primaryFile.FileHash
+	if decryptedHash != "" {
+		if primaryFile.FileHash != "" && decryptedHash != primaryFile.FileHash {
+			return decryptedHash, false
+		}
+		localHash = decryptedHash
+	}
+	if chainFileHash == "" || localHash == chainFileHash {
+		return localHash, true
+	}
+	if len(files) > 1 {
+		for _, f := range files {
+			if f.FileHash == chainFileHash {
+				return f.FileHash, true
+			}
+		}
+	}
+	return localHash, false
+}
+
+// ShortHashPrefix 安全截取哈希前 16 位用于告警展示，避免短串切片越界 panic。
+func ShortHashPrefix(h string) string {
+	if len(h) <= 16 {
+		return h
+	}
+	return h[:16]
 }

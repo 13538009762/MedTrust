@@ -13,9 +13,11 @@ import (
 	"medtrust-backend/config"
 	"medtrust-backend/model"
 	"medtrust-backend/pkg/blockchain"
+	"medtrust-backend/pkg/crypto"
 	"medtrust-backend/repository"
 	"medtrust-backend/router"
 	"medtrust-backend/service"
+	"strings"
 )
 
 func main() {
@@ -28,6 +30,13 @@ func main() {
 		log.Fatalf("Config security validation failed: %v", err)
 	}
 	fmt.Printf("[MedTrust] Configuration validated successfully (Mode: %s)\n", cfg.AppEnv)
+
+	// WP-09: 启动期加密配置校验——生产/Fabric 模式未配置主密钥即 fail-fast；dev/test 仅一次性警告
+	if err := crypto.ValidateCryptoConfig(strings.ToLower(strings.TrimSpace(cfg.AppEnv)),
+		strings.EqualFold(cfg.Blockchain.Mode, "fabric"),
+		strings.TrimSpace(cfg.Security.AESMasterKey) != ""); err != nil {
+		log.Fatalf("Crypto boot validation failed: %v", err)
+	}
 
 	// 1. 初始化数据库与自动迁移（内部已完成幂等标准测试种子数据注入）
 	_, err = repository.InitDB()

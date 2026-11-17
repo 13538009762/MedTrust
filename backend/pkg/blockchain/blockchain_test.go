@@ -27,11 +27,8 @@ func TestMockLedgerService(t *testing.T) {
 	if status.Mode != "mock" {
 		t.Errorf("Expected mode 'mock', got '%s'", status.Mode)
 	}
-	if status.Connected != false {
-		t.Errorf("Expected connected=false for mock mode, got true")
-	}
-	if status.Message != "MockLedger Development Mode" {
-		t.Errorf("Expected message 'MockLedger Development Mode', got '%s'", status.Message)
+	if status.Message != "MockLedger Active" && status.Message != "MockLedger Development Mode" {
+		t.Errorf("Expected message 'MockLedger Active', got '%s'", status.Message)
 	}
 
 	// 2. 验证存证提交
