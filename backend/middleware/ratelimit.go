@@ -10,41 +10,64 @@ import (
 	"medtrust-backend/model"
 )
 
+const maxRateLimitBuckets = 10000
+
 type ipBucket struct {
-	count      int
-	resetTime  time.Time
+	count     int
+	resetTime time.Time
 }
 
 type MemoryRateLimiter struct {
-	mu      sync.Mutex
-	buckets map[string]*ipBucket
-	limit   int
-	window  time.Duration
+	mu        sync.Mutex
+	buckets   map[string]*ipBucket
+	limit     int
+	window    time.Duration
+	stopChan  chan struct{}
+	closeOnce sync.Once
 }
 
 func NewMemoryRateLimiter(limit int, window time.Duration) *MemoryRateLimiter {
 	limiter := &MemoryRateLimiter{
-		buckets: make(map[string]*ipBucket),
-		limit:   limit,
-		window:  window,
+		buckets:  make(map[string]*ipBucket),
+		limit:    limit,
+		window:   window,
+		stopChan: make(chan struct{}),
 	}
 
 	// 启动定期清理过期 IP 桶的后台协程，防止内存泄露
 	go func() {
 		ticker := time.NewTicker(2 * window)
-		for range ticker.C {
-			limiter.mu.Lock()
-			now := time.Now()
-			for ip, b := range limiter.buckets {
-				if now.After(b.resetTime) {
-					delete(limiter.buckets, ip)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-limiter.stopChan:
+				return
+			case <-ticker.C:
+				limiter.mu.Lock()
+				now := time.Now()
+				for ip, b := range limiter.buckets {
+					if now.After(b.resetTime) {
+						delete(limiter.buckets, ip)
+					}
 				}
+				limiter.mu.Unlock()
 			}
-			limiter.mu.Unlock()
 		}
 	}()
 
 	return limiter
+}
+
+// Stop 优雅终止限流器的后台清理协程
+func (limiter *MemoryRateLimiter) Stop() {
+	if limiter == nil {
+		return
+	}
+	limiter.closeOnce.Do(func() {
+		if limiter.stopChan != nil {
+			close(limiter.stopChan)
+		}
+	})
 }
 
 func (limiter *MemoryRateLimiter) Allow(ip string) (bool, int, time.Duration) {
@@ -55,6 +78,30 @@ func (limiter *MemoryRateLimiter) Allow(ip string) (bool, int, time.Duration) {
 	b, exists := limiter.buckets[ip]
 
 	if !exists || now.After(b.resetTime) {
+		if !exists && len(limiter.buckets) >= maxRateLimitBuckets {
+			// 先清扫已过期条目，仍满时淘汰最早过期的桶，严防 IP 伪造攻击耗尽内存
+			for k, item := range limiter.buckets {
+				if now.After(item.resetTime) {
+					delete(limiter.buckets, k)
+				}
+			}
+			for len(limiter.buckets) >= maxRateLimitBuckets {
+				var oldestIP string
+				var earliest time.Time
+				first := true
+				for k, item := range limiter.buckets {
+					if first || item.resetTime.Before(earliest) {
+						earliest = item.resetTime
+						oldestIP = k
+						first = false
+					}
+				}
+				if oldestIP == "" {
+					break
+				}
+				delete(limiter.buckets, oldestIP)
+			}
+		}
 		limiter.buckets[ip] = &ipBucket{
 			count:     1,
 			resetTime: now.Add(limiter.window),

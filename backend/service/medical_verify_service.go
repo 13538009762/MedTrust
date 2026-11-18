@@ -12,12 +12,40 @@ import (
 	"time"
 )
 
+// VerifyRecordDetail 承载单次区块链+IPFS 完整核验过程产出的细节，供上层 VerificationService 复用，消除重复网络与解密开销
+type VerifyRecordDetail struct {
+	ChainData           map[string]interface{}
+	PrimaryCID          string
+	ChainFileHash       string
+	LocalFileHash       string
+	ChainClinicalHash   string
+	FileStagePassed     bool
+	FileStageDetail     string
+	ClinicalStagePassed bool
+}
+
 // VerifyRecord 对病历执行区块链分布式防篡改核验（含 IPFS 密文拉取 + AES-256-GCM 解密验签 + 结构化综合哈希比对）
 func (s *MedicalService) VerifyRecord(r *model.MedicalRecord) {
+	_ = s.VerifyRecordDetailed(r)
+}
+
+// VerifyRecordDetailed 执行单次去重核验并返回阶段细节（仅供单次 QueryAsset 与单次 IPFS 解密）
+func (s *MedicalService) VerifyRecordDetailed(r *model.MedicalRecord) *VerifyRecordDetail {
+	detail := &VerifyRecordDetail{
+		FileStagePassed: true,
+		FileStageDetail: "该病历无独立二进制附件",
+	}
+	if r == nil {
+		return detail
+	}
 	if len(r.Files) == 0 && r.ID > 0 {
 		if files, err := repository.DefaultMedicalRepository.FindFilesByRecordID(r.ID); err == nil {
 			r.Files = files
 		}
+	}
+
+	if primary := SelectPrimaryMedicalFile(r); primary != nil {
+		detail.PrimaryCID = primary.IPFSCID
 	}
 
 	// 流转中的未归档就诊记录（如待医技检查、检查中、待最终确诊），尚未触发最终归档上链，不应误判为篡改
@@ -27,7 +55,7 @@ func (s *MedicalService) VerifyRecord(r *model.MedicalRecord) {
 		r.IsTampered = false
 		r.ChainHash = ""
 		r.TamperReason = ""
-		return
+		return detail
 	}
 
 	if blockchain.DefaultService == nil {
@@ -37,7 +65,7 @@ func (s *MedicalService) VerifyRecord(r *model.MedicalRecord) {
 		r.IsTampered = false
 		r.ChainHash = ""
 		r.TamperReason = "【区块链连接提示】区块链存证服务未就绪，暂未执行账本指纹比对"
-		return
+		return detail
 	}
 
 	// 检查底层区块链服务在线状态：若处于离线/不可达状态，明确提示网络降级，严禁将网络离线误判为数据被恶意篡改
@@ -49,7 +77,7 @@ func (s *MedicalService) VerifyRecord(r *model.MedicalRecord) {
 		r.IsTampered = false
 		r.ChainHash = ""
 		r.TamperReason = fmt.Sprintf("【区块链连接提示】区块链存证网关当前未连通 (%s)，暂未完成链上指纹背书比对（底层数据完整性待网络恢复后复核）", status.Message)
-		return
+		return detail
 	}
 
 	chainData, exists := blockchain.DefaultService.QueryAsset(r.RecordNo)
@@ -61,13 +89,19 @@ func (s *MedicalService) VerifyRecord(r *model.MedicalRecord) {
 			r.IsTampered = false
 			r.ChainHash = ""
 			r.TamperReason = "【区块链存证提示】该病历尚未完成区块链分布式账本存证共识"
-			return
+			return detail
 		}
 		// 若数据库明确登记已上链（FabricTxID 非空），但分布式账本中彻底缺失该资产，判定为存证缺失
 		r.IsTampered = true
 		r.ChainHash = ""
+		detail.FileStagePassed = false
+		detail.FileStageDetail = "区块链分布式账本缺失存证资产"
 		r.TamperReason = "【区块链安全告警】该病历已登记存证交易，但在区块链分布式账本中数据缺失，未通过可信背书核验！"
-		return
+		return detail
+	}
+	detail.ChainData = chainData
+	if c, ok := chainData["cid"].(string); ok && c != "" {
+		detail.PrimaryCID = c
 	}
 
 	chainHash := ""
@@ -77,14 +111,17 @@ func (s *MedicalService) VerifyRecord(r *model.MedicalRecord) {
 		chainHash = fmt.Sprintf("%v", h)
 	}
 	r.ChainHash = chainHash
+	detail.ChainClinicalHash = chainHash
 
 	if chainHash == "" {
 		currentHash := ComputeRecordHash(r)
 		r.CurrentHash = currentHash
 		r.Verified = false
 		r.IsTampered = true
+		detail.FileStagePassed = false
+		detail.FileStageDetail = "链上存证指纹为空"
 		r.TamperReason = "【区块链安全告警】链上存证数据关键指纹为空，未能通过可信背书校验！"
-		return
+		return detail
 	}
 
 	// 阶段 0：若存在关联 IPFS 密文附件，真实拉取 IPFS 密文块并校验 AES-256-GCM AuthTag 与明文 SHA-256
@@ -92,36 +129,74 @@ func (s *MedicalService) VerifyRecord(r *model.MedicalRecord) {
 	if fh, ok := chainData["file_hash"]; ok && fmt.Sprintf("%v", fh) != "" && fmt.Sprintf("%v", fh) != "<nil>" {
 		chainFileHash = fmt.Sprintf("%v", fh)
 	}
-	if primaryFile := SelectPrimaryMedicalFile(r); primaryFile != nil && primaryFile.IPFSCID != "" {
-		_, decryptedFileHash, decErr := s.DecryptFileAndComputeHash(r, primaryFile)
-		if decErr != nil {
-			if primaryFile.EncryptedDEK != "" {
-				r.CurrentHash = ComputeRecordHash(r)
-				r.IsTampered = true
-				r.Verified = false
-				r.TamperReason = fmt.Sprintf("【IPFS 密文安全告警】链下 IPFS 密文块拉取或 AES-256-GCM 认证标签校验失败 (%v)！密文可能已被篡改或替换！", decErr)
-				return
-			}
-			// 兼容未配置独立信封密钥的早期存量病历与单测基准：核验链上登记的附件哈希是否吻合
-			if _, fileMatched := MatchRecordChainFileHash(r.Files, primaryFile, "", chainFileHash); chainFileHash != "" && !fileMatched {
-				r.CurrentHash = ComputeRecordHash(r)
-				r.IsTampered = true
-				r.Verified = false
-				r.TamperReason = fmt.Sprintf("【区块链安全告警】病历附件指纹 (%s...) 与链上登记文件指纹 (%s...) 不匹配！附件可能遭离线篡改！", ShortHashPrefix(primaryFile.FileHash), ShortHashPrefix(chainFileHash))
-				return
+	detail.ChainFileHash = chainFileHash
+
+	if primaryFile := SelectPrimaryMedicalFile(r); primaryFile != nil {
+		if detail.PrimaryCID == "" {
+			detail.PrimaryCID = primaryFile.IPFSCID
+		}
+		if detail.ChainFileHash == "" {
+			detail.ChainFileHash = primaryFile.FileHash
+		}
+		if primaryFile.IPFSCID != "" {
+			_, decryptedFileHash, decErr := s.DecryptFileAndComputeHash(r, primaryFile)
+			if decErr != nil {
+				if primaryFile.EncryptedDEK != "" {
+					r.CurrentHash = ComputeRecordHash(r)
+					r.IsTampered = true
+					r.Verified = false
+					detail.FileStagePassed = false
+					detail.LocalFileHash = "AES_GCM_TAG_OR_IPFS_ERR"
+					detail.FileStageDetail = fmt.Sprintf("【严重告警】从 IPFS 节点拉取加密块或 AES-256-GCM 认证标签校验失败 (%v)，密文可能已被篡改或破坏", decErr)
+					r.TamperReason = fmt.Sprintf("【IPFS 密文安全告警】链下 IPFS 密文块拉取或 AES-256-GCM 认证标签校验失败 (%v)！密文可能已被篡改或替换！", decErr)
+					return detail
+				}
+				// 兼容未配置独立信封密钥的早期存量病历与单测基准：核验链上登记的附件哈希是否吻合
+				matchedHash, fileMatched := MatchRecordChainFileHash(r.Files, primaryFile, "", chainFileHash)
+				detail.LocalFileHash = matchedHash
+				if chainFileHash != "" && !fileMatched {
+					r.CurrentHash = ComputeRecordHash(r)
+					r.IsTampered = true
+					r.Verified = false
+					detail.FileStagePassed = false
+					detail.FileStageDetail = "【严重告警】历史病历附件指纹与链上登记 FileHash 不匹配，附件可能遭离线篡改"
+					r.TamperReason = fmt.Sprintf("【区块链安全告警】病历附件指纹 (%s...) 与链上登记文件指纹 (%s...) 不匹配！附件可能遭离线篡改！", ShortHashPrefix(primaryFile.FileHash), ShortHashPrefix(chainFileHash))
+					return detail
+				}
+				detail.FileStagePassed = true
+				detail.FileStageDetail = "历史规范病历附件文件指纹与链上登记 FileHash 完全吻合 (已通过区块链不可篡改公信力校验)"
+			} else {
+				matchedHash, fileMatched := MatchRecordChainFileHash(r.Files, primaryFile, decryptedFileHash, chainFileHash)
+				detail.LocalFileHash = matchedHash
+				if !fileMatched || (primaryFile.EncryptedDEK != "" && chainFileHash == "") {
+					expectedFH := chainFileHash
+					if expectedFH == "" {
+						expectedFH = primaryFile.FileHash
+					}
+					r.CurrentHash = ComputeRecordHash(r)
+					r.IsTampered = true
+					r.Verified = false
+					detail.FileStagePassed = false
+					detail.FileStageDetail = "【严重告警】IPFS 解密明文计算的 SHA-256 指纹与链上登记 FileHash 不匹配，附件可能遭篡改替换"
+					r.TamperReason = fmt.Sprintf("【IPFS 密文安全告警】IPFS 解密明文 SHA-256 (%s...) 与链上登记文件指纹 (%s...) 不匹配！", ShortHashPrefix(decryptedFileHash), ShortHashPrefix(expectedFH))
+					return detail
+				}
+				detail.FileStagePassed = true
+				detail.FileStageDetail = "已从 IPFS 节点拉取密文块并通过 AES-256-GCM 认证标签与 AAD 校验，解密明文计算的 SHA-256 指纹与链上登记 FileHash 完全吻合"
 			}
 		} else {
-			if _, fileMatched := MatchRecordChainFileHash(r.Files, primaryFile, decryptedFileHash, chainFileHash); !fileMatched {
-				expectedFH := chainFileHash
-				if expectedFH == "" {
-					expectedFH = primaryFile.FileHash
-				}
+			detail.LocalFileHash = primaryFile.FileHash
+			if primaryFile.FileHash != detail.ChainFileHash {
 				r.CurrentHash = ComputeRecordHash(r)
 				r.IsTampered = true
 				r.Verified = false
-				r.TamperReason = fmt.Sprintf("【IPFS 密文安全告警】IPFS 解密明文 SHA-256 (%s...) 与链上登记文件指纹 (%s...) 不匹配！", ShortHashPrefix(decryptedFileHash), ShortHashPrefix(expectedFH))
-				return
+				detail.FileStagePassed = false
+				detail.FileStageDetail = "附件指纹不匹配，可能存在离线修改或篡改替换"
+				r.TamperReason = fmt.Sprintf("【区块链安全告警】病历附件指纹 (%s...) 与链上登记文件指纹 (%s...) 不匹配！附件可能遭离线篡改！", ShortHashPrefix(primaryFile.FileHash), ShortHashPrefix(detail.ChainFileHash))
+				return detail
 			}
+			detail.FileStagePassed = true
+			detail.FileStageDetail = "附件与医学影像二进制明文计算的 SHA-256 指纹与链上登记 FileHash 完全吻合"
 		}
 	}
 
@@ -135,11 +210,9 @@ func (s *MedicalService) VerifyRecord(r *model.MedicalRecord) {
 		matched = true
 		matchedHash = defaultHash
 	} else if len(r.Files) > 1 {
-		// 2. 若存在多个流转阶段附件，检查是否与某一历史归档阶段关联哈希一致
+		// 2. 若存在多个流转阶段附件，检查是否与某一历史归档阶段关联哈希一致（统一使用全字段规范摘要）
 		for _, f := range r.Files {
-			raw := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s",
-				r.RecordNo, r.DataType, r.OnsetTime, r.Duration, r.Symptoms, r.Etiology, r.TreatmentPlan, r.Diagnosis, f.FileHash)
-			calc := crypto.CalculateSHA256([]byte(raw))
+			calc := ComputeRecordHashWithFileHash(r, f.FileHash)
 			if calc == chainHash {
 				matched = true
 				matchedHash = calc
@@ -152,6 +225,7 @@ func (s *MedicalService) VerifyRecord(r *model.MedicalRecord) {
 		matchedHash = defaultHash
 	}
 	r.CurrentHash = matchedHash
+	detail.ClinicalStagePassed = matched
 
 	// 严密安全校验：凡是计算哈希与链上不可篡改指纹不相等的，绝对判定为篡改！
 	if !matched {
@@ -165,11 +239,12 @@ func (s *MedicalService) VerifyRecord(r *model.MedicalRecord) {
 		if len(subChain) > 16 {
 			subChain = subChain[:16]
 		}
-		r.TamperReason = fmt.Sprintf("【区块链安全告警】病历关键临床数据（诱因/过敏史/治疗方案/诊断）或文件指纹已被恶意篡改！当前哈希: %s..., 链上不可篡改凭证: %s...", subMatched, subChain)
+		r.TamperReason = fmt.Sprintf("【区块链安全告警】病历关键临床数据（主诉/现病史/体征/诊断/处置）或文件指纹已被恶意篡改！当前哈希: %s..., 链上不可篡改凭证: %s...", subMatched, subChain)
 	} else {
 		r.IsTampered = false
 		r.Verified = true
 	}
+	return detail
 }
 
 // EnsureBaselineLedgerAnchored 初始化或补充链上初始资产存证，确保种子病历在数据库被攻击篡改前已将基准哈希固化在 Fabric 账本中
@@ -271,8 +346,20 @@ func EnsureBaselineLedgerAnchored() {
 
 		fileData := []byte(seed.FileContent)
 		expectedFileHash := crypto.ComputeSHA256(fileData)
-		expectedClinicalHash := crypto.ComputeSHA256([]byte(fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s",
-			seed.RecordNo, seed.DataType, seed.OnsetTime, seed.Duration, seed.Symptoms, seed.Etiology, seed.TreatmentPlan, seed.Diagnosis, expectedFileHash)))
+		seedModel := model.MedicalRecord{
+			RecordNo:       seed.RecordNo,
+			DataType:       seed.DataType,
+			EncounterType:  seed.EncounterType,
+			DepartmentName: seed.DepartmentName,
+			OnsetTime:      seed.OnsetTime,
+			Duration:       seed.Duration,
+			Symptoms:       seed.Symptoms,
+			ChiefComplaint: seed.ChiefComplaint,
+			Etiology:       seed.Etiology,
+			TreatmentPlan:  seed.TreatmentPlan,
+			Diagnosis:      seed.Diagnosis,
+		}
+		expectedClinicalHash := ComputeRecordHashWithFileHash(&seedModel, expectedFileHash)
 
 		// 幂等检查：若数据库记录、IPFS 密文块以及链上存证均已完整且一致，避免每次重启重新生成随机 CID 覆盖链上存证
 		if recFound && existing.FabricTxID != "" {
@@ -300,8 +387,7 @@ func EnsureBaselineLedgerAnchored() {
 			continue
 		}
 
-		clinicalHash := crypto.ComputeSHA256([]byte(fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s",
-			seed.RecordNo, seed.DataType, seed.OnsetTime, seed.Duration, seed.Symptoms, seed.Etiology, seed.TreatmentPlan, seed.Diagnosis, fileHash)))
+		clinicalHash := ComputeRecordHashWithFileHash(&seedModel, fileHash)
 
 		txID, height, commitErr := blockchain.DefaultService.CommitAsset("MEDICAL_RECORD", seed.RecordNo, map[string]interface{}{
 			"record_no":      seed.RecordNo,
@@ -396,8 +482,11 @@ func EnsureBaselineLedgerAnchored() {
 		chainData, exists := blockchain.DefaultService.QueryAsset(rec.RecordNo)
 		needCommit := !exists
 		if exists && chainData != nil {
-			currChainHash := fmt.Sprintf("%v", chainData["file_hash"])
-			if currChainHash != "" && fileHash != "" && currChainHash == fileHash && currChainHash != clinicalHash {
+			currClinicalHash := strings.TrimSpace(fmt.Sprintf("%v", chainData["clinical_hash"]))
+			currFileHash := strings.TrimSpace(fmt.Sprintf("%v", chainData["file_hash"]))
+			// 绝不覆写已存在链上 clinical_hash 的非种子病历（防止篡改后的 DB 在重启时反向洗白链上账本）；
+			// 仅在历史遗留记录链上缺失 clinical_hash 且文件指纹仍一致时执行一次回填。
+			if (currClinicalHash == "" || currClinicalHash == "<nil>") && fileHash != "" && currFileHash == fileHash {
 				needCommit = true
 			}
 		}

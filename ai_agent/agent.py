@@ -361,10 +361,15 @@ class MedTrustAgent:
                     "tool_trace": tools.trace_logs
                 }
 
-            rec_id = 1
             m = re.search(r'(\d+)', msg)
-            if m:
-                rec_id = int(m.group(1))
+            if not m:
+                return {
+                    "reply": "请指定需要核验的病历 ID（例如：“核验病历 1 的防篡改完整性”），系统将联动 IPFS 与 Fabric 账本执行三阶段验真。",
+                    "tool_called": "NEED_PARAMETER",
+                    "tool_status": "PROMPT_USER",
+                    "tool_trace": tools.trace_logs
+                }
+            rec_id = int(m.group(1))
             tool_called = f"verify_record_integrity(record_id={rec_id})"
             tool_result = tools.verify_record_integrity(rec_id)
             if tool_result.get("code") == 200:
@@ -458,24 +463,26 @@ class MedTrustAgent:
                     "tool_trace": tools.trace_logs
                 }
 
-            # 动态抽取患者姓名或业务单号
+            # 动态抽取患者姓名或业务单号 (先正则剥离虚词，再兜底常用示范姓名)
             keyword = ""
-            for name in ["张伟", "李雷", "韩梅梅", "王芳", "赵敏", "张三", "李四", "王五"]:
-                if name in msg:
-                    keyword = name
-                    break
+            m_rec = re.search(r'(REC\d+|ENC\d+)', msg, re.IGNORECASE)
+            if m_rec:
+                keyword = m_rec.group(1)
 
             if not keyword:
-                m_pat = re.search(r'(?:患者|姓名|查阅|调阅)\s*([A-Za-z\u4e00-\u9fa5]{2,4})', msg)
+                m_pat = re.search(r'(?:患者|姓名|查阅|调阅)\s*([A-Za-z\u4e00-\u9fa5]{2,6})', msg)
                 if m_pat:
                     candidate = m_pat.group(1)
-                    stop_words = ["病历", "档案", "记录", "报告", "医生", "检查", "用药", "历史", "就诊", "数据", "资料", "信息", "情况", "结果", "附件"]
-                    if not any(sw in candidate for sw in stop_words):
+                    candidate = re.split(r'(?:的|名下|近期|最近|既往|历史|病历|档案|记录|报告|检查|用药|情况)', candidate)[0].strip()
+                    stop_words = {"病历", "档案", "记录", "报告", "医生", "检查", "用药", "历史", "就诊", "数据", "资料", "信息", "情况", "结果", "附件"}
+                    if len(candidate) >= 2 and candidate not in stop_words:
                         keyword = candidate
-                if not keyword:
-                    m_rec = re.search(r'(REC\d+|ENC\d+)', msg, re.IGNORECASE)
-                    if m_rec:
-                        keyword = m_rec.group(1)
+
+            if not keyword:
+                for name in ["张伟", "李雷", "韩梅梅", "王芳", "赵敏", "张三", "李四", "王五"]:
+                    if name in msg:
+                        keyword = name
+                        break
 
             # 患者查阅自身档案时可不指定患者姓名，默认查阅自身
             if not keyword and user_role == "patient":

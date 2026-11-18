@@ -14,6 +14,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"medtrust-backend/middleware"
 	"medtrust-backend/model"
+	"medtrust-backend/pkg/security"
 	"medtrust-backend/repository"
 )
 
@@ -313,8 +314,8 @@ func (s *AuthService) RegisterPatientWithContext(username, password, realName, i
 	if len(username) < 3 {
 		return nil, errors.New("登录账号名长度至少为 3 个字符")
 	}
-	if len(password) < 6 {
-		return nil, errors.New("登录密码长度至少为 6 个字符")
+	if err := security.ValidatePasswordStrength(password); err != nil {
+		return nil, err
 	}
 	if realName == "" {
 		return nil, errors.New("请填写就诊人真实姓名")
@@ -515,8 +516,8 @@ func (s *AuthService) ChangePasswordWithContext(userID uint64, oldPassword, newP
 		userAgent = "Unknown"
 	}
 
-	if len(newPassword) < 6 {
-		return errors.New("新密码长度不能少于 6 位")
+	if err := security.ValidatePasswordStrength(newPassword); err != nil {
+		return err
 	}
 
 	u, err := repository.DefaultUserRepository.FindByID(userID)

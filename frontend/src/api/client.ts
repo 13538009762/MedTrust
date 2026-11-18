@@ -1,9 +1,10 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import router from '../router'
+import { useAuthStore } from '../stores/auth'
 
 const api = axios.create({
-  baseURL: 'http://127.0.0.1:8080/api/v1',
+  baseURL: import.meta.env.VITE_API_BASE_URL || '/api/v1',
   timeout: 10000,
 })
 
@@ -22,10 +23,17 @@ api.interceptors.response.use(
   (error) => {
     if (error.response) {
       if (error.response.status === 401) {
-        sessionStorage.removeItem('medtrust_token')
-        sessionStorage.removeItem('medtrust_user')
+        // 同步清空 Pinia 内存态与 sessionStorage，避免 router.beforeEach 读取残留 auth.token 陷入登录重定向死循环
+        try {
+          useAuthStore().clearAuth()
+        } catch {
+          sessionStorage.removeItem('medtrust_token')
+          sessionStorage.removeItem('medtrust_user')
+        }
         ElMessage.error(error.response.data?.message || '登录已过期，请重新登录')
-        router.push('/login')
+        if (router.currentRoute.value.name !== 'login') {
+          router.replace('/login')
+        }
       } else if (error.response.status === 403) {
         // 留给业务层或直接提示
         return Promise.reject(error.response.data)

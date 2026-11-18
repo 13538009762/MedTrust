@@ -5,12 +5,45 @@ import (
 	"encoding/hex"
 	"fmt"
 	stdlog "log"
+	"sync"
 	"time"
 
 	"medtrust-backend/model"
 	"medtrust-backend/pkg/blockchain"
 	"medtrust-backend/repository"
 )
+
+type auditChainJob struct {
+	logRecordID uint64
+	logID       string
+	payload     map[string]interface{}
+}
+
+var (
+	auditChainQueue = make(chan auditChainJob, 1024)
+	auditWorkerOnce sync.Once
+)
+
+func ensureAuditChainWorkers() {
+	auditWorkerOnce.Do(func() {
+		const workers = 4
+		for i := 0; i < workers; i++ {
+			go func() {
+				for job := range auditChainQueue {
+					if blockchain.DefaultService == nil {
+						continue
+					}
+					txID, _, cErr := CommitAssetWithCompensation("AUDIT", job.logID, job.payload)
+					if txID != "" {
+						_ = repository.DefaultAuditRepository.UpdateFabricTxID(job.logRecordID, txID)
+					} else if cErr != nil {
+						stdlog.Printf("[AuditChain] ⚠️ 审计存证上链失败，已入补偿队列 log_id=%s err=%v", job.logID, cErr)
+					}
+				}
+			}()
+		}
+	})
+}
 
 type AuditEntry struct {
 	UserID        uint64
@@ -92,10 +125,13 @@ func (s *AuditService) LogDetailed(entry AuditEntry) {
 	}
 	_ = repository.DefaultAuditRepository.Create(&log)
 
-	// 区块链存证异步推进并回填 fabric_tx_id
-	go func(logRecordID uint64, lID string) {
-		if blockchain.DefaultService != nil {
-			txID, _, cErr := CommitAssetWithCompensation("AUDIT", lID, map[string]interface{}{
+	// 区块链存证通过有界工作池异步推进并回填 fabric_tx_id（杜绝高并发下 goroutine 无限膨胀）
+	if blockchain.DefaultService != nil {
+		ensureAuditChainWorkers()
+		job := auditChainJob{
+			logRecordID: log.ID,
+			logID:       logID,
+			payload: map[string]interface{}{
 				"user_id":     entry.UserID,
 				"op_type":     entry.OperationType,
 				"target_type": entry.TargetType,
@@ -107,14 +143,12 @@ func (s *AuditService) LogDetailed(entry AuditEntry) {
 				"source":      entry.Source,
 				"reason":      entry.Reason,
 				"timestamp":   time.Now().Format(time.RFC3339),
-			})
-			if txID != "" {
-				_ = repository.DefaultAuditRepository.UpdateFabricTxID(logRecordID, txID)
-			} else if cErr != nil {
-				// 审计日志本体已落库（DB 为准），补偿队列已接手链上重放；此处仅做结构化告警，
-				// 不递归写审计（会再次触发上链，形成风暴）。
-				stdlog.Printf("[AuditChain] ⚠️ 审计存证上链失败，已入补偿队列 log_id=%s err=%v", lID, cErr)
-			}
+			},
 		}
-	}(log.ID, logID)
+		select {
+		case auditChainQueue <- job:
+		default:
+			stdlog.Printf("[AuditChain] ⚠️ 异步上链队列已满 (1024)，审计流水 %s 已保留于数据库待后续补偿对账", logID)
+		}
+	}
 }

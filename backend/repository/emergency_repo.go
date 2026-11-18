@@ -206,6 +206,6 @@ func (r *EmergencyRepository) ListRecentActiveEmgs(userID uint64, windowStart ti
 	if DB == nil {
 		return list, errors.New("database not initialized")
 	}
-	err := DB.Where("doctor_id = ? AND created_at >= ?", userID, windowStart).Find(&list).Error
+	err := DB.Where("doctor_id = ? AND created_at >= ? AND audit_status != 'CLOSED_VIOLATION' AND patient_feedback != 'OBJECTED'", userID, windowStart).Find(&list).Error
 	return list, err
 }

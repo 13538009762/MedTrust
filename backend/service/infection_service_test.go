@@ -66,3 +66,18 @@ func TestInfectionRiskEngine(t *testing.T) {
 		t.Errorf("Expected SAFE status for Li Si, got risk: %+v", alertSafe)
 	}
 }
+
+func TestInfectionRiskEngine_NegationAndScopeRedaction(t *testing.T) {
+	svc := service.GetInfectionService()
+
+	negText := "主诉咳嗽发热，HIV抗体阴性，HBsAg(-)，梅毒TPPA阴性，否认肺结核及丙肝感染史，血肌酐(creatinine)正常"
+	if alert := svc.EvaluateDirectText(negText); alert.HasRisk {
+		t.Fatalf("阴性检验结果与否认陈述不应触发传染病假阳性预警: %+v", alert)
+	}
+
+	mixedText := "患者胸痛伴活动性肺结核，HIV(-)，HBsAg(-)"
+	mixedAlert := svc.EvaluateDirectText(mixedText)
+	if !mixedAlert.HasRisk || len(mixedAlert.Diseases) != 1 || mixedAlert.Diseases[0].MatchedKeyword != "肺结核" {
+		t.Fatalf("混合阴阳性文本应仅命中阳性肺结核而不误报HIV/HBV: %+v", mixedAlert)
+	}
+}

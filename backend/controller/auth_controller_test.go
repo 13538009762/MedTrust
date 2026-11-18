@@ -3,9 +3,11 @@ package controller_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"medtrust-backend/config"
@@ -13,6 +15,7 @@ import (
 	"medtrust-backend/middleware"
 	"medtrust-backend/model"
 	"medtrust-backend/repository"
+	"medtrust-backend/service"
 )
 
 // buildAuthTestEngine 构建完整带有 JWTAuthMiddleware 和 AuthController 的测试路由引擎
@@ -114,4 +117,49 @@ func TestAuthLoginLogoutAndBlacklist(t *testing.T) {
 	}
 
 	t.Logf("✅ 登出与 Token 黑名单拦截闭环验证通过: 登录 -> 鉴权通过 -> 登出加黑名单 -> 再次访问被拒(401)")
+}
+
+func TestAuthPasswordPolicyAndAdminSelfDisableGuard(t *testing.T) {
+	if _, err := config.LoadConfig("../config/config.yaml"); err != nil {
+		t.Fatalf("加载配置失败: %v", err)
+	}
+	if _, err := repository.InitDB(); err != nil {
+		t.Fatalf("连接数据库失败: %v", err)
+	}
+
+	// 1. AuthService 注册与改密必须执行强密码校验（防止 6 位弱口令绕过）
+	if _, err := service.DefaultAuthService.RegisterPatient("weak_pwd_user", "123456", "弱口令", "", ""); err == nil {
+		t.Fatalf("RegisterPatient 应拒绝 6 位弱口令 '123456'")
+	}
+	if err := service.DefaultAuthService.ChangePassword(1, "old", "123456"); err == nil {
+		t.Fatalf("ChangePassword 应拒绝 6 位弱口令 '123456'")
+	}
+
+	// 2. 管理员不得停用正在使用的自身账号
+	ts := time.Now().UnixNano()
+	adminUser := model.User{
+		UserNo:   fmt.Sprintf("ADM_SELF_%d", ts),
+		Username: fmt.Sprintf("adm_self_%d", ts),
+		RealName: "自保管理员",
+		Role:     "admin",
+		Status:   "NORMAL",
+	}
+	repository.DB.Create(&adminUser)
+	defer repository.DB.Unscoped().Delete(&adminUser)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.PUT("/api/v1/system/users/:id/status", func(c *gin.Context) {
+		c.Set("user_id", adminUser.ID)
+		c.Next()
+	}, controller.DefaultSystemController.UpdateUserStatus)
+
+	body, _ := json.Marshal(map[string]string{"status": "DISABLED"})
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v1/system/users/%d/status", adminUser.ID), bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("管理员自停用应返回 400，实际: %d (%s)", w.Code, w.Body.String())
+	}
 }

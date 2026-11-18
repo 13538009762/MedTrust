@@ -194,6 +194,30 @@ func TestEvaluate_ClampingMaxScore(t *testing.T) {
 	}
 }
 
+func TestRecordSuccessfulAccess_RespectsClock(t *testing.T) {
+	engine := NewRiskEngine(30, 60)
+	base := time.Date(2026, 5, 10, 14, 0, 0, 0, time.Local)
+	now := base
+	engine.SetClock(func() time.Time { return now })
+
+	// 在模拟时钟 14:00 连续记录 3 次成功访问（若未同步 nowFunc 会写入当前系统时间导致窗口错乱）
+	engine.RecordSuccessfulAccess(99, 1001)
+	engine.RecordSuccessfulAccess(99, 1001)
+	engine.RecordSuccessfulAccess(99, 1001)
+
+	eval1 := engine.Evaluate(99, 1001, false, true, false)
+	if eval1.TotalScore != 25 {
+		t.Fatalf("模拟时钟同窗口内预期触发 RULE-F1 (+25), 实际=%d factors=%+v", eval1.TotalScore, eval1.Factors)
+	}
+
+	// 时钟推进 6 分钟 (>5 分钟窗口)，同患者高频应过期清零
+	now = base.Add(6 * time.Minute)
+	eval2 := engine.Evaluate(99, 1001, false, true, false)
+	if eval2.TotalScore != 0 {
+		t.Fatalf("模拟时钟推进 6 分钟后 RULE-F1 应过期, 实际=%d", eval2.TotalScore)
+	}
+}
+
 func BenchmarkRiskEvaluate(b *testing.B) {
 	engine := NewRiskEngine(30, 60)
 	for i := uint64(1); i <= 10; i++ {

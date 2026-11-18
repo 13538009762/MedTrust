@@ -91,7 +91,17 @@ func ProcessPendingConsistencyTasks() (processed int, recovered int) {
 				}
 			}
 		default:
-			// WP-10: 其余业务类型基于 PayloadJSON 自动重放上链，并回写关联表的 FabricTxID
+			// 针对 REVOKE_AUTH 先查本地授权表：若用户已通过人工 retry-revoke 接口完成链上确权撤销，则直接收口任务，避免重复上链
+			if t.BusinessType == "REVOKE_AUTH" || t.BusinessType == "AUTH_REVOKE" {
+				if existingAuth, aErr := repository.DefaultAuthPolicyRepository.FindAuthorizationByNo(t.BusinessID); aErr == nil && existingAuth != nil {
+					if existingAuth.Status == "REVOKED" && existingAuth.RevokeTxID != "" {
+						recoveredOne = true
+						break
+					}
+				}
+			}
+
+			// WP-10: 其余业务类型基于 PayloadJSON 自动重放上链，并按业务类型精确回写对应字段
 			payload := make(map[string]interface{})
 			if t.PayloadJSON != "" {
 				if uErr := json.Unmarshal([]byte(t.PayloadJSON), &payload); uErr != nil {
@@ -99,20 +109,35 @@ func ProcessPendingConsistencyTasks() (processed int, recovered int) {
 				}
 			}
 			if replayTxID, _, cErr := blockchain.DefaultService.CommitAsset(t.BusinessType, t.BusinessID, payload); cErr != nil {
+				// 不在此处 continue，确保落入下方重试计数递进逻辑并在耗尽后置为 FAILED
 				t.LastError = cErr.Error()
-				continue
 			} else {
 				recoveredOne = true
 				switch t.BusinessType {
-				case "AUTHORIZATION", "AUTHORIZATION_KEY", "REVOKE_AUTH":
+				case "AUTHORIZATION", "AUTHORIZATION_KEY", "AUTH_RECORD":
 					if uErr := repository.DB.Model(&model.Authorization{}).Where("auth_no = ?", t.BusinessID).
-						Update("fabric_tx_id", replayTxID).Error; uErr != nil {
+						Updates(map[string]interface{}{"fabric_tx_id": replayTxID, "updated_at": time.Now()}).Error; uErr != nil {
 						log.Printf("[ChainCompensation] ⚠️ 回写授权 fabric_tx_id 失败 auth_no=%s txID=%s err=%v", t.BusinessID, replayTxID, uErr)
 					}
-				case "EMERGENCY_AUDIT", "EMERGENCY_ACCESS":
+				case "REVOKE_AUTH", "AUTH_REVOKE":
+					if uErr := repository.DB.Model(&model.Authorization{}).Where("auth_no = ?", t.BusinessID).
+						Updates(map[string]interface{}{
+							"status":       "REVOKED",
+							"revoke_tx_id": replayTxID,
+							"revoke_error": "",
+							"updated_at":   time.Now(),
+						}).Error; uErr != nil {
+						log.Printf("[ChainCompensation] ⚠️ 回写授权撤销 revoke_tx_id 失败 auth_no=%s txID=%s err=%v", t.BusinessID, replayTxID, uErr)
+					}
+				case "EMERGENCY_AUDIT", "EMERGENCY_ACCESS", "EMERGENCY", "EMERGENCY_STATUS":
 					if uErr := repository.DB.Model(&model.EmergencyAccessEvent{}).Where("event_no = ?", t.BusinessID).
 						Update("fabric_tx_id", replayTxID).Error; uErr != nil {
 						log.Printf("[ChainCompensation] ⚠️ 回写紧急事件 fabric_tx_id 失败 event_no=%s txID=%s err=%v", t.BusinessID, replayTxID, uErr)
+					}
+				case "AUDIT", "AUDIT_LOG", "AUDIT_RECORD":
+					if uErr := repository.DB.Model(&model.AuditLog{}).Where("log_id = ?", t.BusinessID).
+						Update("fabric_tx_id", replayTxID).Error; uErr != nil {
+						log.Printf("[ChainCompensation] ⚠️ 回写审计日志 fabric_tx_id 失败 log_id=%s txID=%s err=%v", t.BusinessID, replayTxID, uErr)
 					}
 				}
 			}

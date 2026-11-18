@@ -198,3 +198,37 @@ func TestAIDiagnostic_Fix4_NoHallucinatedLabsAndPIISanitized(t *testing.T) {
 		t.Errorf("超短号脱敏失败: got %s, want ****", got)
 	}
 }
+
+// TestAIDiagnostic_NegationHandlingNoSelfContradiction 验证否定词（否认高血压/无药物过敏/青霉素皮试阴性）不会在同一份病历内触发自相矛盾或误报过敏
+func TestAIDiagnostic_NegationHandlingNoSelfContradiction(t *testing.T) {
+	s := GetAIDiagnosticService()
+	negatedOnly := []model.MedicalRecord{
+		{
+			RecordNo:       "REC_NEG_001",
+			HospitalName:   "测试医院",
+			ChiefComplaint: "主诉间断头痛3天，否认高血压病史，否认药物过敏",
+			Symptoms:       "无皮疹，头晕，青霉素皮试阴性，不过敏",
+			TreatmentPlan:  "建议休息复查",
+		},
+	}
+	req := model.DiagnosticAssistRequest{
+		PatientID:       999,
+		CurrentSymptoms: "轻微头痛，无药物过敏",
+		PresentIllness:  "无黑便，否认胃溃疡及晕厥史",
+		DepartmentName:  "神经内科",
+	}
+
+	contradictions := s.detectSemanticContradictions(negatedOnly, req)
+	for _, c := range contradictions {
+		if c.ContradictionType != "跨院陈述一致性核验正常" {
+			t.Fatalf("纯否定语句不应引发自相矛盾告警: %+v", c)
+		}
+	}
+
+	clues := s.extractHiddenAllergyClues(negatedOnly, req)
+	for _, cl := range clues {
+		if cl.ClueType != "过敏与高危线索排查正常" {
+			t.Fatalf("纯否定陈述不应误抽出过敏/溃疡/晕厥线索: %+v", cl)
+		}
+	}
+}

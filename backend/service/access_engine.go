@@ -121,6 +121,7 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 
 	var user model.User
 	var record model.MedicalRecord
+	var baselineEval *risk.RiskEvaluation
 
 	defer func() {
 		if decision != nil && decision.Decision == "REQUIRE_SUPERVISOR_APPROVAL" {
@@ -163,8 +164,12 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 			})
 		}
 		if decision != nil && req.UserID > 0 && req.Source != "BENCHMARK" && isRepoInit() {
+			factorEval := decision.RiskEvaluation
+			if decision.IsEmergency && baselineEval != nil {
+				factorEval = *baselineEval
+			}
 			var freqRisk, timeRisk, behaviorRisk int
-			for _, f := range decision.RiskEvaluation.Factors {
+			for _, f := range factorEval.Factors {
 				if strings.HasPrefix(f.RuleID, "RULE-F") {
 					freqRisk += f.Score
 				} else if strings.HasPrefix(f.RuleID, "RULE-T") {
@@ -173,21 +178,35 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 					behaviorRisk += f.Score
 				}
 			}
-			if len(decision.RiskEvaluation.Factors) == 0 {
-				behaviorRisk = decision.RiskScore
+			if len(factorEval.Factors) == 0 {
+				behaviorRisk = factorEval.TotalScore
+			}
+			telemetryScore := factorEval.TotalScore
+			if decision.IsEmergency && baselineEval == nil {
+				telemetryScore = decision.RiskScore
 			}
 			var anomalyFlag int8
-			if decision.RiskLevel == "HIGH" || decision.RiskScore >= 60 {
+			if factorEval.Level == "HIGH" || telemetryScore >= 60 {
 				anomalyFlag = 1
 			}
+			analysisResult := decision.Reason
+			if decision.IsEmergency && baselineEval != nil {
+				analysisResult = fmt.Sprintf("Break-Glass 基线评估(score=%d, level=%s): %s", baselineEval.TotalScore, baselineEval.Level, decision.Reason)
+			}
+			if req.RecordID > 0 {
+				analysisResult = fmt.Sprintf("[REC#%d] %s", req.RecordID, analysisResult)
+			}
+			if runes := []rune(analysisResult); len(runes) > 240 {
+				analysisResult = string(runes[:240])
+			}
 			riskRec := model.RiskRecord{
-				AccessRequestID: req.RecordID,
+				AccessRequestID: 0,
 				AccessFrequency: freqRisk,
 				TimeRisk:        timeRisk,
 				BehaviorRisk:    behaviorRisk,
-				TotalScore:      decision.RiskScore,
+				TotalScore:      telemetryScore,
 				AnomalyFlag:     anomalyFlag,
-				AnalysisResult:  decision.Reason,
+				AnalysisResult:  analysisResult,
 				CreatedAt:       time.Now(),
 			}
 			_ = repository.DefaultAuditRepository.CreateRiskRecord(&riskRec)
@@ -333,30 +352,6 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 		return &AccessDecision{Allowed: false, Decision: "REJECTED", Reason: "该医生账号已被监管限制跨机构调阅权限"}, nil
 	}
 
-	// 规则 2: 本院科室协同与专家会诊 (ABAC 细粒度判定)
-	if !isCrossHospital {
-		if user.DepartmentID > 0 {
-			docDept, deptErr := repository.DefaultUserRepository.FindDepartmentByID(user.DepartmentID)
-			if deptErr == nil {
-				isSameDept := user.DepartmentID == 0 || record.DepartmentName == "" ||
-					record.DepartmentName == "综合门诊" || docDept.Name == record.DepartmentName
-
-				if isSameDept {
-					return &AccessDecision{
-						Allowed:         true,
-						Decision:        "ALLOWED",
-						Reason:          "病历归属当前医生所属医院同科室诊疗协同，系统核验放行",
-						AuthorizationOK: true,
-						RiskScore:       5,
-						RiskLevel:       "LOW",
-						RiskEvaluation:  risk.RiskEvaluation{Level: "LOW", TotalScore: 5, SuggestedAction: "DIRECT_ALLOW"},
-					}, nil
-				}
-			}
-		}
-	}
-
-	// 规则 3: 患者在线显式授权策略核查
 	now := time.Now()
 	if e.nowFunc != nil {
 		now = e.nowFunc()
@@ -365,76 +360,58 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 	if authsErr != nil {
 		auths = []model.Authorization{}
 	}
-	// Filter by time window manually since repo method doesn't support time args yet
-	// 必须同时满足：已生效（StartTime <= now）且未过期（EndTime > now）。
-	// 注意 Go 中 && 优先级高于 ||，此处必须显式加括号，否则过期授权会被放行。
-	var filteredAuths []model.Authorization
+	hasConsent, isAllDoctorsConsent := repository.EvaluateConsentInAuthorizations(auths, user.ID, user.HospitalID, req.RecordID, now)
+
+	// 检查是否存在比当前显式授权更晚的 PRIVATE 隐私锁（存在且未获后续单独同意时，同院协同亦不得越过隐私锁）
+	hasActivePrivateLock := false
 	for _, a := range auths {
-		if !a.StartTime.After(now) && a.EndTime.After(now) {
-			filteredAuths = append(filteredAuths, a)
-		}
-	}
-	auths = filteredAuths
-
-	hasConsent := false
-	isAllDoctorsConsent := false
-
-	var singleAuth *model.Authorization
-	for _, a := range auths {
-		if a.ScopeType == "SINGLE" && a.RecordID == req.RecordID {
-			copyA := a
-			singleAuth = &copyA
-			break
-		}
-	}
-
-	if singleAuth != nil {
-		if singleAuth.AuthTargetType != "PRIVATE" {
-			if singleAuth.AuthTargetType == "ALL_DOCTORS" {
-				hasConsent = true
-				isAllDoctorsConsent = true
-			} else if singleAuth.AuthTargetType == "DOCTOR" && singleAuth.AuthTargetID == user.ID {
-				hasConsent = true
-			} else if singleAuth.AuthTargetType == "HOSPITAL" && singleAuth.AuthTargetID == user.HospitalID {
-				hasConsent = true
+		if a.ScopeType == "SINGLE" && a.RecordID == req.RecordID && a.AuthTargetType == "PRIVATE" {
+			if (a.StartTime.IsZero() || !now.Before(a.StartTime)) && (a.EndTime.IsZero() || a.EndTime.After(now)) {
+				hasActivePrivateLock = true
+				break
 			}
 		}
-	} else {
-		for _, a := range auths {
-			if a.ScopeType == "ALL" {
-				if a.AuthTargetType == "ALL_DOCTORS" {
-					hasConsent = true
-					isAllDoctorsConsent = true
-					break
-				} else if a.AuthTargetType == "DOCTOR" && a.AuthTargetID == user.ID {
-					hasConsent = true
-					break
-				} else if a.AuthTargetType == "HOSPITAL" && a.AuthTargetID == user.HospitalID {
-					hasConsent = true
-					break
+	}
+
+	// 规则 2: 本院科室协同与专家会诊 (ABAC 细粒度判定，统一纳入动态多因子风控评估防绕过；尊重 PRIVATE 隐私锁)
+	if !isCrossHospital && (!hasActivePrivateLock || hasConsent) {
+		if user.DepartmentID > 0 {
+			docDept, deptErr := repository.DefaultUserRepository.FindDepartmentByID(user.DepartmentID)
+			if deptErr == nil {
+				isSameDept := user.DepartmentID == 0 || record.DepartmentName == "" ||
+					record.DepartmentName == "综合门诊" || docDept.Name == record.DepartmentName
+
+				if isSameDept {
+					eval := e.riskEngine.Evaluate(user.ID, record.PatientID, false, true, req.IsEmergency)
+					if req.IsEmergency {
+						b := e.riskEngine.Evaluate(user.ID, record.PatientID, false, true, false)
+						baselineEval = &b
+					}
+					return buildConsentedDecision(eval, "病历归属当前医生所属医院同科室诊疗协同，经动态风控核验放行"), nil
 				}
 			}
 		}
-	}
 
-	// 同院跨科室专家会诊高级职称放行
-	if !isCrossHospital && !hasConsent {
-		isSenior := user.Title == "主任医师" || user.Title == "副主任医师"
-		if isSenior {
-			return &AccessDecision{
-				Allowed:         true,
-				Decision:        "ALLOWED",
-				Reason:          "同院跨科室专家会诊协同调阅，经高级职称属性（ABAC）核验通过，系统放行",
-				AuthorizationOK: true,
-				RiskScore:       15,
-				RiskLevel:       "LOW",
-				RiskEvaluation:  risk.RiskEvaluation{Level: "LOW", TotalScore: 15, SuggestedAction: "DIRECT_ALLOW"},
-			}, nil
+		// 同院跨科室专家会诊高级职称放行（同样纳入动态多因子风控防爬取与受限账户监控）
+		if !hasConsent {
+			isSenior := user.Title == "主任医师" || user.Title == "副主任医师"
+			if isSenior {
+				eval := e.riskEngine.Evaluate(user.ID, record.PatientID, false, true, req.IsEmergency)
+				if req.IsEmergency {
+					b := e.riskEngine.Evaluate(user.ID, record.PatientID, false, true, false)
+					baselineEval = &b
+				}
+				return buildConsentedDecision(eval, "同院跨科室专家会诊协同调阅，经高级职称属性（ABAC）与动态风控核验放行"), nil
+			}
 		}
 	}
 
 	// 规则 4: 动态多因子风控引擎判定
 	eval := e.riskEngine.Evaluate(user.ID, record.PatientID, isCrossHospital, hasConsent, req.IsEmergency)
+	if req.IsEmergency {
+		b := e.riskEngine.Evaluate(user.ID, record.PatientID, isCrossHospital, hasConsent, false)
+		baselineEval = &b
+	}
 
 	// 分支 A: 具备患者有效授权
 	if hasConsent {
@@ -442,56 +419,26 @@ func (e *AccessEngine) Evaluate(req AccessRequest) (decision *AccessDecision, er
 		if isAllDoctorsConsent {
 			reason = "患者已将该病历设置为向全体执业医生公开可见，系统核验放行"
 		}
-		if eval.Level == "LOW" {
+		return buildConsentedDecision(eval, reason), nil
+	}
+
+	// 分支 B: 未取得患者授权，检查过去 24 小时紧急救治随访有效放行（受限账号或高风险异常不得免审复用）
+	if user.Status != "RESTRICTED" && eval.Level != "HIGH" {
+		pastEmg, emgErr := repository.DefaultEmergencyRepository.FindRecentActiveEvent(user.ID, record.PatientID, req.RecordID, now.Add(-24*time.Hour))
+		if emgErr == nil {
+			_ = pastEmg
 			return &AccessDecision{
 				Allowed:         true,
+				IsEmergency:     true,
 				Decision:        "ALLOWED",
-				Reason:          reason,
+				Reason:          "已在紧急破窗 24 小时急救与随诊有效期内核准放行 (无患者异议与监管违规)，免重复申请直接放行",
 				RiskScore:       eval.TotalScore,
 				RiskLevel:       eval.Level,
 				RiskFactors:     eval.Factors,
-				AuthorizationOK: true,
-				RiskEvaluation:  eval,
-			}, nil
-		} else if eval.Level == "MEDIUM" {
-			return &AccessDecision{
-				Allowed:         false,
-				Decision:        "PENDING_CONFIRM",
-				Reason:          "检测到中风险操作，等待患者在线确认二次授权",
-				RiskScore:       eval.TotalScore,
-				RiskLevel:       eval.Level,
-				RiskFactors:     eval.Factors,
-				AuthorizationOK: true,
-				RiskEvaluation:  eval,
-			}, nil
-		} else {
-			return &AccessDecision{
-				Allowed:         false,
-				Decision:        "REJECTED",
-				Reason:          "高风险异常调阅，系统安全规则拦截阻断",
-				RiskScore:       eval.TotalScore,
-				RiskLevel:       eval.Level,
-				RiskFactors:     eval.Factors,
-				AuthorizationOK: true,
+				AuthorizationOK: false,
 				RiskEvaluation:  eval,
 			}, nil
 		}
-	}
-
-	// 分支 B: 未取得患者授权，检查过去 24 小时紧急救治随访有效放行
-	pastEmg, emgErr := repository.DefaultEmergencyRepository.FindRecentActiveEvent(user.ID, record.PatientID, req.RecordID, now.Add(-24*time.Hour))
-	if emgErr == nil {
-		_ = pastEmg
-		return &AccessDecision{
-			Allowed:         true,
-			IsEmergency:     true,
-			Decision:        "ALLOWED",
-			Reason:          "已在紧急破窗 24 小时急救与随诊有效期内核准放行 (无患者异议与监管违规)，免重复申请直接放行",
-			RiskScore:       10,
-			RiskLevel:       "LOW",
-			AuthorizationOK: false,
-			RiskEvaluation:  risk.RiskEvaluation{Level: "LOW", TotalScore: 10, SuggestedAction: "DIRECT_ALLOW"},
-		}, nil
 	}
 
 	if !req.IsEmergency {
@@ -545,4 +492,54 @@ func (e *AccessEngine) RecordSuccessfulAccess(doctorID, patientID uint64) {
 		return
 	}
 	e.riskEngine.RecordSuccessfulAccess(doctorID, patientID)
+}
+
+func buildConsentedDecision(eval risk.RiskEvaluation, allowReason string) *AccessDecision {
+	switch eval.Level {
+	case "LOW":
+		return &AccessDecision{
+			Allowed:         true,
+			Decision:        "ALLOWED",
+			Reason:          allowReason,
+			RiskScore:       eval.TotalScore,
+			RiskLevel:       eval.Level,
+			RiskFactors:     eval.Factors,
+			AuthorizationOK: true,
+			RiskEvaluation:  eval,
+		}
+	case "EMERGENCY":
+		return &AccessDecision{
+			Allowed:         true,
+			IsEmergency:     true,
+			Decision:        "BREAK_GLASS_ALLOWED",
+			Reason:          "临床急救访问责任声明核验通过，临时放行并生成不可篡改紧急事件单",
+			RiskScore:       eval.TotalScore,
+			RiskLevel:       eval.Level,
+			RiskFactors:     eval.Factors,
+			AuthorizationOK: true,
+			RiskEvaluation:  eval,
+		}
+	case "MEDIUM":
+		return &AccessDecision{
+			Allowed:         false,
+			Decision:        "PENDING_CONFIRM",
+			Reason:          "检测到中风险操作，等待患者在线确认二次授权",
+			RiskScore:       eval.TotalScore,
+			RiskLevel:       eval.Level,
+			RiskFactors:     eval.Factors,
+			AuthorizationOK: true,
+			RiskEvaluation:  eval,
+		}
+	default:
+		return &AccessDecision{
+			Allowed:         false,
+			Decision:        "REJECTED",
+			Reason:          "高风险异常调阅，系统安全规则拦截阻断",
+			RiskScore:       eval.TotalScore,
+			RiskLevel:       eval.Level,
+			RiskFactors:     eval.Factors,
+			AuthorizationOK: true,
+			RiskEvaluation:  eval,
+		}
+	}
 }

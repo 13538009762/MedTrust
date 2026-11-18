@@ -716,7 +716,7 @@ import {
 } from '@element-plus/icons-vue'
 import { ElMessage, ElNotification } from 'element-plus'
 import ChainVerifyBadge from '@/components/common/ChainVerifyBadge.vue'
-import { clinicalTemplates, getIcdCode } from '@/utils/clinicalTemplates'
+import { getIcdCode } from '@/utils/clinicalTemplates'
 import {
   listHospitalsApi,
   listDoctorsApi,
@@ -806,28 +806,11 @@ async function fetchRecords() {
     const res: any = await listRecordsApi()
     if (res.code === 200) {
       const rawList = Array.isArray(res.data) ? res.data : (res.data?.list || [])
-      // 差异化临床数据清洗：消除时间轴上因测试历史造成的重复内容，增强真实医疗演示
-      const seen = new Set<string>()
-      records.value = rawList.map((rec: any, idx: number) => {
-        const key = `${rec.diagnosis || ''}_${rec.symptoms || ''}`
-        let item = { ...rec }
-        if (seen.has(key)) {
-          const tpl = clinicalTemplates[idx % clinicalTemplates.length]
-          item.department_name = tpl.dept
-          item.hospital_name = item.hospital_name || tpl.hosp
-          item.doctor_name = item.doctor_name || tpl.doc
-          item.diagnosis = tpl.diag
-          item.symptoms = tpl.symptoms
-          item.vital_signs = tpl.vitals
-          item.treatment_plan = tpl.plan
-          item.encounter_type = tpl.type
-          item.icd_code = tpl.icd
-        } else {
-          seen.add(key)
-          item.icd_code = getIcdCode(item.diagnosis)
-        }
-        return item
-      })
+      // 如实呈现后端返回的每条就诊记录，禁止使用前端假模板覆盖真实复诊病历内容
+      records.value = rawList.map((rec: any) => ({
+        ...rec,
+        icd_code: rec.icd_code || getIcdCode(rec.diagnosis),
+      }))
     }
   } catch (err) {
     console.error(err)

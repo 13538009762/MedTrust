@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
-import sys, os, hashlib, pymysql
+import sys, os, json, hashlib, pymysql
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 DB_CONFIG = {
-    'host': '127.0.0.1',
-    'port': 3306,
-    'user': 'root',
-    'password': '123456',
-    'database': 'medtrust',
+    'host': os.environ.get('MYSQL_HOST', '127.0.0.1'),
+    'port': int(os.environ.get('MYSQL_PORT', '3306')),
+    'user': os.environ.get('MYSQL_USER', 'root'),
+    'password': os.environ.get('MYSQL_PASSWORD', ''),
+    'database': os.environ.get('MYSQL_DATABASE', 'medtrust'),
     'charset': 'utf8mb4',
     'autocommit': True
 }
@@ -34,8 +34,28 @@ def get_db():
     return pymysql.connect(**DB_CONFIG)
 
 def compute_hash(r, file_hash=''):
-    parts = [r.get('record_no',''), r.get('data_type',''), r.get('onset_time',''), r.get('duration',''), r.get('symptoms',''), r.get('etiology',''), r.get('treatment_plan',''), r.get('diagnosis',''), file_hash]
-    raw = '|'.join(str(p or '') for p in parts)
+    payload = {
+        'record_no': str(r.get('record_no') or ''),
+        'data_type': str(r.get('data_type') or ''),
+        'encounter_type': str(r.get('encounter_type') or ''),
+        'department_name': str(r.get('department_name') or ''),
+        'onset_time': str(r.get('onset_time') or ''),
+        'duration': str(r.get('duration') or ''),
+        'symptoms': str(r.get('symptoms') or ''),
+        'etiology': str(r.get('etiology') or ''),
+        'treatment_plan': str(r.get('treatment_plan') or ''),
+        'diagnosis': str(r.get('diagnosis') or ''),
+        'chief_complaint': str(r.get('chief_complaint') or ''),
+        'present_illness': str(r.get('present_illness') or ''),
+        'vital_signs': str(r.get('vital_signs') or ''),
+        'initial_diagnosis': str(r.get('initial_diagnosis') or ''),
+        'diagnostic_basis': str(r.get('diagnostic_basis') or ''),
+        'exam_items': str(r.get('exam_items') or ''),
+        'exam_reason': str(r.get('exam_reason') or ''),
+        'exam_result': str(r.get('exam_result') or ''),
+        'file_hash': str(file_hash or ''),
+    }
+    raw = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
     return hashlib.sha256(raw.encode('utf-8')).hexdigest()
 
 def do_status():

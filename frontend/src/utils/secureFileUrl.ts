@@ -8,14 +8,19 @@ import { createSSETicketApi } from '@/api/auth'
  * 取票失败时仅在 demo 模式回落 `?token=`，保证本地联调可用。
  */
 export async function buildSecureFileUrl(path: string): Promise<string> {
-  const base = path.startsWith('/api/v1') ? path : `/api/v1${path}`
+  const apiBase = import.meta.env.VITE_API_BASE_URL || '/api/v1'
+  const cleanPath = path.startsWith('/api/v1') ? path.slice('/api/v1'.length) : path
+  const base = `${apiBase.replace(/\/$/, '')}${cleanPath.startsWith('/') ? '' : '/'}${cleanPath}`
   try {
     const res = await createSSETicketApi()
     if (res && res.code === 200 && res.data?.ticket) {
       return `${base}?ticket=${encodeURIComponent(res.data.ticket)}`
     }
   } catch {
-    // 静默降级，下面走兼容分支
+    // 生产模式严禁回退明文 ?token=，仅保留在开发/本地调试兜底
+  }
+  if (import.meta.env.PROD) {
+    throw new Error('无法申请一次性安全访问票据，请重新登录后再试')
   }
   const token = sessionStorage.getItem('medtrust_token')
   return token ? `${base}?token=${encodeURIComponent(token)}` : base

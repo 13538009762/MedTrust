@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -318,5 +319,101 @@ func TestVerification_MultiFileChainHashCompatibility(t *testing.T) {
 	}
 	if tamperedRes.Verified || (len(tamperedRes.Stages) > 0 && tamperedRes.Stages[0].Passed) {
 		t.Fatalf("expected tampered primary attachment to fail verification even with sibling file on chain")
+	}
+}
+
+// TestVerification_ExpandedFieldsAndNoBootOverwrite 验证：
+// 1. 现病史(PresentIllness)、生命体征(VitalSigns)、检查结果(ExamResult) 等扩充临床字段遭篡改时可被 ComputeRecordHash / VerifyRecord 捕获；
+// 2. EnsureBaselineLedgerAnchored 绝不会在服务重启时覆写已上链非种子病历的被篡改哈希。
+func TestVerification_ExpandedFieldsAndNoBootOverwrite(t *testing.T) {
+	cfg, err := config.LoadConfig("../config/config.yaml")
+	if err != nil {
+		t.Fatalf("Load config failed: %v", err)
+	}
+	if _, err = repository.InitDB(); err != nil {
+		t.Fatalf("Init DB failed: %v", err)
+	}
+	tempDir := t.TempDir()
+	blockchain.InitBlockchainService(filepath.Join(tempDir, "ledger"), blockchain.FabricGatewayConfig{Mode: "mock"})
+	service.InitMedicalService("mock", cfg.IPFS.APIURL, filepath.Join(tempDir, "ipfs"))
+
+	ts := time.Now().UnixNano()
+	recNo := fmt.Sprintf("REC_EXP_%d", ts)
+	masterKey := config.AppConfig.GetAESMasterKey()
+	cipherData, encDEK, ivNonce, fileHash, err := crypto.EncryptMedicalFile([]byte("EXPANDED_FIELDS_ARCHIVE"), 1, recNo, masterKey)
+	if err != nil {
+		t.Fatalf("EncryptMedicalFile failed: %v", err)
+	}
+	cid, err := service.DefaultMedicalService.GetIPFSService().Add(cipherData)
+	if err != nil {
+		t.Fatalf("IPFS Add failed: %v", err)
+	}
+
+	rec := model.MedicalRecord{
+		RecordNo:         recNo,
+		PatientID:        1,
+		DoctorID:         1,
+		HospitalID:       1,
+		DataType:         "EMR",
+		EncounterType:    "OUTPATIENT",
+		DepartmentName:   "心内科",
+		ChiefComplaint:   "胸闷气促1天",
+		PresentIllness:   "昨日起无明显诱因胸闷",
+		VitalSigns:       "BP 120/80mmHg, HR 72bpm",
+		InitialDiagnosis: "待查胸闷",
+		DiagnosticBasis:  "结合心电图与肌钙蛋白排査",
+		ExamItems:        "心电图",
+		ExamResult:       "窦性心律，未见ST段抬高",
+		Diagnosis:        "稳定型心绞痛待排",
+		Symptoms:         "胸闷",
+		TreatmentPlan:    "休息并复查",
+		CreatedAt:        time.Now(),
+	}
+	repository.DB.Create(&rec)
+	fRec := model.MedicalFile{RecordID: rec.ID, FileName: "归档_" + recNo + ".pdf", FileHash: fileHash, IPFSCID: cid, EncryptedDEK: encDEK, IVNonce: ivNonce}
+	repository.DB.Create(&fRec)
+	defer func() {
+		repository.DB.Unscoped().Where("record_id = ?", rec.ID).Delete(&model.MedicalFile{})
+		repository.DB.Unscoped().Delete(&model.MedicalRecord{}, rec.ID)
+	}()
+
+	repository.DB.Preload("Files").First(&rec, rec.ID)
+	origClinicalHash := service.ComputeRecordHash(&rec)
+	txID, height, err := blockchain.DefaultService.CommitAsset("MEDICAL_RECORD", recNo, map[string]interface{}{
+		"record_no":     recNo,
+		"patient_id":    rec.PatientID,
+		"doctor_id":     rec.DoctorID,
+		"hospital_id":   rec.HospitalID,
+		"cid":           cid,
+		"file_hash":     fileHash,
+		"clinical_hash": origClinicalHash,
+		"data_type":     rec.DataType,
+		"create_time":   rec.CreatedAt.Format(time.RFC3339),
+	})
+	if err != nil {
+		t.Fatalf("CommitAsset failed: %v", err)
+	}
+	repository.DB.Model(&rec).Updates(map[string]interface{}{"fabric_tx_id": txID, "block_height": height})
+
+	// 恶意篡改 VitalSigns 与 ExamResult (历史 9 字段哈希无法发现的字段)
+	repository.DB.Model(&rec).Updates(map[string]interface{}{
+		"vital_signs": "BP 210/130mmHg (TAMPERED)",
+		"exam_result": "急性前壁ST段弓背抬高 (TAMPERED)",
+	})
+
+	// 重启锚定检查绝不可将篡改后哈希覆盖回链上账本
+	service.EnsureBaselineLedgerAnchored()
+	chainAfterBoot, exists := blockchain.DefaultService.QueryAsset(recNo)
+	if !exists || chainAfterBoot == nil || fmt.Sprintf("%v", chainAfterBoot["clinical_hash"]) != origClinicalHash {
+		t.Fatalf("EnsureBaselineLedgerAnchored 不应覆盖已有链上 clinical_hash! got=%v want=%s", chainAfterBoot, origClinicalHash)
+	}
+
+	// 验真必须捕获到 VitalSigns / ExamResult 篡改
+	res, err := service.DefaultVerificationService.Verify(rec.ID)
+	if err != nil {
+		t.Fatalf("Verify failed: %v", err)
+	}
+	if res.Verified {
+		t.Fatalf("篡改 VitalSigns / ExamResult 后 Verify 必须失败")
 	}
 }

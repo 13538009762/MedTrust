@@ -53,7 +53,7 @@ func (r *AuthPolicyRepository) ListAuthorizations(patientID uint64, status strin
 		query = query.Where("status = ?", status)
 	}
 	var list []model.Authorization
-	err := query.Order("created_at DESC").Find(&list).Error
+	err := query.Order("created_at DESC, id DESC").Find(&list).Error
 	return list, err
 }
 
@@ -69,7 +69,7 @@ func (r *AuthPolicyRepository) ListAuthorizationsForDoctor(doctorID, hospitalID 
 		query = query.Where("status = ?", status)
 	}
 	var list []model.Authorization
-	err := query.Order("created_at DESC").Find(&list).Error
+	err := query.Order("created_at DESC, id DESC").Find(&list).Error
 	return list, err
 }
 
@@ -330,17 +330,103 @@ func (r *AuthPolicyRepository) FindActiveAuthorizationsForScope(patientID uint64
 	return oldAuths, err
 }
 
-// CountActiveConsentAuthorizations WP-15: 统计患者在指定时间点对 (医生/医院/全体医生) 且覆盖指定病历的 ACTIVE 授权数
+// IsAuthorizationNewerThan 比较两条策略的生效顺序：优先按 CreatedAt，同秒或零值时按自增 ID 严格定序，
+// 用于判定后续患者审批/密钥解锁是否覆盖先前的 PRIVATE 锁定，以及后续 PRIVATE 锁定是否覆盖先前的全局授权。
+func IsAuthorizationNewerThan(a, priv model.Authorization) bool {
+	if !a.CreatedAt.IsZero() && !priv.CreatedAt.IsZero() && !a.CreatedAt.Equal(priv.CreatedAt) {
+		return a.CreatedAt.After(priv.CreatedAt)
+	}
+	return a.ID > priv.ID
+}
+
+// EvaluateConsentInAuthorizations 统一判定患者活跃授权列表在 now 时刻是否对指定 (doctorID, hospitalID, recordID) 授予有效同意。
+// 规则：
+//   1. 仅统计处于有效期 (!StartTime.After(now) && EndTime.After(now)) 的 ACTIVE 记录；
+//   2. 若该病历存在有效 PRIVATE 锁定记录，只有比最新 PRIVATE 记录更晚授予的显式同意（如患者审批或密钥解锁）才有效；
+//   3. SINGLE 范围匹配优先于 ALL 全局范围。
+func EvaluateConsentInAuthorizations(auths []model.Authorization, doctorID, hospitalID, recordID uint64, now time.Time) (hasConsent bool, isAllDoctors bool) {
+	var active []model.Authorization
+	var latestPriv *model.Authorization
+
+	for _, a := range auths {
+		if a.Status != "" && a.Status != "ACTIVE" {
+			continue
+		}
+		if a.StartTime.After(now) || !a.EndTime.After(now) {
+			continue
+		}
+		active = append(active, a)
+		if a.ScopeType == "SINGLE" && a.RecordID == recordID && a.AuthTargetType == "PRIVATE" {
+			copyA := a
+			if latestPriv == nil || IsAuthorizationNewerThan(copyA, *latestPriv) {
+				latestPriv = &copyA
+			}
+		}
+	}
+
+	matchesTarget := func(a model.Authorization) bool {
+		switch a.AuthTargetType {
+		case "ALL_DOCTORS":
+			return true
+		case "DOCTOR":
+			return a.AuthTargetID == doctorID
+		case "HOSPITAL":
+			return hospitalID > 0 && a.AuthTargetID == hospitalID
+		default:
+			return false
+		}
+	}
+
+	// 1. 优先检查单份病历显式授权 (ScopeType == SINGLE)
+	for _, a := range active {
+		if a.ScopeType != "SINGLE" || a.RecordID != recordID || a.AuthTargetType == "PRIVATE" {
+			continue
+		}
+		if latestPriv != nil && !IsAuthorizationNewerThan(a, *latestPriv) {
+			continue
+		}
+		if matchesTarget(a) {
+			hasConsent = true
+			if a.AuthTargetType == "ALL_DOCTORS" {
+				isAllDoctors = true
+			}
+		}
+	}
+	if hasConsent {
+		return true, isAllDoctors
+	}
+
+	// 2. 再检查全局范围授权 (ScopeType == ALL)，同样受更新时刻的 PRIVATE 标记约束
+	for _, a := range active {
+		if a.ScopeType != "ALL" {
+			continue
+		}
+		if latestPriv != nil && !IsAuthorizationNewerThan(a, *latestPriv) {
+			continue
+		}
+		if matchesTarget(a) {
+			hasConsent = true
+			if a.AuthTargetType == "ALL_DOCTORS" {
+				isAllDoctors = true
+			}
+		}
+	}
+	return hasConsent, isAllDoctors
+}
+
+// CountActiveConsentAuthorizations WP-15: 统计患者在指定时间点对 (医生/医院/全体医生) 且覆盖指定病历的有效授权数（严格遵循 PRIVATE 优先级）
 func (r *AuthPolicyRepository) CountActiveConsentAuthorizations(patientID, doctorID, hospitalID, recordID uint64, now time.Time) int64 {
 	if DB == nil {
 		return 0
 	}
-	var count int64
-	DB.Model(&model.Authorization{}).Where(
-		"patient_id = ? AND ((auth_target_type = 'DOCTOR' AND auth_target_id = ?) OR (auth_target_type = 'HOSPITAL' AND auth_target_id = ?) OR auth_target_type = 'ALL_DOCTORS') AND status = 'ACTIVE' AND start_time <= ? AND end_time >= ? AND (scope_type = 'ALL' OR (scope_type = 'SINGLE' AND record_id = ?))",
-		patientID, doctorID, hospitalID, now, now, recordID,
-	).Count(&count)
-	return count
+	auths, err := r.ListAuthorizations(patientID, "ACTIVE")
+	if err != nil {
+		return 0
+	}
+	if ok, _ := EvaluateConsentInAuthorizations(auths, doctorID, hospitalID, recordID, now); ok {
+		return 1
+	}
+	return 0
 }
 
 func (r *AuthPolicyRepository) TryClaimRevokingActive(id, patientID uint64) (int64, error) {
@@ -404,7 +490,8 @@ func (r *AuthPolicyRepository) ListPrivAuthsByTime(startTime, endTime time.Time)
 		return nil, errors.New("database not initialized")
 	}
 	var list []model.Authorization
-	err := DB.Where("scope_type = 'SINGLE' AND auth_target_type = 'PRIVATE' AND status = 'ACTIVE' AND start_time <= ? AND end_time >= ?", startTime, endTime).Find(&list).Error
+	err := DB.Where("scope_type = 'SINGLE' AND auth_target_type = 'PRIVATE' AND status = 'ACTIVE' AND start_time <= ? AND end_time > ?", startTime, endTime).
+		Order("created_at DESC, id DESC").Find(&list).Error
 	return list, err
 }
 
@@ -414,7 +501,8 @@ func (r *AuthPolicyRepository) ListPatientAuthsAtTime(patientID uint64, startTim
 		return nil, errors.New("database not initialized")
 	}
 	var list []model.Authorization
-	err := DB.Where("patient_id = ? AND status = 'ACTIVE' AND start_time <= ? AND end_time >= ?", patientID, startTime, endTime).Find(&list).Error
+	err := DB.Where("patient_id = ? AND status = 'ACTIVE' AND start_time <= ? AND end_time > ?", patientID, startTime, endTime).
+		Order("created_at DESC, id DESC").Find(&list).Error
 	return list, err
 }
 

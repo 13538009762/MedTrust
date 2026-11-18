@@ -226,28 +226,33 @@ func (m *MockLedgerService) CreateAuthorizationRecord(auth AuthorizationPayload)
 }
 
 func (m *MockLedgerService) RevokeAuthorizationRecord(authNo string) (txID string, err error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+	m.mu.RLock()
 	raw, ok := m.stateStore["AUTH_"+authNo]
 	if !ok {
 		// 尝试不带前缀
 		raw, ok = m.stateStore[authNo]
 	}
+	m.mu.RUnlock()
+
 	var auth AuthorizationPayload
 	if ok {
 		_ = json.Unmarshal([]byte(raw), &auth)
 	}
 	auth.Status = "REVOKED"
-	b, _ := json.Marshal(auth)
-	m.stateStore["AUTH_"+authNo] = string(b)
 
 	payload := map[string]interface{}{
 		"auth_no": authNo,
 		"status":  "REVOKED",
 		"time":    time.Now().Format(time.RFC3339),
 	}
+	// CommitAsset 内部自行加锁，严禁在持有 m.mu 时重入调用 CommitAsset 导致自死锁
 	txID, _, err = m.CommitAsset("AUTH_REVOKE", authNo, payload)
+	if err == nil {
+		m.mu.Lock()
+		b, _ := json.Marshal(auth)
+		m.stateStore["AUTH_"+authNo] = string(b)
+		m.mu.Unlock()
+	}
 	return txID, err
 }
 
@@ -273,24 +278,29 @@ func (m *MockLedgerService) CreateEmergencyRecord(ev EmergencyPayload) (txID str
 }
 
 func (m *MockLedgerService) UpdateEmergencyStatus(eventNo string, newStatus string) (txID string, err error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+	m.mu.RLock()
 	raw, ok := m.stateStore["EMERG_"+eventNo]
+	m.mu.RUnlock()
+
 	var ev EmergencyPayload
 	if ok {
 		_ = json.Unmarshal([]byte(raw), &ev)
 	}
 	ev.Status = newStatus
-	b, _ := json.Marshal(ev)
-	m.stateStore["EMERG_"+eventNo] = string(b)
 
 	payload := map[string]interface{}{
 		"event_no":   eventNo,
 		"new_status": newStatus,
 		"time":       time.Now().Format(time.RFC3339),
 	}
+	// CommitAsset 内部自行加锁，先释放锁再提交避免同一 sync.RWMutex 重入死锁
 	txID, _, err = m.CommitAsset("EMERGENCY_STATUS", eventNo, payload)
+	if err == nil {
+		m.mu.Lock()
+		b, _ := json.Marshal(ev)
+		m.stateStore["EMERG_"+eventNo] = string(b)
+		m.mu.Unlock()
+	}
 	return txID, err
 }
 

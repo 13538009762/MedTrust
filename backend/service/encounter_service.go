@@ -88,38 +88,43 @@ func (s *MedicalService) CreateEncounterInitial(p CreateEncounterInitialParams) 
 		CreatedAt:        time.Now(),
 	}
 
-	if err := repository.DefaultMedicalRepository.CreateRecord(&record); err != nil {
-		return nil, nil, fmt.Errorf("创建就诊记录失败: %w", err)
-	}
-
 	var createdOrders []*model.MedicalExamOrder
-	if p.NeedExam && len(p.ExamItems) > 0 {
-		for i, item := range p.ExamItems {
-			trimmed := strings.TrimSpace(item)
-			if trimmed == "" {
-				continue
-			}
-			ordRand := make([]byte, 3)
-			_, _ = rand.Read(ordRand)
-			orderNo := fmt.Sprintf("ORD%s%s%02d", time.Now().Format("20060102"), hex.EncodeToString(ordRand), i+1)
-
-			order := &model.MedicalExamOrder{
-				OrderNo:        orderNo,
-				RecordID:       record.ID,
-				PatientID:      p.PatientID,
-				DoctorID:       p.DoctorID,
-				HospitalID:     doc.HospitalID,
-				DepartmentName: p.DepartmentName,
-				ExamItem:       trimmed,
-				ExamReason:     p.ExamReason,
-				Status:         "PENDING",
-				CreatedAt:      time.Now(),
-				UpdatedAt:      time.Now(),
-			}
-			if err := repository.DefaultExamOrderRepository.CreateExamOrder(order); err == nil {
-					createdOrders = append(createdOrders, order)
-				}
+	if err := repository.Transaction(func(tx *repository.TxRunner) error {
+		if err := tx.Create(&record); err != nil {
+			return fmt.Errorf("创建就诊记录失败: %w", err)
 		}
+		if p.NeedExam && len(p.ExamItems) > 0 {
+			for i, item := range p.ExamItems {
+				trimmed := strings.TrimSpace(item)
+				if trimmed == "" {
+					continue
+				}
+				ordRand := make([]byte, 3)
+				_, _ = rand.Read(ordRand)
+				orderNo := fmt.Sprintf("ORD%s%s%02d", time.Now().Format("20060102"), hex.EncodeToString(ordRand), i+1)
+
+				order := &model.MedicalExamOrder{
+					OrderNo:        orderNo,
+					RecordID:       record.ID,
+					PatientID:      p.PatientID,
+					DoctorID:       p.DoctorID,
+					HospitalID:     doc.HospitalID,
+					DepartmentName: p.DepartmentName,
+					ExamItem:       trimmed,
+					ExamReason:     p.ExamReason,
+					Status:         "PENDING",
+					CreatedAt:      time.Now(),
+					UpdatedAt:      time.Now(),
+				}
+				if err := tx.Create(order); err != nil {
+					return fmt.Errorf("创建医技检查单(%s)失败: %w", trimmed, err)
+				}
+				createdOrders = append(createdOrders, order)
+			}
+		}
+		return nil
+	}); err != nil {
+		return nil, nil, err
 	}
 
 	// 若医生选择无需检查直接确诊归档 (DirectComplete)
@@ -132,9 +137,10 @@ func (s *MedicalService) CreateEncounterInitial(p CreateEncounterInitialParams) 
 			TreatmentPlan: p.TreatmentPlan,
 			SOAPContent:   p.SOAPContent,
 		})
-		if err == nil {
-			return finalRec, nil, nil
+		if err != nil {
+			return nil, nil, err
 		}
+		return finalRec, nil, nil
 	}
 
 	return &record, createdOrders, nil
@@ -269,6 +275,7 @@ func (s *MedicalService) CompleteExamOrder(p CompleteExamOrderParams) (*model.Me
 	order.UpdatedAt = now
 	// WP-10: 附件/检查单/就诊记录多表写统一延迟到事务内原子提交
 	var pendingFiles []*model.MedicalFile
+	var uploadedCID string
 
 	// 若上传了影像/报告附件
 	if len(p.FileData) > 0 {
@@ -283,53 +290,68 @@ func (s *MedicalService) CompleteExamOrder(p CompleteExamOrderParams) (*model.Me
 		// WP-09: 统一 AES-256-GCM 信封加密 (随机 DEK + MasterKey 封装 + AAD 绑定)，EncryptedDEK/IVNonce 持久化至 medical_files
 		masterKey := config.AppConfig.GetAESMasterKey()
 		cipherData, encDEK, ivNonce, fileHash, err := crypto.EncryptMedicalFile(p.FileData, order.PatientID, targetRecordNo, masterKey)
-		if err == nil {
-			cid, err := s.ipfsService.PutData(cipherData)
-			if err == nil {
-				finalFileName := p.FileName
-				if p.FileTitle != "" {
-					cleanTitle := strings.TrimSpace(p.FileTitle)
-					ext := strings.ToLower(p.FileType)
-					if ext != "" && !strings.HasSuffix(strings.ToLower(cleanTitle), "."+ext) {
-						finalFileName = fmt.Sprintf("%s.%s", cleanTitle, ext)
-					} else {
-						finalFileName = cleanTitle
-					}
-				} else if order.ExamItem != "" && !strings.Contains(finalFileName, order.ExamItem) {
-					ext := strings.ToLower(p.FileType)
-					finalFileName = fmt.Sprintf("【%s】%s", order.ExamItem, p.FileName)
-					if ext != "" && !strings.HasSuffix(strings.ToLower(finalFileName), "."+ext) {
-						finalFileName = fmt.Sprintf("%s.%s", finalFileName, ext)
-					}
-				}
+		if err != nil {
+			return nil, fmt.Errorf("检查报告附件 AES-256-GCM 加密失败: %w", err)
+		}
+		cid, err := s.GetIPFSService().PutData(cipherData)
+		if err != nil {
+			return nil, fmt.Errorf("检查报告附件存储至 IPFS 失败: %w", err)
+		}
+		uploadedCID = cid
 
-				order.IPFSCID = cid
-				order.FileHash = fileHash
-				order.ReportFileName = finalFileName
-				order.ReportFileType = p.FileType
-
-				// 插入 MedicalFile 记录并绑定到当前 RecordID，确保全院/跨院调阅病历时能够穿透查看附件 (零本地明文落地)
-				medFile := model.MedicalFile{
-					RecordID:     order.RecordID,
-					FileName:     finalFileName,
-					FileType:     p.FileType,
-					FileSize:     uint64(len(p.FileData)),
-					IPFSCID:      cid,
-					FileHash:     fileHash,
-					EncryptedDEK: encDEK,
-					IVNonce:      ivNonce,
-					CreatedAt:    now,
-				}
-				// WP-10: 附件落库延迟到与检查单/就诊记录同一事务中原子提交
-				pendingFiles = append(pendingFiles, &medFile)
+		finalFileName := p.FileName
+		if p.FileTitle != "" {
+			cleanTitle := strings.TrimSpace(p.FileTitle)
+			ext := strings.ToLower(p.FileType)
+			if ext != "" && !strings.HasSuffix(strings.ToLower(cleanTitle), "."+ext) {
+				finalFileName = fmt.Sprintf("%s.%s", cleanTitle, ext)
+			} else {
+				finalFileName = cleanTitle
+			}
+		} else if order.ExamItem != "" && !strings.Contains(finalFileName, order.ExamItem) {
+			ext := strings.ToLower(p.FileType)
+			finalFileName = fmt.Sprintf("【%s】%s", order.ExamItem, p.FileName)
+			if ext != "" && !strings.HasSuffix(strings.ToLower(finalFileName), "."+ext) {
+				finalFileName = fmt.Sprintf("%s.%s", finalFileName, ext)
 			}
 		}
+
+		order.IPFSCID = cid
+		order.FileHash = fileHash
+		order.ReportFileName = finalFileName
+		order.ReportFileType = p.FileType
+
+		// 插入 MedicalFile 记录并绑定到当前 RecordID，确保全院/跨院调阅病历时能够穿透查看附件 (零本地明文落地)
+		medFile := model.MedicalFile{
+			RecordID:     order.RecordID,
+			FileName:     finalFileName,
+			FileType:     p.FileType,
+			FileSize:     uint64(len(p.FileData)),
+			IPFSCID:      cid,
+			FileHash:     fileHash,
+			EncryptedDEK: encDEK,
+			IVNonce:      ivNonce,
+			CreatedAt:    now,
+		}
+		// WP-10: 附件落库延迟到与检查单/就诊记录同一事务中原子提交
+		pendingFiles = append(pendingFiles, &medFile)
 	}
 
-	// 查询该就诊下的所有检查单，汇总报告回写至 MedicalRecord
-	allOrders, _ := repository.DefaultExamOrderRepository.FindExamOrdersByRecordID(order.RecordID)
+	// 查询该就诊下的所有检查单，并以内存中刚更新的当前 order 覆盖数据库旧快照，避免未提交前读旧状态导致状态永久卡在 PROCESSING_EXAM
+	allOrders, findErr := repository.DefaultExamOrderRepository.FindExamOrdersByRecordID(order.RecordID)
+	foundSelf := false
+	for i := range allOrders {
+		if allOrders[i].ID == order.ID {
+			allOrders[i] = order
+			foundSelf = true
+			break
+		}
+	}
+	if findErr == nil && !foundSelf {
+		allOrders = append(allOrders, order)
+	}
 
-	allCompleted := true
+	allCompleted := len(allOrders) > 0
 	var sb strings.Builder
 	for _, o := range allOrders {
 		if o.Status != "COMPLETED" {
@@ -350,8 +372,12 @@ func (s *MedicalService) CompleteExamOrder(p CompleteExamOrderParams) (*model.Me
 			if techHosp != "" && !strings.Contains(cleanTechName, techHosp) && !strings.Contains(cleanTechName, "（") && !strings.Contains(cleanTechName, "(") {
 				cleanTechName = fmt.Sprintf("%s（%s·检验科）", cleanTechName, techHosp)
 			}
+			execTimeStr := now.Format("2006-01-02 15:04")
+			if o.ExecutedAt != nil {
+				execTimeStr = o.ExecutedAt.Format("2006-01-02 15:04")
+			}
 			sb.WriteString(fmt.Sprintf("【%s】%s\n结论: %s (出具人: %s, 时间: %s)\n",
-				o.ExamItem, o.ExamResult, o.ExamConclusion, cleanTechName, o.ExecutedAt.Format("2006-01-02 15:04")))
+				o.ExamItem, o.ExamResult, o.ExamConclusion, cleanTechName, execTimeStr))
 		}
 	}
 
@@ -396,6 +422,9 @@ func (s *MedicalService) CompleteExamOrder(p CompleteExamOrderParams) (*model.Me
 		}
 		return nil
 	}); err != nil {
+		if uploadedCID != "" {
+			_ = s.GetIPFSService().Delete(uploadedCID)
+		}
 		return nil, err
 	}
 
@@ -520,8 +549,7 @@ func (s *MedicalService) CompleteEncounterFinal(p CompleteEncounterFinalParams) 
 	if err != nil {
 		return nil, fmt.Errorf("AES-256-GCM 加密失败: %w", err)
 	}
-	clinicalHash := crypto.CalculateSHA256([]byte(fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s",
-		rec.RecordNo, rec.DataType, rec.OnsetTime, rec.Duration, rec.Symptoms, rec.Etiology, rec.TreatmentPlan, rec.Diagnosis, fileHash)))
+	clinicalHash := ComputeRecordHashWithFileHash(&rec, fileHash)
 
 	cid, err := s.GetIPFSService().Add(cipherData)
 	if err != nil {

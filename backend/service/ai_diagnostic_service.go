@@ -470,7 +470,7 @@ func (s *AIDiagnosticService) extractHiddenAllergyClues(
 		RecordNo string
 		Hosp     string
 	}{
-		{Text: req.CurrentSymptoms + " " + req.PresentIllness, RecordNo: "PRESENT_ENCOUNTER", Hosp: req.DepartmentName},
+		{Text: req.CurrentSymptoms + "，" + req.PresentIllness, RecordNo: "PRESENT_ENCOUNTER", Hosp: req.DepartmentName},
 	}
 	for _, r := range records {
 		allTexts = append(allTexts, struct {
@@ -478,14 +478,14 @@ func (s *AIDiagnosticService) extractHiddenAllergyClues(
 			RecordNo string
 			Hosp     string
 		}{
-			Text:     r.Symptoms + " " + r.ChiefComplaint + " " + r.DiagnosticBasis + " " + r.TreatmentPlan,
+			Text:     strings.Join([]string{r.Symptoms, r.ChiefComplaint, r.DiagnosticBasis, r.TreatmentPlan}, "，"),
 			RecordNo: r.RecordNo,
 			Hosp:     r.HospitalName,
 		})
 	}
 
 	for _, item := range allTexts {
-		t := item.Text
+		t := filterAffirmativeClinicalText(item.Text)
 		// 1. 过敏与药疹隐匿线索
 		if strings.Contains(t, "消炎药") || strings.Contains(t, "皮疹") || strings.Contains(t, "红疹") ||
 			strings.Contains(t, "过敏") || strings.Contains(t, "青霉素") || strings.Contains(t, "头孢") ||
@@ -562,21 +562,23 @@ func (s *AIDiagnosticService) detectSemanticContradictions(
 	var allergyRecords []string
 
 	for _, r := range records {
-		t := r.Symptoms + " " + r.ChiefComplaint + " " + r.DiagnosticBasis + " " + r.TreatmentPlan
+		t := strings.Join([]string{r.Symptoms, r.ChiefComplaint, r.DiagnosticBasis, r.TreatmentPlan}, "，")
+		affirmT := filterAffirmativeClinicalText(t)
+
 		if strings.Contains(t, "否认高血压") || strings.Contains(t, "无高血压") {
 			hasHTNDenial = true
 			denialRecords = append(denialRecords, fmt.Sprintf("%s (%s)", r.HospitalName, r.RecordNo))
 		}
-		if strings.Contains(t, "高血压") || strings.Contains(t, "降压") || strings.Contains(t, "硝苯地平") ||
-			strings.Contains(t, "氨氯地平") || strings.Contains(t, "缬沙坦") {
+		if strings.Contains(affirmT, "高血压") || strings.Contains(affirmT, "降压") || strings.Contains(affirmT, "硝苯地平") ||
+			strings.Contains(affirmT, "氨氯地平") || strings.Contains(affirmT, "缬沙坦") {
 			hasHTNAffirm = true
 			affirmRecords = append(affirmRecords, fmt.Sprintf("%s (%s)", r.HospitalName, r.RecordNo))
 		}
 
-		if strings.Contains(t, "否认药物过敏") || strings.Contains(t, "无药物过敏") {
+		if strings.Contains(t, "否认药物过敏") || strings.Contains(t, "无药物过敏") || strings.Contains(t, "否认过敏") || strings.Contains(t, "无过敏") {
 			hasAllergyDenial = true
 		}
-		if strings.Contains(t, "过敏") || strings.Contains(t, "皮疹") {
+		if strings.Contains(affirmT, "过敏") || strings.Contains(affirmT, "皮疹") || strings.Contains(affirmT, "红疹") {
 			hasAllergyAffirm = true
 			allergyRecords = append(allergyRecords, fmt.Sprintf("%s (%s)", r.HospitalName, r.RecordNo))
 		}
@@ -677,33 +679,83 @@ func (s *AIDiagnosticService) deriveClinicalDeductions(
 	}
 
 	// 2. 病程摘要 (系统特征仅用于叙事，不做诊断结论)
-	if hasCardio || true {
-		analysisSummary = fmt.Sprintf("结合患者已获授权的 %d 份历史病历与当前就诊主诉进行跨机构病程摘要梳理。%s 临床主诉特征与既往心血管相关记载存在延续性，具体确诊与处置方案须由当班执业医师当面查体后确立。", len(timeline), intervalSummary)
-
-		symptomDetail = model.SymptomCorrelationDetail{
-			CurrentAnalysis:    "当前主诉已记录，建议结合本次生命体征与床旁查体动态比对既往病程。",
-			HistoricalLinkage:  "横向比对既往病历记载，既往主诉与当前症状的延续/演变关系见时间轴明细。",
-			ProgressionPattern: "就诊间隔、症状性质与诱发阈值的变化趋势见时间轴明细，仅供临床参考。",
-			KeySymptomsTrack:   s.excerptTimelineSymptomTrack(timeline),
-		}
-
-		medDetail = model.MedicationCorrelationDetail{
-			PastMedications:      pastMeds,
-			DrugResponseAnalysis: "既往病历记载用药的延续与更替情况见「既往用药摘录」栏，仅供防重复用药与过敏史核对。",
-			InteractionsAndRisks: "本系统不输出新用药建议；如需调整方案，请由执业医师结合当面确诊与最新检验结果决策。",
-		}
-
-		labSummary = "既往医技检查及化验结果的异常项汇总见检查比对栏，建议作为本次当面查体与补充检验的对照参考。"
-
-		warnings = []string{
-			"⚠️ 【合规声明】本系统严格限定为病历检索、知情核验与 SOAP 摘要聚合，不提供疾病确诊与处方建议；输出中的全部临床信息均摘自已授权历史病历。",
-			"⚠️ 【急危重症提示】若患者当前出现静息持续胸痛、意识障碍、大出血等危急征象，请立即按急诊绿色通道流程处置，勿依赖本摘要结论。",
-		}
-
-		return
+	systemContext := "临床多系统既往档案记载与当前就诊信息已完成纵向对齐，具体确诊与处置方案须由当班执业医师当面查体后确立。"
+	switch {
+	case hasCardio:
+		systemContext = "临床主诉特征与既往心血管相关记载存在延续性，具体确诊与处置方案须由当班执业医师当面查体后确立。"
+	case hasDigestive:
+		systemContext = "临床主诉特征与既往消化系统相关记载存在延续性，具体确诊与处置方案须由当班执业医师当面查体后确立。"
+	case hasRespiratory:
+		systemContext = "临床主诉特征与既往呼吸系统相关记载存在延续性，具体确诊与处置方案须由当班执业医师当面查体后确立。"
 	}
-	// 不可达兜底 (hasCardio || true 分支已恒覆盖)；保留以满足编译器多返回值检查
+
+	analysisSummary = fmt.Sprintf("结合患者已获授权的 %d 份历史病历与当前就诊主诉进行跨机构病程摘要梳理。%s %s", len(timeline), intervalSummary, systemContext)
+
+	symptomDetail = model.SymptomCorrelationDetail{
+		CurrentAnalysis:    "当前主诉已记录，建议结合本次生命体征与床旁查体动态比对既往病程。",
+		HistoricalLinkage:  "横向比对既往病历记载，既往主诉与当前症状的延续/演变关系见时间轴明细。",
+		ProgressionPattern: "就诊间隔、症状性质与诱发阈值的变化趋势见时间轴明细，仅供临床参考。",
+		KeySymptomsTrack:   s.excerptTimelineSymptomTrack(timeline),
+	}
+
+	medDetail = model.MedicationCorrelationDetail{
+		PastMedications:      pastMeds,
+		DrugResponseAnalysis: "既往病历记载用药的延续与更替情况见「既往用药摘录」栏，仅供防重复用药与过敏史核对。",
+		InteractionsAndRisks: "本系统不输出新用药建议；如需调整方案，请由执业医师结合当面确诊与最新检验结果决策。",
+	}
+
+	labSummary = "既往医技检查及化验结果的异常项汇总见检查比对栏，建议作为本次当面查体与补充检验的对照参考。"
+
+	warnings = []string{
+		"⚠️ 【合规声明】本系统严格限定为病历检索、知情核验与 SOAP 摘要聚合，不提供疾病确诊与处方建议；输出中的全部临床信息均摘自已授权历史病历。",
+		"⚠️ 【急危重症提示】若患者当前出现静息持续胸痛、意识障碍、大出血等危急征象，请立即按急诊绿色通道流程处置，勿依赖本摘要结论。",
+	}
+
 	return
+}
+
+var (
+	clinicalClauseSepRe     = regexp.MustCompile(`[，。；,;!\n]+`)
+	benignNoTriggerPrefixRe = regexp.MustCompile(`无明显诱因|无诱因`)
+	suffixNegatedTokenRe    = regexp.MustCompile(`(?i)(?:抗-?hiv|hiv(?:-?[12])?|艾滋病?|人类免疫缺陷病毒|梅毒(?:螺旋体)?|rpr|tppa|tpha|hbsag|乙(?:型)?肝(?:炎)?|丙(?:型)?肝(?:炎)?|hcv|anti-hcv|肺结核|结核(?:杆菌|分枝杆菌)?|新冠(?:病毒)?|sars-cov-2|mrsa|cre|vre|青霉素|头孢|磺胺|消炎药|皮试|皮疹|红疹|高血压|药物过敏|过敏|黑便|胃溃疡|胃出血|穿孔|呕血|晕厥|意识丧失|抽搐|跌倒|黑矇)[^\s，。；,;\n]{0,8}(?:抗体|表面抗原|抗原|核酸|dna|rna|pcr|皮试)?\s*(?:阴性|\(-\)|negative|non-?reactive|未见|未检出|不过敏|排除)`)
+	inlinePrefixNegationRe  = regexp.MustCompile(`(?i)(?:明确)?(?:否认|无既往|无明确|未见|未发现|未诉|不伴|已排除|排除|无)\s*(?:任何|明显)?(?:抗-?hiv|hiv(?:-?[12])?|艾滋病?|梅毒|rpr|tppa|tpha|hbsag|乙(?:型)?肝(?:炎)?|丙(?:型)?肝(?:炎)?|hcv|肺结核|结核|新冠|mrsa|cre|vre|高血压|心脏病|药物过敏|食物过敏|过敏史|过敏|青霉素|头孢|磺胺|消炎药|皮试|皮疹|红疹|黑便|胃溃疡|胃出血|穿孔|呕血|晕厥|意识丧失|抽搐|跌倒|黑矇)[^\s，。；,;\n]{0,8}`)
+	clausePrefixNegationRe  = regexp.MustCompile(`^(?:明确)?(?:否认|无|未见|未发现|未诉|未曾|不伴|排除)`)
+)
+
+// filterAffirmativeClinicalText 剥离临床自由文本中的否定陈述子句（如"否认高血压"、"无药物过敏"、"青霉素皮试阴性"），
+// 仅保留肯定性阳性临床陈述供线索抽取与语义比对使用，避免将否定语句误判为自相矛盾或既往确诊史。
+func filterAffirmativeClinicalText(text string) string {
+	if strings.TrimSpace(text) == "" {
+		return ""
+	}
+	cleaned := benignNoTriggerPrefixRe.ReplaceAllString(text, " ")
+	cleaned = suffixNegatedTokenRe.ReplaceAllString(cleaned, " ")
+	cleaned = inlinePrefixNegationRe.ReplaceAllString(cleaned, " ")
+	clauses := clinicalClauseSepRe.Split(cleaned, -1)
+	kept := make([]string, 0, len(clauses))
+	for _, cl := range clauses {
+		sub := strings.TrimSpace(cl)
+		if sub == "" {
+			continue
+		}
+		if clausePrefixNegationRe.MatchString(sub) {
+			if idx := strings.IndexAny(sub, "但曾"); idx >= 0 {
+				kept = append(kept, strings.TrimSpace(sub[idx:]))
+			}
+			continue
+		}
+		if pos := strings.Index(sub, "否认"); pos >= 0 {
+			if prefix := strings.TrimSpace(sub[:pos]); prefix != "" {
+				kept = append(kept, prefix)
+			}
+			continue
+		}
+		if strings.Contains(sub, "不过敏") {
+			continue
+		}
+		kept = append(kept, sub)
+	}
+	return strings.Join(kept, "，")
 }
 
 // promptInjectionPatterns WP-05: 提示注入控制序列黑名单 (中英双语，含三连反引号代码围栏)

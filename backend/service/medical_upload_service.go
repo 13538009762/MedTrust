@@ -3,6 +3,7 @@ package service
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"medtrust-backend/config"
@@ -131,8 +132,26 @@ func (s *MedicalService) UploadRecord(p UploadRecordParams) (*model.MedicalRecor
 	if err != nil {
 		return nil, fmt.Errorf("AES-256-GCM 加密失败: %w", err)
 	}
-	clinicalHash := crypto.ComputeSHA256([]byte(fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s",
-		recordNo, p.DataType, p.OnsetTime, p.Duration, p.Symptoms, p.Etiology, p.TreatmentPlan, p.Diagnosis, fileHash)))
+	clinicalHash := ComputeRecordHashWithFileHash(&model.MedicalRecord{
+		RecordNo:         recordNo,
+		DataType:         p.DataType,
+		EncounterType:    p.EncounterType,
+		DepartmentName:   p.DepartmentName,
+		OnsetTime:        p.OnsetTime,
+		Duration:         p.Duration,
+		Symptoms:         p.Symptoms,
+		Etiology:         p.Etiology,
+		TreatmentPlan:    p.TreatmentPlan,
+		Diagnosis:        p.Diagnosis,
+		ChiefComplaint:   p.ChiefComplaint,
+		PresentIllness:   p.PresentIllness,
+		VitalSigns:       p.VitalSigns,
+		InitialDiagnosis: p.InitialDiagnosis,
+		DiagnosticBasis:  p.DiagnosticBasis,
+		ExamItems:        p.ExamItems,
+		ExamReason:       p.ExamReason,
+		ExamResult:       p.ExamResult,
+	}, fileHash)
 
 	// 3. 密文存储至 IPFS 节点获取唯一 CID (严禁明文磁盘落地)
 	cid, err := s.ipfsService.Add(cipherData)
@@ -241,7 +260,64 @@ func (s *MedicalService) UploadRecord(p UploadRecordParams) (*model.MedicalRecor
 }
 
 // ComputeRecordHash 计算结构化病历与影像哈希综合指纹，任何字段被篡改均会导致哈希不符
+type clinicalHashPayload struct {
+	RecordNo         string `json:"record_no"`
+	DataType         string `json:"data_type"`
+	EncounterType    string `json:"encounter_type"`
+	DepartmentName   string `json:"department_name"`
+	OnsetTime        string `json:"onset_time"`
+	Duration         string `json:"duration"`
+	Symptoms         string `json:"symptoms"`
+	Etiology         string `json:"etiology"`
+	TreatmentPlan    string `json:"treatment_plan"`
+	Diagnosis        string `json:"diagnosis"`
+	ChiefComplaint   string `json:"chief_complaint"`
+	PresentIllness   string `json:"present_illness"`
+	VitalSigns       string `json:"vital_signs"`
+	InitialDiagnosis string `json:"initial_diagnosis"`
+	DiagnosticBasis  string `json:"diagnostic_basis"`
+	ExamItems        string `json:"exam_items"`
+	ExamReason       string `json:"exam_reason"`
+	ExamResult       string `json:"exam_result"`
+	FileHash         string `json:"file_hash"`
+}
+
+// ComputeRecordHashWithFileHash 基于全量临床结构化字段与指定附件 SHA-256 计算规范 JSON 指纹，
+// 防止分隔符注入并确保任何临床明细或检査所见被篡改均导致哈希失配。
+func ComputeRecordHashWithFileHash(r *model.MedicalRecord, fileHash string) string {
+	if r == nil {
+		return crypto.CalculateSHA256(nil)
+	}
+	payload := clinicalHashPayload{
+		RecordNo:         r.RecordNo,
+		DataType:         r.DataType,
+		EncounterType:    r.EncounterType,
+		DepartmentName:   r.DepartmentName,
+		OnsetTime:        r.OnsetTime,
+		Duration:         r.Duration,
+		Symptoms:         r.Symptoms,
+		Etiology:         r.Etiology,
+		TreatmentPlan:    r.TreatmentPlan,
+		Diagnosis:        r.Diagnosis,
+		ChiefComplaint:   r.ChiefComplaint,
+		PresentIllness:   r.PresentIllness,
+		VitalSigns:       r.VitalSigns,
+		InitialDiagnosis: r.InitialDiagnosis,
+		DiagnosticBasis:  r.DiagnosticBasis,
+		ExamItems:        r.ExamItems,
+		ExamReason:       r.ExamReason,
+		ExamResult:       r.ExamResult,
+		FileHash:         fileHash,
+	}
+	raw, _ := json.Marshal(payload)
+	return crypto.CalculateSHA256(raw)
+}
+
+// ComputeRecordHash 计算结构化病历与主归档附件的综合指纹，任何临床或文件字段被篡改均会导致哈希不符
 func ComputeRecordHash(r *model.MedicalRecord) string {
+	if r == nil {
+		return crypto.CalculateSHA256(nil)
+	}
 	if len(r.Files) == 0 && r.ID > 0 {
 		if files, err := repository.DefaultMedicalRepository.FindFilesByRecordID(r.ID); err == nil {
 			r.Files = files
@@ -249,20 +325,10 @@ func ComputeRecordHash(r *model.MedicalRecord) string {
 	}
 
 	fileHash := ""
-	if len(r.Files) > 0 {
-		// 优先取最新生成的规范归档凭据或最后一份生成的凭据文件
-		fileHash = r.Files[len(r.Files)-1].FileHash
-		for i := len(r.Files) - 1; i >= 0; i-- {
-			if strings.Contains(r.Files[i].FileName, "归档凭据") || strings.Contains(r.Files[i].FileName, r.RecordNo) {
-				fileHash = r.Files[i].FileHash
-				break
-			}
-		}
+	if primary := SelectPrimaryMedicalFile(r); primary != nil {
+		fileHash = primary.FileHash
 	}
-
-	raw := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s",
-		r.RecordNo, r.DataType, r.OnsetTime, r.Duration, r.Symptoms, r.Etiology, r.TreatmentPlan, r.Diagnosis, fileHash)
-	return crypto.CalculateSHA256([]byte(raw))
+	return ComputeRecordHashWithFileHash(r, fileHash)
 }
 
 // DecryptFileAndComputeHash 从 IPFS 拉取密文并在内存中执行 AES-256-GCM 验签解密，返回解密后明文、重算的 SHA-256 及错误信息
@@ -324,7 +390,7 @@ func MatchRecordChainFileHash(files []model.MedicalFile, primaryFile *model.Medi
 	}
 	localHash := primaryFile.FileHash
 	if decryptedHash != "" {
-		if primaryFile.FileHash != "" && decryptedHash != primaryFile.FileHash {
+		if primaryFile.FileHash == "" || decryptedHash != primaryFile.FileHash {
 			return decryptedHash, false
 		}
 		localHash = decryptedHash

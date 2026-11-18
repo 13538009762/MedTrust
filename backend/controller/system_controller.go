@@ -23,7 +23,37 @@ type SystemController struct{}
 var DefaultSystemController = &SystemController{}
 
 func (ctrl *SystemController) ListUsers(c *gin.Context) {
-	users, _ := repository.DefaultUserRepository.ListAllUsers()
+	pageStr := strings.TrimSpace(c.Query("page"))
+	pageSizeStr := strings.TrimSpace(c.Query("page_size"))
+	hasPagination := pageStr != "" || pageSizeStr != ""
+
+	var users []model.User
+	var total int64
+	var page, pageSize int
+	var queryErr error
+
+	if hasPagination {
+		page, _ = strconv.Atoi(pageStr)
+		if page < 1 {
+			page = 1
+		}
+		pageSize, _ = strconv.Atoi(pageSizeStr)
+		if pageSize <= 0 {
+			pageSize = 50
+		} else if pageSize > 200 {
+			pageSize = 200
+		}
+		roleFilter := strings.TrimSpace(c.Query("role"))
+		statusFilter := strings.TrimSpace(c.Query("status"))
+		keyword := strings.TrimSpace(c.Query("keyword"))
+		users, total, queryErr = repository.DefaultUserRepository.ListUsersPaged(page, pageSize, roleFilter, statusFilter, keyword)
+	} else {
+		users, queryErr = repository.DefaultUserRepository.ListAllUsers()
+	}
+	if queryErr != nil {
+		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "查询用户目录失败"})
+		return
+	}
 
 	// 监管角色仅做治理视角，不应看到完整 PII 目录；仅系统管理员保留完整字段
 	isAdmin := c.GetString("role") == "admin"
@@ -59,6 +89,20 @@ func (ctrl *SystemController) ListUsers(c *gin.Context) {
 		}
 	}
 
+	if hasPagination {
+		c.JSON(http.StatusOK, model.Response{
+			Code:    200,
+			Message: "查询成功",
+			Data: gin.H{
+				"list":      users,
+				"total":     total,
+				"page":      page,
+				"page_size": pageSize,
+			},
+		})
+		return
+	}
+
 	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "查询成功", Data: users})
 }
 
@@ -83,6 +127,11 @@ func (ctrl *SystemController) UpdateUserStatus(c *gin.Context) {
 	u, err := repository.DefaultUserRepository.FindUserByIDOrNoOrUsername(paramID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "用户不存在"})
+		return
+	}
+
+	if u.ID == c.GetUint64("user_id") && status == "DISABLED" {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "安全拦截：管理员严禁停用当前正在使用的自身账号"})
 		return
 	}
 
@@ -124,8 +173,8 @@ func (ctrl *SystemController) ResetUserPassword(c *gin.Context) {
 	if newPwd == "" {
 		newPwd = service.GenerateSecureRandomPassword(10)
 		isRandomTemp = true
-	} else if len(newPwd) < 6 {
-		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "密码长度至少需要 6 个字符"})
+	} else if err := security.ValidatePasswordStrength(newPwd); err != nil {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "新密码强度不足: " + err.Error()})
 		return
 	}
 

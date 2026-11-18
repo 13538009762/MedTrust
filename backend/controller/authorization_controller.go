@@ -31,13 +31,33 @@ func (ctrl *AccessController) CreateAuthorization(c *gin.Context) {
 		return
 	}
 
-	if req.AuthTargetType != "ALL_DOCTORS" && req.AuthTargetID == 0 {
+	if req.AuthTargetType != "DOCTOR" && req.AuthTargetType != "HOSPITAL" && req.AuthTargetType != "ALL_DOCTORS" && req.AuthTargetType != "PRIVATE" {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "授权目标类型无效，仅支持 DOCTOR, HOSPITAL, ALL_DOCTORS, PRIVATE"})
+		return
+	}
+	if req.ScopeType != "ALL" && req.ScopeType != "SINGLE" {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "授权范围无效，仅支持 ALL 或 SINGLE"})
+		return
+	}
+	if req.AuthTargetType != "ALL_DOCTORS" && req.AuthTargetType != "PRIVATE" && req.AuthTargetID == 0 {
 		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "请选择具体的授权目标医生或医疗机构"})
 		return
 	}
-	if req.ScopeType == "SINGLE" && req.RecordID == 0 {
-		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "指定单份病历授权时必须选择具体病历"})
-		return
+	if req.ScopeType == "SINGLE" {
+		if req.RecordID == 0 {
+			c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "指定单份病历授权时必须选择具体病历"})
+			return
+		}
+		rec, findErr := repository.DefaultMedicalRepository.FindRecordByID(req.RecordID)
+		if findErr != nil || rec == nil {
+			c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "目标病历不存在"})
+			return
+		}
+		if rec.PatientID != patientID {
+			service.DefaultAuditService.Log(patientID, "AUTHORIZE_DENIED", "RECORD", rec.RecordNo, rec.HospitalID, "INTERCEPTED", "HIGH", c.ClientIP())
+			c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "越权拦截：无权针对非本人名下的病历建立授权策略"})
+			return
+		}
 	}
 
 	if req.Days > 0 {
@@ -66,7 +86,7 @@ func (ctrl *AccessController) CreateAuthorization(c *gin.Context) {
 	_, _ = rand.Read(randBytes)
 	authNo := fmt.Sprintf("AUTH%s%s", time.Now().Format("20060102"), hex.EncodeToString(randBytes))
 
-	txID, _, _ := service.CommitAssetWithCompensation("AUTHORIZATION", authNo, map[string]interface{}{
+	txID, _, chainErr := service.CommitAssetWithCompensation("AUTHORIZATION", authNo, map[string]interface{}{
 		"auth_no":     authNo,
 		"patient_id":  patientID,
 		"target_type": req.AuthTargetType,
@@ -76,6 +96,9 @@ func (ctrl *AccessController) CreateAuthorization(c *gin.Context) {
 		"status":      "ACTIVE",
 		"timestamp":   time.Now().Format(time.RFC3339),
 	})
+	if chainErr != nil {
+		service.AuditChainAnchoringPending(patientID, "GRANT_AUTH", "AUTH", authNo, 0, chainErr)
+	}
 
 	auth := model.Authorization{
 		AuthNo:         authNo,
@@ -90,7 +113,10 @@ func (ctrl *AccessController) CreateAuthorization(c *gin.Context) {
 		FabricTxID:     txID,
 		CreatedAt:      time.Now(),
 	}
-	_ = repository.DefaultAuthPolicyRepository.CreateAuthorization(&auth)
+	if err := repository.DefaultAuthPolicyRepository.CreateAuthorization(&auth); err != nil {
+		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "授权策略写入数据库失败"})
+		return
+	}
 
 	service.DefaultAuditService.Log(patientID, "AUTHORIZE", "AUTH", authNo, 0, "SUCCESS", "LOW", c.ClientIP())
 	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "授权策略建立并上链成功", Data: auth})

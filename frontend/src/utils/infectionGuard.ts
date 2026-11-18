@@ -244,8 +244,43 @@ const INFECTION_RULES = [
   }
 ]
 
+function isAsciiAlphaNum(ch: string): boolean {
+  const code = ch.charCodeAt(0)
+  return (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122)
+}
+
+function hasPositiveMatchInClause(clause: string, lowerKw: string): boolean {
+  let offset = 0
+  while (offset < clause.length) {
+    const idx = clause.indexOf(lowerKw, offset)
+    if (idx < 0) return false
+    const endIdx = idx + lowerKw.length
+
+    let boundaryOk = true
+    if (isAsciiAlphaNum(lowerKw[0]) && idx > 0 && isAsciiAlphaNum(clause[idx - 1])) {
+      boundaryOk = false
+    }
+    if (isAsciiAlphaNum(lowerKw[lowerKw.length - 1]) && endIdx < clause.length && isAsciiAlphaNum(clause[endIdx])) {
+      boundaryOk = false
+    }
+
+    if (boundaryOk) {
+      const pre = clause.slice(Math.max(0, idx - 16), idx)
+      const suf = clause.slice(endIdx, Math.min(clause.length, endIdx + 16))
+      const posInSuf = suf.includes('阳性') || suf.includes('(+)')
+      const negInSuf = /阴性|\(-\)|negative|non-?reactive|未检出|未见|排除/.test(suf)
+      const negInPre = /否认|未见|排除|无既往/.test(pre) || /(?:^|[\s:：])无(?:任何|明确)?$/.test(pre)
+      if (!(negInSuf && !posInSuf) && !negInPre) {
+        return true
+      }
+    }
+    offset = endIdx
+  }
+  return false
+}
+
 /**
- * 客户端即时文本扫描，返回匹配的传染病信息
+ * 客户端即时文本扫描，返回匹配的传染病信息（对齐服务端否定消歧与 ASCII 词边界校验）
  */
 export function scanTextForInfections(text: string): InfectionRiskAlert {
   if (!text || !text.trim()) {
@@ -260,7 +295,8 @@ export function scanTextForInfections(text: string): InfectionRiskAlert {
     }
   }
 
-  const lower = text.toLowerCase()
+  const cleaned = text.toLowerCase().replace(/无明显诱因|无诱因/g, ' ')
+  const clauses = cleaned.split(/[，。；,;!\n]+/).map(c => c.trim()).filter(Boolean)
   const matchedDiseases: InfectionDisease[] = []
   let highestLevel: 'CRITICAL' | 'HIGH' | 'MEDIUM_HIGH' | 'SAFE' = 'SAFE'
 
@@ -270,7 +306,8 @@ export function scanTextForInfections(text: string): InfectionRiskAlert {
 
   for (const rule of INFECTION_RULES) {
     for (const kw of rule.keywords) {
-      if (lower.includes(kw.toLowerCase())) {
+      const lowerKw = kw.toLowerCase()
+      if (clauses.some(clause => hasPositiveMatchInClause(clause, lowerKw))) {
         matchedDiseases.push({
           name: rule.name,
           category: rule.category,

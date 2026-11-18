@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -62,5 +63,21 @@ func TestRateLimit_ExceedLimit_Returns429(t *testing.T) {
 	retryAfter := w4.Header().Get("Retry-After")
 	if retryAfter == "" {
 		t.Fatalf("429 响应头必须包含 Retry-After")
+	}
+}
+
+func TestMemoryRateLimiter_BoundedBucketsAndStop(t *testing.T) {
+	limiter := NewMemoryRateLimiter(5, time.Minute)
+	defer limiter.Stop()
+
+	for i := 0; i < maxRateLimitBuckets+50; i++ {
+		ip := fmt.Sprintf("10.%d.%d.%d", (i>>16)&0xff, (i>>8)&0xff, i&0xff)
+		limiter.Allow(ip)
+	}
+	limiter.mu.Lock()
+	bucketLen := len(limiter.buckets)
+	limiter.mu.Unlock()
+	if bucketLen > maxRateLimitBuckets {
+		t.Fatalf("rate limiter bucket map exceeded cap %d: got %d", maxRateLimitBuckets, bucketLen)
 	}
 }

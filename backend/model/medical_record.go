@@ -17,7 +17,7 @@ type MedicalRecord struct {
 	Diagnosis       string    `gorm:"type:text" json:"diagnosis"`
 	FabricTxID      string    `gorm:"size:128;default:''" json:"fabric_tx_id"`
 	BlockHeight     uint64    `gorm:"default:0" json:"block_height"`
-	IntegrityStatus string    `gorm:"size:20;default:'VERIFIED'" json:"integrity_status"` // VERIFIED, TAMPERED
+	IntegrityStatus string    `gorm:"size:20;default:'VERIFIED';index" json:"integrity_status"` // VERIFIED, TAMPERED
 	CreatedAt       time.Time `json:"created_at"`
 
 	// 临床详细扩展字段
@@ -115,7 +115,7 @@ type MedicalExamOrder struct {
 	// 影像或报告附件 (IPFS 存证)
 	ReportFileName string `gorm:"size:255;default:''" json:"report_file_name"`
 	ReportFileType string `gorm:"size:32;default:''" json:"report_file_type"`
-	IPFSCID        string `gorm:"size:128;default:''" json:"ipfs_cid"`
+	IPFSCID        string `gorm:"column:ipfs_cid;size:128;default:''" json:"ipfs_cid"`
 	FileHash       string `gorm:"size:64;default:''" json:"file_hash"`
 
 	CreatedAt time.Time `json:"created_at"`

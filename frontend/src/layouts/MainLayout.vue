@@ -354,7 +354,7 @@ onMounted(() => {
   fetchChainStatus()
 
   // 启动 SSE 实时业务通知通道
-  const token = sessionStorage.getItem('token') || (auth as any).token
+  const token = auth.token
   if (token) {
     connectSSE(token)
   }
@@ -379,7 +379,7 @@ onUnmounted(() => {
 watch(() => route.path, () => {
   checkPendingConsent()
   fetchChainStatus()
-  const token = sessionStorage.getItem('token') || (auth as any).token
+  const token = auth.token
   if (token && !isSSEConnected.value) {
     connectSSE(token)
   }

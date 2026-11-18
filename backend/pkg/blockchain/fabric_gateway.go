@@ -46,6 +46,7 @@ type FabricGatewayService struct {
 	mu            sync.RWMutex
 	stopChan      chan struct{}
 	reconnectOnce sync.Once
+	closeOnce     sync.Once
 }
 
 // resolveCryptoPath 智能多级候选路径解析，适配宿主机、测试目录、跨工作区与 Docker 多种运行环境
@@ -382,6 +383,40 @@ func (s *FabricGatewayService) IsLiveFabric() bool {
 	return s.connected
 }
 
+// markDisconnected 安全标记失联状态：仅当失败时的 contract 仍是当前活跃实例时才降级，防止覆盖刚恢复重连的新连接。
+func (s *FabricGatewayService) markDisconnected(failedContract *client.Contract, msg string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.contract == failedContract {
+		s.connected = false
+		s.statusMessage = msg
+	}
+}
+
+// Close 优雅停止后台重连协程并关闭 Fabric Gateway 与底层 gRPC 连接。
+func (s *FabricGatewayService) Close() error {
+	s.closeOnce.Do(func() {
+		if s.stopChan != nil {
+			close(s.stopChan)
+		}
+	})
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.gw != nil {
+		_ = s.gw.Close()
+		s.gw = nil
+	}
+	if s.clientConn != nil {
+		_ = s.clientConn.Close()
+		s.clientConn = nil
+	}
+	s.network = nil
+	s.contract = nil
+	s.connected = false
+	s.statusMessage = "Fabric Gateway closed"
+	return nil
+}
+
 func (s *FabricGatewayService) GetBlockchainStatus() BlockchainStatusDTO {
 	if !s.IsLiveFabric() {
 		_ = s.tryConnect()
@@ -408,17 +443,37 @@ func (s *FabricGatewayService) GetBlockchainStatus() BlockchainStatusDTO {
 	return status
 }
 
+func payloadStr(payload map[string]interface{}, keys ...string) string {
+	if payload == nil {
+		return ""
+	}
+	for _, k := range keys {
+		v, ok := payload[k]
+		if !ok || v == nil {
+			continue
+		}
+		s := strings.TrimSpace(fmt.Sprintf("%v", v))
+		if s != "" && s != "<nil>" {
+			return s
+		}
+	}
+	return ""
+}
+
 func (s *FabricGatewayService) CommitAsset(assetType, assetID string, payload map[string]interface{}) (txID string, height uint64, err error) {
 	if !s.IsLiveFabric() {
 		_ = s.tryConnect()
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	connected := s.connected
+	contract := s.contract
+	statusMsg := s.statusMessage
+	s.mu.RUnlock()
 
 	// 严禁在 Fabric 模式下静默伪装上链成功
-	if !s.connected || s.contract == nil {
-		return "", 0, fmt.Errorf("Fabric network unavailable (%s): transaction %s rejected, strictly refusing to falsify on-chain confirmation", s.statusMessage, assetID)
+	if !connected || contract == nil {
+		return "", 0, fmt.Errorf("Fabric network unavailable (%s): transaction %s rejected, strictly refusing to falsify on-chain confirmation", statusMsg, assetID)
 	}
 
 	nowStr := time.Now().Format(time.RFC3339)
@@ -427,26 +482,21 @@ func (s *FabricGatewayService) CommitAsset(assetType, assetID string, payload ma
 
 	switch assetType {
 	case "MEDICAL_RECORD", "MEDICAL_ASSET":
-		recordID := assetID
-		if r, ok := payload["record_no"].(string); ok && r != "" {
-			recordID = r
-		} else if r, ok := payload["record_id"].(string); ok && r != "" {
-			recordID = r
+		recordID := payloadStr(payload, "record_no", "record_id")
+		if recordID == "" {
+			recordID = assetID
 		}
-		patientID := fmt.Sprintf("%v", payload["patient_id"])
-		cid := fmt.Sprintf("%v", payload["cid"])
-		fileHash := fmt.Sprintf("%v", payload["file_hash"])
-		clinicalHash := fmt.Sprintf("%v", payload["clinical_hash"])
-		if clinicalHash == "" || clinicalHash == "<nil>" {
+		patientID := payloadStr(payload, "patient_id")
+		cid := payloadStr(payload, "cid")
+		fileHash := payloadStr(payload, "file_hash")
+		clinicalHash := payloadStr(payload, "clinical_hash")
+		if clinicalHash == "" {
 			clinicalHash = fileHash
 		}
-		hospID := fmt.Sprintf("%v", payload["hospital_id"])
-		creatorID := fmt.Sprintf("%v", payload["doctor_id"])
-		if creatorID == "" || creatorID == "<nil>" {
-			creatorID = fmt.Sprintf("%v", payload["creator_id"])
-		}
-		dataType := fmt.Sprintf("%v", payload["data_type"])
-		if dataType == "" || dataType == "<nil>" {
+		hospID := payloadStr(payload, "hospital_id")
+		creatorID := payloadStr(payload, "doctor_id", "creator_id")
+		dataType := payloadStr(payload, "data_type")
+		if dataType == "" {
 			dataType = "EMR"
 		}
 
@@ -466,63 +516,87 @@ func (s *FabricGatewayService) CommitAsset(assetType, assetID string, payload ma
 		args = []string{string(assetBytes)}
 
 	case "AUTHORIZATION", "AUTHORIZATION_KEY", "AUTH_RECORD":
-		methodName = "CreateAuthorization"
-		patientID := fmt.Sprintf("%v", payload["patient_id"])
-		doctorID := fmt.Sprintf("%v", payload["doctor_id"])
-		if doctorID == "" || doctorID == "<nil>" {
-			doctorID = fmt.Sprintf("%v", payload["target_id"])
+		methodName = "CreateAuthorizationRecord"
+		authNo := payloadStr(payload, "auth_no", "auth_id")
+		if authNo == "" {
+			authNo = assetID
 		}
-		hospID := fmt.Sprintf("%v", payload["hospital_id"])
-		scope := fmt.Sprintf("%v", payload["scope"])
-		if scope == "" || scope == "<nil>" {
-			scope = fmt.Sprintf("%v", payload["scope_type"])
-		}
-		expireTime := fmt.Sprintf("%v", payload["expire_time"])
-		if expireTime == "" || expireTime == "<nil>" {
-			expireTime = fmt.Sprintf("%v", payload["end_time"])
-		}
-		status := fmt.Sprintf("%v", payload["status"])
-		if status == "" || status == "<nil>" {
+		status := payloadStr(payload, "status")
+		if status == "" {
 			status = "ACTIVE"
 		}
-		args = []string{assetID, patientID, doctorID, hospID, scope, expireTime, status}
+		ts := payloadStr(payload, "timestamp", "start_time")
+		if ts == "" {
+			ts = nowStr
+		}
+		authPayload := map[string]interface{}{
+			"auth_no":     authNo,
+			"patient_id":  payloadStr(payload, "patient_id"),
+			"target_type": payloadStr(payload, "target_type"),
+			"target_id":   payloadStr(payload, "target_id", "doctor_id"),
+			"hospital_id": payloadStr(payload, "hospital_id"),
+			"scope":       payloadStr(payload, "scope", "scope_type"),
+			"record_id":   payloadStr(payload, "record_id"),
+			"expire_time": payloadStr(payload, "expire_time", "end_time"),
+			"status":      status,
+			"timestamp":   ts,
+		}
+		jsonBytes, _ := json.Marshal(authPayload)
+		args = []string{string(jsonBytes)}
 
 	case "REVOKE_AUTH", "AUTH_REVOKE":
-		methodName = "RevokeAuthorization"
-		args = []string{assetID}
+		methodName = "RevokeAuthorizationRecord"
+		authNo := payloadStr(payload, "auth_no", "auth_id")
+		if authNo == "" {
+			authNo = assetID
+		}
+		args = []string{authNo}
 
 	case "AUDIT", "AUDIT_LOG", "AUDIT_RECORD":
-		methodName = "CreateAuditLog"
-		userID := fmt.Sprintf("%v", payload["user_id"])
-		action := fmt.Sprintf("%v", payload["op_type"])
-		if action == "" || action == "<nil>" {
-			action = fmt.Sprintf("%v", payload["action"])
+		methodName = "CreateAuditRecord"
+		logID := payloadStr(payload, "log_id", "audit_id")
+		if logID == "" {
+			logID = assetID
 		}
-		targetID := fmt.Sprintf("%v", payload["target_id"])
-		riskLevel := fmt.Sprintf("%v", payload["risk_level"])
-		args = []string{assetID, userID, action, targetID, riskLevel, nowStr}
+		ts := payloadStr(payload, "timestamp")
+		if ts == "" {
+			ts = nowStr
+		}
+		auditPayload := map[string]interface{}{
+			"log_id":      logID,
+			"user_id":     payloadStr(payload, "user_id"),
+			"op_type":     payloadStr(payload, "op_type", "action"),
+			"target_type": payloadStr(payload, "target_type"),
+			"target_id":   payloadStr(payload, "target_id", "resource_id", "record_id"),
+			"hospital_id": payloadStr(payload, "hospital_id"),
+			"result":      payloadStr(payload, "result"),
+			"risk_level":  payloadStr(payload, "risk_level"),
+			"timestamp":   ts,
+		}
+		jsonBytes, _ := json.Marshal(auditPayload)
+		args = []string{string(jsonBytes)}
 
 	case "EMERGENCY", "EMERGENCY_ACCESS", "EMERGENCY_RECORD":
 		methodName = "CreateEmergencyRecord"
-		eventNo := fmt.Sprintf("%v", payload["event_no"])
-		if eventNo == "" || eventNo == "<nil>" {
+		eventNo := payloadStr(payload, "event_no")
+		if eventNo == "" {
 			eventNo = assetID
 		}
 		rec := EmergencyAccessRecord{
 			EventNo:     eventNo,
-			DoctorID:    fmt.Sprintf("%v", payload["doctor_id"]),
-			PatientID:   fmt.Sprintf("%v", payload["patient_id"]),
-			RecordID:    fmt.Sprintf("%v", payload["record_id"]),
-			HospitalID:  fmt.Sprintf("%v", payload["hospital_id"]),
-			Reason:      fmt.Sprintf("%v", payload["reason"]),
-			Description: fmt.Sprintf("%v", payload["description"]),
-			Timestamp:   fmt.Sprintf("%v", payload["timestamp"]),
-			Status:      fmt.Sprintf("%v", payload["status"]),
+			DoctorID:    payloadStr(payload, "doctor_id"),
+			PatientID:   payloadStr(payload, "patient_id"),
+			RecordID:    payloadStr(payload, "record_id"),
+			HospitalID:  payloadStr(payload, "hospital_id"),
+			Reason:      payloadStr(payload, "reason"),
+			Description: payloadStr(payload, "description"),
+			Timestamp:   payloadStr(payload, "timestamp"),
+			Status:      payloadStr(payload, "status"),
 		}
-		if rec.Timestamp == "" || rec.Timestamp == "<nil>" {
+		if rec.Timestamp == "" {
 			rec.Timestamp = nowStr
 		}
-		if rec.Status == "" || rec.Status == "<nil>" {
+		if rec.Status == "" {
 			rec.Status = "PENDING_AUDIT"
 		}
 		jsonBytes, _ := json.Marshal(rec)
@@ -530,34 +604,46 @@ func (s *FabricGatewayService) CommitAsset(assetType, assetID string, payload ma
 
 	case "EMERGENCY_AUDIT", "EMERGENCY_STATUS":
 		methodName = "UpdateEmergencyStatus"
-		eventNo := fmt.Sprintf("%v", payload["event_no"])
-		if eventNo == "" || eventNo == "<nil>" {
+		eventNo := payloadStr(payload, "event_no")
+		if eventNo == "" {
 			eventNo = assetID
 		}
-		auditStatus := fmt.Sprintf("%v", payload["audit_status"])
-		if auditStatus == "" || auditStatus == "<nil>" {
-			auditStatus = fmt.Sprintf("%v", payload["status"])
+		auditStatus := payloadStr(payload, "audit_status", "new_status", "status")
+		supervisorID := payloadStr(payload, "supervisor_id")
+		comment := payloadStr(payload, "comment")
+		punishment := payloadStr(payload, "punishment")
+		auditTime := payloadStr(payload, "timestamp")
+		if auditTime == "" {
+			auditTime = nowStr
 		}
-		supervisorID := fmt.Sprintf("%v", payload["supervisor_id"])
-		comment := fmt.Sprintf("%v", payload["comment"])
-		punishment := fmt.Sprintf("%v", payload["punishment"])
-		args = []string{eventNo, auditStatus, supervisorID, comment, punishment, nowStr}
+		args = []string{eventNo, auditStatus, supervisorID, comment, punishment, auditTime}
 
 	default:
 		methodName = "CreateAuditRecord"
-		if _, ok := payload["log_id"]; !ok || fmt.Sprintf("%v", payload["log_id"]) == "" {
-			payload["log_id"] = assetID
+		logID := payloadStr(payload, "log_id", "audit_id")
+		if logID == "" {
+			logID = assetID
 		}
-		jsonBytes, _ := json.Marshal(payload)
+		auditPayload := map[string]interface{}{
+			"log_id":      logID,
+			"user_id":     payloadStr(payload, "user_id"),
+			"op_type":     payloadStr(payload, "op_type", "action", "business_type"),
+			"target_type": payloadStr(payload, "target_type"),
+			"target_id":   payloadStr(payload, "target_id", "resource_id", "record_id"),
+			"hospital_id": payloadStr(payload, "hospital_id"),
+			"result":      payloadStr(payload, "result"),
+			"risk_level":  payloadStr(payload, "risk_level"),
+			"timestamp":   nowStr,
+		}
+		jsonBytes, _ := json.Marshal(auditPayload)
 		args = []string{string(jsonBytes)}
 	}
 
-	// 真实提交 Proposal 并获取真实 Fabric Transaction ID 与 BlockNumber
-	proposal, err := s.contract.NewProposal(methodName, client.WithArguments(args...))
+	// 锁外执行网络背书/提交/确认（client.Contract 线程安全），避免持全局写锁长达 90s 阻塞全系统读/写
+	proposal, err := contract.NewProposal(methodName, client.WithArguments(args...))
 	if err != nil {
 		if isNetworkErr(err) {
-			s.connected = false
-			s.statusMessage = fmt.Sprintf("proposal error: %v", err)
+			s.markDisconnected(contract, fmt.Sprintf("proposal error: %v", err))
 		}
 		return "", 0, fmt.Errorf("failed to create Fabric proposal for %s: %w", methodName, err)
 	}
@@ -566,8 +652,7 @@ func (s *FabricGatewayService) CommitAsset(assetType, assetID string, payload ma
 	endorsed, err := proposal.Endorse()
 	if err != nil {
 		if isNetworkErr(err) {
-			s.connected = false
-			s.statusMessage = fmt.Sprintf("endorse error: %v", err)
+			s.markDisconnected(contract, fmt.Sprintf("endorse error: %v", err))
 		}
 		return "", 0, fmt.Errorf("failed to endorse Fabric transaction %s: %w", txID, err)
 	}
@@ -575,8 +660,7 @@ func (s *FabricGatewayService) CommitAsset(assetType, assetID string, payload ma
 	commit, err := endorsed.Submit()
 	if err != nil {
 		if isNetworkErr(err) {
-			s.connected = false
-			s.statusMessage = fmt.Sprintf("submit error: %v", err)
+			s.markDisconnected(contract, fmt.Sprintf("submit error: %v", err))
 		}
 		return "", 0, fmt.Errorf("failed to submit Fabric transaction %s: %w", txID, err)
 	}
@@ -584,8 +668,7 @@ func (s *FabricGatewayService) CommitAsset(assetType, assetID string, payload ma
 	status, err := commit.Status()
 	if err != nil {
 		if isNetworkErr(err) {
-			s.connected = false
-			s.statusMessage = fmt.Sprintf("commit status error: %v", err)
+			s.markDisconnected(contract, fmt.Sprintf("commit status error: %v", err))
 		}
 		return txID, 0, fmt.Errorf("failed to obtain commit status for %s: %w", txID, err)
 	}
@@ -595,8 +678,12 @@ func (s *FabricGatewayService) CommitAsset(assetType, assetID string, payload ma
 	}
 
 	height = status.BlockNumber
-	s.blockCount = height
+	s.mu.Lock()
+	if height > s.blockCount {
+		s.blockCount = height
+	}
 	s.txCount++
+	s.mu.Unlock()
 
 	log.Printf("[FabricGateway] ✅ 交易已成功上链: TxID=%s, BlockHeight=%d, Contract=%s, Method=%s",
 		txID, height, s.cfg.ChaincodeID, methodName)
@@ -614,25 +701,25 @@ func (s *FabricGatewayService) QueryAsset(assetID string) (map[string]interface{
 	}
 
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	connected := s.connected
+	contract := s.contract
+	s.mu.RUnlock()
 
-	if !s.connected || s.contract == nil {
+	if !connected || contract == nil {
 		return nil, false
 	}
 
-	// 优先以 QueryMedicalAsset 查询统一模型
-	result, err := s.contract.EvaluateTransaction("QueryMedicalAsset", assetID)
+	// 锁外执行 EvaluateTransaction，避免在 RLock 下写状态导致 Data Race
+	result, err := contract.EvaluateTransaction("QueryMedicalAsset", assetID)
 	if err != nil {
 		if isNetworkErr(err) {
-			s.connected = false
-			s.statusMessage = fmt.Sprintf("evaluate error: %v", err)
+			s.markDisconnected(contract, fmt.Sprintf("evaluate error: %v", err))
 		}
 		// 备用 QueryMedicalRecord
-		result, err = s.contract.EvaluateTransaction("QueryMedicalRecord", assetID)
+		result, err = contract.EvaluateTransaction("QueryMedicalRecord", assetID)
 		if err != nil {
 			if isNetworkErr(err) {
-				s.connected = false
-				s.statusMessage = fmt.Sprintf("evaluate error: %v", err)
+				s.markDisconnected(contract, fmt.Sprintf("evaluate error: %v", err))
 			}
 			return nil, false
 		}
@@ -662,25 +749,30 @@ func (s *FabricGatewayService) GetHistory(assetID string) ([]ChainRecord, error)
 	}
 
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if !s.connected || s.contract == nil {
+	connected := s.connected
+	contract := s.contract
+	blockCount := s.blockCount
+	s.mu.RUnlock()
+
+	if !connected || contract == nil {
 		return nil, nil
 	}
-	result, err := s.contract.EvaluateTransaction("QueryAuditLogs", assetID)
+	result, err := contract.EvaluateTransaction("QueryAuditLogs", assetID)
 	if err != nil {
 		if isNetworkErr(err) {
-			s.connected = false
-			s.statusMessage = fmt.Sprintf("evaluate error: %v", err)
+			s.markDisconnected(contract, fmt.Sprintf("evaluate error: %v", err))
 		}
 		return nil, err
 	}
 	var logs []*AuditLog
-	_ = json.Unmarshal(result, &logs)
+	if err := json.Unmarshal(result, &logs); err != nil {
+		return nil, fmt.Errorf("failed to parse chaincode audit logs: %w", err)
+	}
 	var records []ChainRecord
 	for _, l := range logs {
 		records = append(records, ChainRecord{
 			TxID:        l.AuditID,
-			BlockHeight: s.blockCount,
+			BlockHeight: blockCount,
 			Timestamp:   l.Timestamp,
 			AssetType:   "AUDIT",
 			AssetID:     l.RecordID,

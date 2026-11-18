@@ -264,27 +264,95 @@ func initInfectionRules() []InfectionRule {
 	}
 }
 
-// matchText 针对单段文本（诊断、主诉、既往史、现病史等）进行关键词扫描
+func isASCIIAlphaNumByte(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
+}
+
+// findPositiveKeywordMatch 在否定剥离后的肯定性子句中定位传染病关键词，兼顾 ASCII 词边界与邻近否定窗口保护
+func findPositiveKeywordMatch(clause, lowerKw string) bool {
+	offset := 0
+	for {
+		idx := strings.Index(clause[offset:], lowerKw)
+		if idx < 0 {
+			return false
+		}
+		absIdx := offset + idx
+		endIdx := absIdx + len(lowerKw)
+
+		// 纯/首尾 ASCII 词边界校验，避免 "cre" 误中 "creatinine" 等无关英文词
+		validBoundary := true
+		if len(lowerKw) > 0 && isASCIIAlphaNumByte(lowerKw[0]) && absIdx > 0 && isASCIIAlphaNumByte(clause[absIdx-1]) {
+			validBoundary = false
+		}
+		if len(lowerKw) > 0 && isASCIIAlphaNumByte(lowerKw[len(lowerKw)-1]) && endIdx < len(clause) && isASCIIAlphaNumByte(clause[endIdx]) {
+			validBoundary = false
+		}
+
+		if validBoundary {
+			// 后缀邻近窗口检测（最多 24 字节，排除 "HBsAg 阴性" / "HIV (-)" / "TPPA未检出"）
+			sufEnd := endIdx + 24
+			if sufEnd > len(clause) {
+				sufEnd = len(clause)
+			}
+			suf := clause[endIdx:sufEnd]
+			posInSuf := strings.Contains(suf, "阳性") || strings.Contains(suf, "(+)")
+			negInSuf := strings.Contains(suf, "阴性") || strings.Contains(suf, "(-)") ||
+				strings.Contains(suf, "negative") || strings.Contains(suf, "non-reactive") ||
+				strings.Contains(suf, "未检出") || strings.Contains(suf, "未见") || strings.Contains(suf, "排除")
+
+			// 前缀邻近窗口检测（最多 24 字节，排除 "无明确结核" / "否认HIV"）
+			preStart := absIdx - 24
+			if preStart < 0 {
+				preStart = 0
+			}
+			pre := clause[preStart:absIdx]
+			negInPre := strings.Contains(pre, "否认") || strings.Contains(pre, "未见") ||
+				strings.Contains(pre, "排除") || strings.Contains(pre, "无既往")
+
+			if !(negInSuf && !posInSuf) && !negInPre {
+				return true
+			}
+		}
+
+		offset = endIdx
+		if offset >= len(clause) {
+			return false
+		}
+	}
+}
+
+// matchText 针对单段文本（诊断、主诉、既往史、现病史等）进行关键词扫描（自动剥离阴性/否认表述，防止假阳性告警）
 func (s *InfectionService) matchText(text string) []model.InfectionDiseaseInfo {
 	if strings.TrimSpace(text) == "" {
 		return nil
 	}
-	lowerText := strings.ToLower(text)
+	affirmative := filterAffirmativeClinicalText(text)
+	if strings.TrimSpace(affirmative) == "" {
+		return nil
+	}
+	clauses := clinicalClauseSepRe.Split(strings.ToLower(affirmative), -1)
 	var matched []model.InfectionDiseaseInfo
 
 	for _, rule := range s.rules {
+	ruleLoop:
 		for _, kw := range rule.Keywords {
-			if strings.Contains(lowerText, strings.ToLower(kw)) {
-				matched = append(matched, model.InfectionDiseaseInfo{
-					Name:           rule.Name,
-					Category:       rule.Category,
-					Persistence:    rule.Persistence,
-					ThreatToDoctor: rule.ThreatToDoctor,
-					Transmission:   rule.Transmission,
-					RiskLevel:      rule.RiskLevel,
-					MatchedKeyword: kw,
-				})
-				break // 该规则命中一个关键词即可跳出
+			lowerKw := strings.ToLower(kw)
+			for _, cl := range clauses {
+				if cl == "" {
+					continue
+				}
+				if findPositiveKeywordMatch(cl, lowerKw) {
+					matched = append(matched, model.InfectionDiseaseInfo{
+						Name:           rule.Name,
+						Category:       rule.Category,
+						Persistence:    rule.Persistence,
+						ThreatToDoctor: rule.ThreatToDoctor,
+						Transmission:   rule.Transmission,
+						RiskLevel:      rule.RiskLevel,
+						MatchedKeyword: kw,
+					})
+					break ruleLoop
+				}
 			}
 		}
 	}
@@ -293,6 +361,12 @@ func (s *InfectionService) matchText(text string) []model.InfectionDiseaseInfo {
 
 // AnalyzePatientRisks 查询该患者在全网/所有机构的历史病历与检验单，进行医护安全高危传染病排查
 func (s *InfectionService) AnalyzePatientRisks(patientID uint64) (*model.InfectionRiskAlert, error) {
+	return s.AnalyzePatientRisksWithScope(patientID, nil)
+}
+
+// AnalyzePatientRisksWithScope 在患者全景职业暴露检测的基础上，按调用者已获授权病历集合对未授权来源单号与机构名进行脱敏
+// (authorizedRecordIDs == nil 表示内部全量检测或后续自行整体脱敏的场景)
+func (s *InfectionService) AnalyzePatientRisksWithScope(patientID uint64, authorizedRecordIDs map[uint64]bool) (*model.InfectionRiskAlert, error) {
 	if patientID == 0 {
 		return &model.InfectionRiskAlert{HasRisk: false, RiskLevel: "SAFE", Summary: "未选择就诊患者"}, nil
 	}
@@ -309,23 +383,21 @@ func (s *InfectionService) AnalyzePatientRisks(patientID uint64) (*model.Infecti
 		examOrders = nil
 	}
 
-	return s.evaluateRisks(records, examOrders)
+	return s.evaluateRisksWithScope(records, examOrders, authorizedRecordIDs)
 }
 
-// AnalyzeRecordRisks 分析某单张病历与其患者历史背景
+// AnalyzeRecordRisks 分析某单张病历与其患者历史背景（自动对未获该单据以外的跨院来源单号/机构脱敏，防止越权元数据泄露）
 func (s *InfectionService) AnalyzeRecordRisks(recordID uint64) (*model.InfectionRiskAlert, error) {
 	record, err := repository.DefaultMedicalRepository.FindRecordSimpleByID(recordID)
 	if err != nil {
 		return nil, err
 	}
 
-	// 优先排查该患者在系统内的全景病史，以保证无论当前科室记录何病，医生都能获悉患者既往传染病史
 	if record.PatientID > 0 {
-		return s.AnalyzePatientRisks(record.PatientID)
+		return s.AnalyzePatientRisksWithScope(record.PatientID, map[uint64]bool{recordID: true})
 	}
 
-	// 若无关联患者 ID，则仅排查该单份病历
-	return s.evaluateRisks([]model.MedicalRecord{*record}, nil)
+	return s.evaluateRisksWithScope([]model.MedicalRecord{*record}, nil, map[uint64]bool{recordID: true})
 }
 
 // EvaluateDirectText 即时评估医生在界面上填写的文本 (支持前端实时推断)
@@ -343,13 +415,33 @@ func (s *InfectionService) EvaluateDirectText(text string) *model.InfectionRiskA
 
 // evaluateRisks 汇总病历与检验单做综合风险研判
 func (s *InfectionService) evaluateRisks(records []model.MedicalRecord, examOrders []model.MedicalExamOrder) (*model.InfectionRiskAlert, error) {
+	return s.evaluateRisksWithScope(records, examOrders, nil)
+}
+
+// evaluateRisksWithScope 按调用者已授权病历边界汇总传染病风险；未授权来源档案保留职业暴露防护预警但脱敏来源编号与机构名
+func (s *InfectionService) evaluateRisksWithScope(records []model.MedicalRecord, examOrders []model.MedicalExamOrder, authorizedRecordIDs map[uint64]bool) (*model.InfectionRiskAlert, error) {
 	var allMatched []model.InfectionDiseaseInfo
 	var detectedSources []string
 	seenRule := make(map[string]bool)
 
-	// 扫描病历字段
-	for _, rec := range records {
-		fullText := fmt.Sprintf("%s %s %s %s %s %s %s %s",
+	// 扫描病历字段（优先扫描已授权记录，确保若已授权记录与未授权记录同时记载时，优先展示已授权来源明细）
+	orderedRecords := records
+	if authorizedRecordIDs != nil && len(records) > 1 {
+		orderedRecords = make([]model.MedicalRecord, 0, len(records))
+		for _, rec := range records {
+			if authorizedRecordIDs[rec.ID] {
+				orderedRecords = append(orderedRecords, rec)
+			}
+		}
+		for _, rec := range records {
+			if !authorizedRecordIDs[rec.ID] {
+				orderedRecords = append(orderedRecords, rec)
+			}
+		}
+	}
+
+	for _, rec := range orderedRecords {
+		fullText := strings.Join([]string{
 			rec.Diagnosis,
 			rec.InitialDiagnosis,
 			rec.ChiefComplaint,
@@ -358,42 +450,56 @@ func (s *InfectionService) evaluateRisks(records []model.MedicalRecord, examOrde
 			rec.Etiology,
 			rec.ExamResult,
 			rec.ExamItems,
-		)
+		}, "，")
 
 		matches := s.matchText(fullText)
+		isAuthorizedSource := authorizedRecordIDs == nil || authorizedRecordIDs[rec.ID]
 		for _, m := range matches {
 			if !seenRule[m.Name] {
 				seenRule[m.Name] = true
-				m.RecordNo = rec.RecordNo
-				m.HospitalName = rec.HospitalName
-				if rec.HospitalName == "" {
-					m.HospitalName = formatHospName(rec.HospitalID)
+				if isAuthorizedSource {
+					m.RecordNo = rec.RecordNo
+					m.HospitalName = rec.HospitalName
+					if rec.HospitalName == "" {
+						m.HospitalName = formatHospName(rec.HospitalID)
+					}
+					m.RecordDate = rec.CreatedAt.Format("2006-01-02 15:04")
+					sourceDesc := fmt.Sprintf("就诊编号 %s (%s, %s): 命中关键词【%s】",
+						rec.RecordNo, m.HospitalName, m.RecordDate, m.MatchedKeyword)
+					detectedSources = append(detectedSources, sourceDesc)
+				} else {
+					m.RecordNo = "[受控保密]"
+					m.HospitalName = "[未授权外院档案]"
+					m.RecordDate = ""
+					detectedSources = append(detectedSources, "既往关联隐私档案（未获明细授权，已隐藏机构与病历号，仅作职业暴露防护预警）")
 				}
-				m.RecordDate = rec.CreatedAt.Format("2006-01-02 15:04")
 				allMatched = append(allMatched, m)
-
-				sourceDesc := fmt.Sprintf("就诊编号 %s (%s, %s): 命中关键词【%s】",
-					rec.RecordNo, m.HospitalName, m.RecordDate, m.MatchedKeyword)
-				detectedSources = append(detectedSources, sourceDesc)
 			}
 		}
 	}
 
 	// 扫描检验单字段
 	for _, ord := range examOrders {
-		examText := fmt.Sprintf("%s %s %s", ord.ExamItem, ord.ExamReason, ord.ExamResult)
+		examText := strings.Join([]string{ord.ExamItem, ord.ExamReason, ord.ExamResult}, "，")
 		matches := s.matchText(examText)
+		isAuthorizedOrder := authorizedRecordIDs == nil || (ord.RecordID > 0 && authorizedRecordIDs[ord.RecordID])
 		for _, m := range matches {
 			if !seenRule[m.Name] {
 				seenRule[m.Name] = true
-				m.RecordNo = ord.OrderNo
-				m.HospitalName = formatHospName(ord.HospitalID)
-				m.RecordDate = ord.CreatedAt.Format("2006-01-02 15:04")
+				if isAuthorizedOrder {
+					m.RecordNo = ord.OrderNo
+					m.HospitalName = formatHospName(ord.HospitalID)
+					m.RecordDate = ord.CreatedAt.Format("2006-01-02 15:04")
+					sourceDesc := fmt.Sprintf("检验单号 %s (%s): 命中关键词【%s】",
+						ord.OrderNo, m.HospitalName, m.MatchedKeyword)
+					detectedSources = append(detectedSources, sourceDesc)
+				} else {
+					m.RecordNo = "[受控保密]"
+					m.HospitalName = "[未授权外院检验]"
+					m.RecordDate = ""
+					detectedSources = append(detectedSources, "既往关联隐私检验单（未获明细授权，已隐藏机构与单号，仅作职业暴露防护预警）")
+				}
 				allMatched = append(allMatched, m)
-
-				sourceDesc := fmt.Sprintf("检验单号 %s (%s): 命中关键词【%s】",
-					ord.OrderNo, m.HospitalName, m.MatchedKeyword)
-				detectedSources = append(detectedSources, sourceDesc)
 			}
 		}
 	}

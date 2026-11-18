@@ -6,7 +6,7 @@ MedTrust 区块链防篡改攻防演练控制台 (Web Console)
 用于向评委与用户生动演示：当黑客攻破数据库时，区块链是如何在被打开的一瞬间即时感知并阻断篡改的。
 """
 
-import sys, os, json, hashlib
+import sys, os, json, hashlib, hmac, secrets
 from flask import Flask, jsonify, request, render_template_string
 import pymysql
 
@@ -14,13 +14,28 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 app = Flask(__name__)
+TAMPER_SESSION_TOKEN = os.environ.get('TAMPER_CONSOLE_TOKEN') or secrets.token_urlsafe(32)
+
+
+def _require_tamper_token():
+    provided = request.headers.get('X-Tamper-Token', '')
+    if not provided or not hmac.compare_digest(provided, TAMPER_SESSION_TOKEN):
+        return jsonify({'code': 403, 'message': '安全拦截：缺少或无效的本地演示控制台会话令牌 (X-Tamper-Token)'}), 403
+    return None
+
+
+@app.after_request
+def _add_security_headers(resp):
+    resp.headers['X-Content-Type-Options'] = 'nosniff'
+    resp.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    return resp
 
 DB_CONFIG = {
-    'host': '127.0.0.1',
-    'port': 3306,
-    'user': 'root',
-    'password': '123456',
-    'database': 'medtrust',
+    'host': os.environ.get('MYSQL_HOST', '127.0.0.1'),
+    'port': int(os.environ.get('MYSQL_PORT', '3306')),
+    'user': os.environ.get('MYSQL_USER', 'root'),
+    'password': os.environ.get('MYSQL_PASSWORD', ''),
+    'database': os.environ.get('MYSQL_DATABASE', 'medtrust'),
     'charset': 'utf8mb4',
     'autocommit': True
 }
@@ -54,9 +69,37 @@ TAMPERED_RECORD_1 = {
     'diagnosis': '【已被黑客恶意篡改】患者完全健康，血压心电图正常，既往药物过敏史已清空，准予青霉素输注。'
 }
 
-def _seed_clinical_hash(rec_no, data_type, onset, duration, symptoms, etiology, plan, diag, file_content):
+def _seed_clinical_hash(rec_no, data_type, onset, duration, symptoms, etiology, plan, diag, file_content, **extra):
     fh = hashlib.sha256(file_content.encode('utf-8')).hexdigest()
-    raw = '|'.join([rec_no, data_type, onset, duration, symptoms, etiology, plan, diag, fh])
+    payload = {
+        'record_no': str(rec_no or ''),
+        'data_type': str(data_type or ''),
+        'encounter_type': str(extra.get('encounter_type') or ''),
+        'department_name': str(extra.get('department_name') or ''),
+        'onset_time': str(onset or ''),
+        'duration': str(duration or ''),
+        'symptoms': str(symptoms or ''),
+        'etiology': str(etiology or ''),
+        'treatment_plan': str(plan or ''),
+        'diagnosis': str(diag or ''),
+        'chief_complaint': str(extra.get('chief_complaint') or ''),
+        'present_illness': str(extra.get('present_illness') or ''),
+        'vital_signs': str(extra.get('vital_signs') or ''),
+        'initial_diagnosis': str(extra.get('initial_diagnosis') or ''),
+        'diagnostic_basis': str(extra.get('diagnostic_basis') or ''),
+        'exam_items': str(extra.get('exam_items') or ''),
+        'exam_reason': str(extra.get('exam_reason') or ''),
+        'exam_result': str(extra.get('exam_result') or ''),
+        'file_hash': fh,
+    }
+    raw = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
+    raw = (
+        raw.replace('<', '\\u003c')
+        .replace('>', '\\u003e')
+        .replace('&', '\\u0026')
+        .replace('\u2028', '\\u2028')
+        .replace('\u2029', '\\u2029')
+    )
     return hashlib.sha256(raw.encode('utf-8')).hexdigest()
 
 # 预存的 Fabric 联盟链链上固化基准哈希（不可篡改，同时兼容 REC202505* 与旧版 REC202609*）
@@ -65,19 +108,22 @@ BASELINE_CHAIN_HASHES = {
         'REC20250501001', 'EMR', '2025-04-10', '2周', '反复心前区闷痛伴胸闷',
         '劳累及情绪激动诱发', '单硝酸异山梨酯缓释片 30mg qd, 阿托伐他汀 20mg qn',
         '冠状动脉粥样硬化性心脏病 劳力性心绞痛',
-        '广州第一附属医院 门诊电子病历 [REC20250501001]\n患者: 张三\n经治医生: 李建国 (主任医师)\n诊断: 冠状动脉粥样硬化性心脏病 劳力性心绞痛\n医嘱: 规范抗心肌缺血与降脂稳定斑块治疗。'
+        '广州第一附属医院 门诊电子病历 [REC20250501001]\n患者: 张三\n经治医生: 李建国 (主任医师)\n诊断: 冠状动脉粥样硬化性心脏病 劳力性心绞痛\n医嘱: 规范抗心肌缺血与降脂稳定斑块治疗。',
+        encounter_type='OUTPATIENT', department_name='心内科', chief_complaint='活动后胸痛胸闷6月，加重1周'
     ),
     'REC20250502002': _seed_clinical_hash(
         'REC20250502002', 'EMR', '2025-04-15', '1个月', '间歇性头晕、颈项发胀伴睡眠不佳',
         '高盐饮食及工作熬夜', '苯磺酸氨氯地平片 5mg qd, 替米沙坦片 40mg qd',
         '原发性高血压 3级 (很高危组)',
-        '深圳中心医院 门诊电子病历 [REC20250502002]\n患者: 张三\n经治医生: 王明德 (主治医师)\n诊断: 原发性高血压 3级 (很高危组)\n医嘱: 规律服用降压药，严格监测晨起与晚间血压。'
+        '深圳中心医院 门诊电子病历 [REC20250502002]\n患者: 张三\n经治医生: 王明德 (主治医师)\n诊断: 原发性高血压 3级 (很高危组)\n医嘱: 规律服用降压药，严格监测晨起与晚间血压。',
+        encounter_type='OUTPATIENT', department_name='心内科', chief_complaint='血压升高伴头胀2周，最高达 180/110 mmHg'
     ),
     'REC20250503003': _seed_clinical_hash(
         'REC20250503003', 'EMR', '2025-05-03 08:30', '2小时', '突发剧烈胸骨后压榨样疼痛，向左肩放射，面色苍白大汗',
         '急性心肌缺血坏死', '急诊冠脉造影(CAG)及经皮冠状动脉介入治疗(PCI)，植入DES支架1枚',
         '急性广泛前壁心肌梗死 (AMI) Killip II级',
-        '深圳中心医院 急诊抢救记录 [REC20250503003]\n患者: 张三\n经治医生: 陈建明 (主治医师)\n诊断: 急性广泛前壁心肌梗死 (AMI) Killip II级\n抢救处置: 紧急开通绿色通道行急诊PCI开通闭塞前降支。'
+        '深圳中心医院 急诊抢救记录 [REC20250503003]\n患者: 张三\n经治医生: 陈建明 (主治医师)\n诊断: 急性广泛前壁心肌梗死 (AMI) Killip II级\n抢救处置: 紧急开通绿色通道行急诊PCI开通闭塞前降支。',
+        encounter_type='EMERGENCY', department_name='急诊科', chief_complaint='突发持续剧烈胸痛2小时伴大汗'
     ),
     'REC202609001': 'b1e85a9a949446045c213ae3fdc558b3e0c62686ec7cd482cb4f8d3e8f3b992e',
     'REC202609002': '861ebf116f5632136fa3c2ec4d32a246708f0e8eb34344d949928cc4fef4d9f8',
@@ -88,6 +134,7 @@ BASELINE_CHAIN_HASHES = {
 def load_chain_hash_from_ledger(record_no, default_hash=''):
     base_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = [
+        os.path.join(base_dir, '..', 'backend', 'data', 'fabric_ledger', 'ledger_history.json'),
         os.path.join(base_dir, '..', 'backend', 'ledger_data', 'ledger_history.json'),
         os.path.join(base_dir, '..', 'backend', 'data', 'ledger_history.json'),
     ]
@@ -110,8 +157,35 @@ def get_db():
     return pymysql.connect(**DB_CONFIG)
 
 def compute_hash(r, file_hash=''):
-    parts = [r.get('record_no',''), r.get('data_type',''), r.get('onset_time',''), r.get('duration',''), r.get('symptoms',''), r.get('etiology',''), r.get('treatment_plan',''), r.get('diagnosis',''), file_hash]
-    raw = '|'.join(str(p or '') for p in parts)
+    payload = {
+        'record_no': str(r.get('record_no') or ''),
+        'data_type': str(r.get('data_type') or ''),
+        'encounter_type': str(r.get('encounter_type') or ''),
+        'department_name': str(r.get('department_name') or ''),
+        'onset_time': str(r.get('onset_time') or ''),
+        'duration': str(r.get('duration') or ''),
+        'symptoms': str(r.get('symptoms') or ''),
+        'etiology': str(r.get('etiology') or ''),
+        'treatment_plan': str(r.get('treatment_plan') or ''),
+        'diagnosis': str(r.get('diagnosis') or ''),
+        'chief_complaint': str(r.get('chief_complaint') or ''),
+        'present_illness': str(r.get('present_illness') or ''),
+        'vital_signs': str(r.get('vital_signs') or ''),
+        'initial_diagnosis': str(r.get('initial_diagnosis') or ''),
+        'diagnostic_basis': str(r.get('diagnostic_basis') or ''),
+        'exam_items': str(r.get('exam_items') or ''),
+        'exam_reason': str(r.get('exam_reason') or ''),
+        'exam_result': str(r.get('exam_result') or ''),
+        'file_hash': str(file_hash or ''),
+    }
+    raw = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
+    raw = (
+        raw.replace('<', '\\u003c')
+        .replace('>', '\\u003e')
+        .replace('&', '\\u0026')
+        .replace('\u2028', '\\u2028')
+        .replace('\u2029', '\\u2029')
+    )
     return hashlib.sha256(raw.encode('utf-8')).hexdigest()
 
 HTML_TEMPLATE = """
@@ -520,10 +594,23 @@ HTML_TEMPLATE = """
   </div>
 
   <script>
+    const TAMPER_TOKEN = {{ tamper_token | tojson }};
+
+    function escapeHtml(val) {
+      return String(val ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
     function log(msg) {
       const b = document.getElementById('logBox');
       const time = new Date().toTimeString().substring(0, 8);
-      b.innerHTML = `[${time}] ${msg}<br>` + b.innerHTML;
+      const line = document.createElement('div');
+      line.textContent = `[${time}] ${String(msg ?? '')}`;
+      b.prepend(line);
     }
 
     async function fetchRecords() {
@@ -537,22 +624,26 @@ HTML_TEMPLATE = """
         }
 
         tbody.innerHTML = data.map(r => {
-          const isTampered = r.is_tampered;
+          const isTampered = Boolean(r.is_tampered);
           const statusBadge = isTampered
             ? '<span class="badge badge-tampered"><i class="fa-solid fa-triangle-exclamation"></i> 🚨 存在篡改</span>'
             : '<span class="badge badge-safe"><i class="fa-solid fa-shield-halved"></i> 🛡️ 校验通过</span>';
 
           const hashClass = isTampered ? 'hash-mismatch' : 'hash-match';
+          const etiologyRaw = String(r.etiology || '');
+          const treatmentRaw = String(r.treatment_plan || '');
+          const curHashPrefix = r.current_hash ? escapeHtml(String(r.current_hash).substring(0, 14) + '...') : '-';
+          const chainHashPrefix = r.chain_hash ? escapeHtml(String(r.chain_hash).substring(0, 14) + '...') : '-';
 
           return `
             <tr>
-              <td><strong>#${r.id}</strong></td>
-              <td><code>${r.record_no}</code></td>
-              <td>${r.patient_name || '-'}</td>
-              <td style="${isTampered && r.etiology.includes('【已被黑客') ? 'color: #f87171; font-weight: bold;' : ''}">${r.etiology || '-'}</td>
-              <td style="${isTampered && r.treatment_plan.includes('【已被黑客') ? 'color: #f87171; font-weight: bold;' : ''}">${r.treatment_plan || '-'}</td>
-              <td><span class="hash-code ${hashClass}">${r.current_hash ? r.current_hash.substring(0, 14) + '...' : '-'}</span></td>
-              <td><span class="hash-code hash-match">${r.chain_hash ? r.chain_hash.substring(0, 14) + '...' : '-'}</span></td>
+              <td><strong>#${escapeHtml(r.id)}</strong></td>
+              <td><code>${escapeHtml(r.record_no)}</code></td>
+              <td>${escapeHtml(r.patient_name || '-')}</td>
+              <td style="${isTampered && etiologyRaw.includes('【已被黑客') ? 'color: #f87171; font-weight: bold;' : ''}">${escapeHtml(r.etiology || '-')}</td>
+              <td style="${isTampered && treatmentRaw.includes('【已被黑客') ? 'color: #f87171; font-weight: bold;' : ''}">${escapeHtml(r.treatment_plan || '-')}</td>
+              <td><span class="hash-code ${hashClass}">${curHashPrefix}</span></td>
+              <td><span class="hash-code hash-match">${chainHashPrefix}</span></td>
               <td style="text-align: center;">${statusBadge}</td>
             </tr>
           `;
@@ -565,20 +656,34 @@ HTML_TEMPLATE = """
     async function triggerAttack() {
       if (!confirm('确定要绕过 API 直接向底层 MySQL 数据库执行篡改攻击吗？')) return;
       log('正在发起数据库注入攻击：UPDATE medical_records SET etiology=... WHERE id=1');
-      const res = await fetch('/api/attack', { method: 'POST' });
+      const res = await fetch('/api/attack', {
+        method: 'POST',
+        headers: { 'X-Tamper-Token': TAMPER_TOKEN }
+      });
       const data = await res.json();
       log(data.message);
       fetchRecords();
-      alert('💥 攻击成功！数据库已被恶意篡改！请前往主系统 (http://localhost:5173) 查看病历，系统将立即展示高危警报！');
+      if (res.ok) {
+        alert('💥 攻击成功！数据库已被恶意篡改！请前往主系统 (http://localhost:5173) 查看病历，系统将立即展示高危警报！');
+      } else {
+        alert(data.message || '操作失败');
+      }
     }
 
     async function triggerRollback() {
       log('正在执行数据还原操作：重置病历1为原始真实数据...');
-      const res = await fetch('/api/rollback', { method: 'POST' });
+      const res = await fetch('/api/rollback', {
+        method: 'POST',
+        headers: { 'X-Tamper-Token': TAMPER_TOKEN }
+      });
       const data = await res.json();
       log(data.message);
       fetchRecords();
-      alert('✅ 还原成功！数据库数据已恢复！主系统核验将重回绿色通过状态。');
+      if (res.ok) {
+        alert('✅ 还原成功！数据库数据已恢复！主系统核验将重回绿色通过状态。');
+      } else {
+        alert(data.message || '操作失败');
+      }
     }
 
     async function triggerCustomTamper() {
@@ -590,7 +695,7 @@ HTML_TEMPLATE = """
       log(`正在注入篡改: ID=${id}, Field=${field}, Payload="${val}"`);
       const res = await fetch('/api/custom_tamper', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Tamper-Token': TAMPER_TOKEN },
         body: JSON.stringify({ id, field, value: val })
       });
       const data = await res.json();
@@ -608,21 +713,23 @@ HTML_TEMPLATE = """
 
 @app.route('/')
 def index():
-    return render_template_string(HTML_TEMPLATE)
+    return render_template_string(HTML_TEMPLATE, tamper_token=TAMPER_SESSION_TOKEN)
 
 @app.route('/api/records', methods=['GET'])
 def get_records():
     conn = get_db()
-    cur = conn.cursor(pymysql.cursors.DictCursor)
-    cur.execute("""
-        SELECT r.*, f.file_hash, u.real_name as patient_name 
-        FROM medical_records r 
-        LEFT JOIN medical_files f ON f.record_id = r.id 
-        LEFT JOIN users u ON u.id = r.patient_id
-        ORDER BY r.id ASC
-    """)
-    rows = cur.fetchall()
-    conn.close()
+    try:
+        cur = conn.cursor(pymysql.cursors.DictCursor)
+        cur.execute("""
+            SELECT r.*, f.file_hash, u.real_name as patient_name 
+            FROM medical_records r 
+            LEFT JOIN medical_files f ON f.record_id = r.id 
+            LEFT JOIN users u ON u.id = r.patient_id
+            ORDER BY r.id ASC
+        """)
+        rows = cur.fetchall()
+    finally:
+        conn.close()
 
     result = []
     for r in rows:
@@ -649,14 +756,19 @@ def get_records():
 
 @app.route('/api/attack', methods=['POST'])
 def attack():
+    auth_err = _require_tamper_token()
+    if auth_err is not None:
+        return auth_err
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        UPDATE medical_records 
-        SET etiology = %s, treatment_plan = %s, diagnosis = %s 
-        WHERE record_no = 'REC20250501001' OR id = 1
-    """, (TAMPERED_RECORD_1['etiology'], TAMPERED_RECORD_1['treatment_plan'], TAMPERED_RECORD_1['diagnosis']))
-    conn.close()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE medical_records 
+            SET etiology = %s, treatment_plan = %s, diagnosis = %s 
+            WHERE record_no = 'REC20250501001' OR id = 1
+        """, (TAMPERED_RECORD_1['etiology'], TAMPERED_RECORD_1['treatment_plan'], TAMPERED_RECORD_1['diagnosis']))
+    finally:
+        conn.close()
     return jsonify({
         'code': 200,
         'message': '🚨 [ATTACK SUCCESS] 攻击完成！病历1 (REC20250501001) 的临床诱因、诊断与处置方案已在底层 MySQL 数据库中被直接篡改！'
@@ -664,40 +776,45 @@ def attack():
 
 @app.route('/api/rollback', methods=['POST'])
 def rollback():
+    auth_err = _require_tamper_token()
+    if auth_err is not None:
+        return auth_err
     conn = get_db()
-    cur = conn.cursor(pymysql.cursors.DictCursor)
-    cur.execute("SELECT id, record_no FROM medical_records WHERE record_no = 'REC20250501001' OR id = 1 ORDER BY id ASC LIMIT 1")
-    target = cur.fetchone()
-    if target and target.get('record_no') == 'REC202609001':
-        cur.execute("""
-            UPDATE medical_records 
-            SET onset_time = %s, duration = %s, symptoms = %s, etiology = %s, treatment_plan = %s, vital_signs = %s, diagnosis = %s 
-            WHERE id = %s
-        """, (
-            LEGACY_RECORD_1['onset_time'],
-            LEGACY_RECORD_1['duration'],
-            LEGACY_RECORD_1['symptoms'],
-            LEGACY_RECORD_1['etiology'],
-            LEGACY_RECORD_1['treatment_plan'],
-            LEGACY_RECORD_1['vital_signs'],
-            LEGACY_RECORD_1['diagnosis'],
-            target['id']
-        ))
-    else:
-        cur.execute("""
-            UPDATE medical_records 
-            SET onset_time = %s, duration = %s, symptoms = %s, chief_complaint = %s, etiology = %s, treatment_plan = %s, diagnosis = %s 
-            WHERE record_no = 'REC20250501001' OR id = 1
-        """, (
-            ORIGINAL_RECORD_1['onset_time'],
-            ORIGINAL_RECORD_1['duration'],
-            ORIGINAL_RECORD_1['symptoms'],
-            ORIGINAL_RECORD_1['chief_complaint'],
-            ORIGINAL_RECORD_1['etiology'],
-            ORIGINAL_RECORD_1['treatment_plan'],
-            ORIGINAL_RECORD_1['diagnosis']
-        ))
-    conn.close()
+    try:
+        cur = conn.cursor(pymysql.cursors.DictCursor)
+        cur.execute("SELECT id, record_no FROM medical_records WHERE record_no = 'REC20250501001' OR id = 1 ORDER BY id ASC LIMIT 1")
+        target = cur.fetchone()
+        if target and target.get('record_no') == 'REC202609001':
+            cur.execute("""
+                UPDATE medical_records 
+                SET onset_time = %s, duration = %s, symptoms = %s, etiology = %s, treatment_plan = %s, vital_signs = %s, diagnosis = %s 
+                WHERE id = %s
+            """, (
+                LEGACY_RECORD_1['onset_time'],
+                LEGACY_RECORD_1['duration'],
+                LEGACY_RECORD_1['symptoms'],
+                LEGACY_RECORD_1['etiology'],
+                LEGACY_RECORD_1['treatment_plan'],
+                LEGACY_RECORD_1['vital_signs'],
+                LEGACY_RECORD_1['diagnosis'],
+                target['id']
+            ))
+        else:
+            cur.execute("""
+                UPDATE medical_records 
+                SET onset_time = %s, duration = %s, symptoms = %s, chief_complaint = %s, etiology = %s, treatment_plan = %s, diagnosis = %s 
+                WHERE record_no = 'REC20250501001' OR id = 1
+            """, (
+                ORIGINAL_RECORD_1['onset_time'],
+                ORIGINAL_RECORD_1['duration'],
+                ORIGINAL_RECORD_1['symptoms'],
+                ORIGINAL_RECORD_1['chief_complaint'],
+                ORIGINAL_RECORD_1['etiology'],
+                ORIGINAL_RECORD_1['treatment_plan'],
+                ORIGINAL_RECORD_1['diagnosis']
+            ))
+    finally:
+        conn.close()
     return jsonify({
         'code': 200,
         'message': '✅ [ROLLBACK SUCCESS] 还原完成！病历1 (REC20250501001) 已重置为与 Fabric 链上基线完全一致的原始医疗数据！'
@@ -705,20 +822,40 @@ def rollback():
 
 @app.route('/api/custom_tamper', methods=['POST'])
 def custom_tamper():
+    auth_err = _require_tamper_token()
+    if auth_err is not None:
+        return auth_err
     data = request.json or {}
-    rec_id = data.get('id')
-    field = data.get('field')
-    val = data.get('value')
+    try:
+        rec_id = int(data.get('id'))
+        if rec_id <= 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        return jsonify({'code': 400, 'message': '非法的病历 ID'}), 400
 
-    allowed_fields = {'symptoms', 'etiology', 'treatment_plan', 'diagnosis', 'onset_time', 'duration'}
-    if field not in allowed_fields:
+    field = data.get('field')
+    val = str(data.get('value') or '')
+
+    allowed_field_sql = {
+        'symptoms': 'UPDATE medical_records SET symptoms = %s WHERE id = %s',
+        'etiology': 'UPDATE medical_records SET etiology = %s WHERE id = %s',
+        'treatment_plan': 'UPDATE medical_records SET treatment_plan = %s WHERE id = %s',
+        'diagnosis': 'UPDATE medical_records SET diagnosis = %s WHERE id = %s',
+        'onset_time': 'UPDATE medical_records SET onset_time = %s WHERE id = %s',
+        'duration': 'UPDATE medical_records SET duration = %s WHERE id = %s',
+    }
+    sql = allowed_field_sql.get(field)
+    if not sql:
         return jsonify({'code': 400, 'message': '非法的字段选择'}), 400
 
     conn = get_db()
-    cur = conn.cursor()
-    sql = f"UPDATE medical_records SET {field} = %s WHERE id = %s"
-    cur.execute(sql, (val, rec_id))
-    conn.close()
+    try:
+        cur = conn.cursor()
+        cur.execute(sql, (val, rec_id))
+        if cur.rowcount == 0:
+            return jsonify({'code': 404, 'message': f'记录 ID={rec_id} 不存在或值未变更'}), 404
+    finally:
+        conn.close()
     return jsonify({
         'code': 200,
         'message': f'⚡ [INJECTION SUCCESS] 已直接篡改记录 ID={rec_id} 的字段 {field}！'
@@ -729,4 +866,4 @@ if __name__ == '__main__':
     print(" MedTrust 区块链防篡改攻防演示控制台启动中...")
     print(" 访问地址: http://127.0.0.1:8090")
     print("=" * 70)
-    app.run(host='0.0.0.0', port=8090, debug=False)
+    app.run(host='127.0.0.1', port=8090, debug=False)

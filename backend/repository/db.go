@@ -83,6 +83,15 @@ func InitDB() (*gorm.DB, error) {
 		sqlDB.SetConnMaxLifetime(10 * time.Minute)
 	}
 
+	// 无损迁移历史误拼列名 medical_exam_orders.ip_fsc_id -> ipfs_cid，防止 AutoMigrate 新建空列导致历史 CID 孤立
+	if DB.Migrator().HasTable(&model.MedicalExamOrder{}) &&
+		DB.Migrator().HasColumn(&model.MedicalExamOrder{}, "ip_fsc_id") &&
+		!DB.Migrator().HasColumn(&model.MedicalExamOrder{}, "ipfs_cid") {
+		if rErr := DB.Migrator().RenameColumn(&model.MedicalExamOrder{}, "ip_fsc_id", "ipfs_cid"); rErr != nil {
+			log.Printf("[DB] Rename medical_exam_orders.ip_fsc_id -> ipfs_cid warning: %v", rErr)
+		}
+	}
+
 	// 自动迁移 9 张核心表 + 扩展表
 	err = DB.AutoMigrate(
 		&model.User{},

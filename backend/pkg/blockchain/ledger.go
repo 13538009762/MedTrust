@@ -107,24 +107,48 @@ func (l *MockLedgerService) load() {
 }
 
 func (l *MockLedgerService) persist() {
+	if l.ledgerDir == "" {
+		return
+	}
+	_ = os.MkdirAll(l.ledgerDir, 0755)
 	historyFile := filepath.Join(l.ledgerDir, "ledger_history.json")
-	data, _ := json.MarshalIndent(l.history, "", "  ")
-	_ = os.WriteFile(historyFile, data, 0644)
+	data, err := json.MarshalIndent(l.history, "", "  ")
+	if err != nil {
+		return
+	}
+	// 原子落盘：先写同目录临时文件再 Rename，防止进程崩溃截断损坏 ledger_history.json
+	tmpFile, err := os.CreateTemp(l.ledgerDir, "ledger_history_*.tmp")
+	if err != nil {
+		return
+	}
+	tmpPath := tmpFile.Name()
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpPath)
+		return
+	}
+	_ = tmpFile.Sync()
+	if err := tmpFile.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return
+	}
+	if err := os.Rename(tmpPath, historyFile); err != nil {
+		_ = os.Remove(tmpPath)
+	}
 }
 
 func (l *MockLedgerService) CommitAsset(assetType, assetID string, payload map[string]interface{}) (txID string, height uint64, err error) {
 	l.mu.Lock()
-	defer l.mu.Unlock()
-
 	l.currentHeight++
+	height = l.currentHeight
 	nowStr := time.Now().Format(time.RFC3339)
 	h := sha256.New()
-	h.Write([]byte(fmt.Sprintf("%s-%s-%d-%s", assetType, assetID, l.currentHeight, nowStr)))
+	h.Write([]byte(fmt.Sprintf("%s-%s-%d-%s", assetType, assetID, height, nowStr)))
 	txID = hex.EncodeToString(h.Sum(nil))
 
 	rec := ChainRecord{
 		TxID:        txID,
-		BlockHeight: l.currentHeight,
+		BlockHeight: height,
 		Timestamp:   nowStr,
 		AssetType:   assetType,
 		AssetID:     assetID,
@@ -135,12 +159,15 @@ func (l *MockLedgerService) CommitAsset(assetType, assetID string, payload map[s
 	payloadBytes, _ := json.Marshal(payload)
 	l.stateStore[assetID] = string(payloadBytes)
 	l.persist()
+	recorder := TxRecorder
+	l.mu.Unlock()
 
-	if TxRecorder != nil {
-		TxRecorder(assetType, assetID, txID, l.currentHeight, "medicalchannel", "medical_contract", "VALID")
+	// TxRecorder 在锁外执行 DB 写入，避免数据库慢查询阻塞账本读写
+	if recorder != nil {
+		recorder(assetType, assetID, txID, height, "medicalchannel", "medical_contract", "VALID")
 	}
 
-	return txID, l.currentHeight, nil
+	return txID, height, nil
 }
 
 func (l *MockLedgerService) QueryAsset(assetID string) (map[string]interface{}, bool) {

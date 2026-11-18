@@ -10,11 +10,22 @@ import (
 	"log"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sync"
 	"time"
 )
+
+var validCIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{4,128}$`)
+
+func validateCID(cid string) error {
+	if !validCIDRe.MatchString(cid) {
+		return fmt.Errorf("非法的 IPFS CID 格式")
+	}
+	return nil
+}
 
 // IPFSService IPFS 统一服务接口 (支持 Live 与 Mock 降级互换)
 type IPFSService interface {
@@ -32,6 +43,7 @@ type KuboLiveClient struct {
 	apiURL     string
 	storageDir string
 	client     *http.Client
+	fallback   *LocalMockIPFSClient
 	mu         sync.RWMutex
 }
 
@@ -47,6 +59,7 @@ func NewKuboLiveClient(apiURL, storageDir string) *KuboLiveClient {
 		apiURL:     apiURL,
 		storageDir: storageDir,
 		client:     &http.Client{Timeout: 5 * time.Second},
+		fallback:   NewLocalMockIPFSClient(storageDir),
 	}
 }
 
@@ -70,6 +83,9 @@ func (c *KuboLiveClient) Add(cipherBytes []byte) (string, error) {
 						var addResp ipfsAddResponse
 						if jErr := json.Unmarshal(bodyBytes, &addResp); jErr == nil && addResp.Hash != "" {
 							realCID := addResp.Hash
+							if err := validateCID(realCID); err != nil {
+								return "", err
+							}
 							localPath := filepath.Join(c.storageDir, realCID)
 							_ = os.WriteFile(localPath, cipherBytes, 0644)
 							log.Printf("[IPFS-Live] 成功写入真实 IPFS 节点，CID: %s", realCID)
@@ -85,16 +101,19 @@ func (c *KuboLiveClient) Add(cipherBytes []byte) (string, error) {
 
 	// 若远程调用失败则平滑降级写入本地适配器
 	log.Printf("[IPFS-Live] 节点连接异常，自动降级本地存储: %s", c.apiURL)
-	return (&LocalMockIPFSClient{storageDir: c.storageDir}).Add(cipherBytes)
+	return c.fallback.Add(cipherBytes)
 }
 
 func (c *KuboLiveClient) Cat(cid string) ([]byte, error) {
+	if err := validateCID(cid); err != nil {
+		return nil, err
+	}
 	localPath := filepath.Join(c.storageDir, cid)
 	if data, err := os.ReadFile(localPath); err == nil && len(data) > 0 {
 		return data, nil
 	}
 
-	reqURL := fmt.Sprintf("%s/api/v0/cat?arg=%s", c.apiURL, cid)
+	reqURL := fmt.Sprintf("%s/api/v0/cat?arg=%s", c.apiURL, url.QueryEscape(cid))
 	resp, err := c.client.Post(reqURL, "", nil)
 	if err == nil {
 		defer resp.Body.Close()
@@ -107,7 +126,7 @@ func (c *KuboLiveClient) Cat(cid string) ([]byte, error) {
 		}
 	}
 
-	return (&LocalMockIPFSClient{storageDir: c.storageDir}).Cat(cid)
+	return c.fallback.Cat(cid)
 }
 
 func (c *KuboLiveClient) PutData(ciphertext []byte) (string, error) {
@@ -125,12 +144,15 @@ func (c *KuboLiveClient) Delete(cid string) error {
 	if cid == "" {
 		return nil
 	}
+	if err := validateCID(cid); err != nil {
+		return err
+	}
 	localPath := filepath.Join(c.storageDir, cid)
 	if err := os.Remove(localPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("清理本地 IPFS 缓存失败: %w", err)
 	}
 	// 尽力 unpin，失败不影响主流程（Kubo 不可达时忽略）
-	pinURL := fmt.Sprintf("%s/api/v0/pin/rm?arg=%s", c.apiURL, cid)
+	pinURL := fmt.Sprintf("%s/api/v0/pin/rm?arg=%s", c.apiURL, url.QueryEscape(cid))
 	if resp, err := c.client.Post(pinURL, "", nil); err == nil {
 		_ = resp.Body.Close()
 	}
@@ -167,6 +189,9 @@ func (m *LocalMockIPFSClient) Add(cipherBytes []byte) (string, error) {
 }
 
 func (m *LocalMockIPFSClient) Cat(cid string) ([]byte, error) {
+	if err := validateCID(cid); err != nil {
+		return nil, err
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -190,6 +215,9 @@ func (m *LocalMockIPFSClient) GetData(cid string) ([]byte, error) {
 func (m *LocalMockIPFSClient) Delete(cid string) error {
 	if cid == "" {
 		return nil
+	}
+	if err := validateCID(cid); err != nil {
+		return err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()

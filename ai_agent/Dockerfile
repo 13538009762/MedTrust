@@ -1,19 +1,30 @@
-FROM python:3.12-slim
+# Build Stage
+FROM python:3.12-slim AS builder
 
 WORKDIR /app
-
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# 安装运行依赖
+RUN python -m venv /app/.venv
+ENV PATH="/app/.venv/bin:$PATH"
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 复制源码
-COPY . .
+# Runtime Stage
+FROM python:3.12-slim
 
-# 非 root 用户运行保障安全
-RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/app/.venv/bin:$PATH"
+
+RUN useradd -m -u 1000 appuser
+
+COPY --from=builder /app/.venv /app/.venv
+COPY . .
+RUN chown -R appuser:appuser /app
+
 USER appuser
 
 EXPOSE 8000

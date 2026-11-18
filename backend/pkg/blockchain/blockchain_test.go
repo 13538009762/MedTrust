@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -134,4 +135,96 @@ func TestFabricGatewayLive(t *testing.T) {
 		t.Errorf("Invalid txID or height: txID=%s, height=%d", txID, height)
 	}
 	t.Logf("✅ 真实上链成功! TxID=%s, Height=%d", txID, height)
+}
+
+func TestMockLedgerService_RevokeAndUpdateEmergency_NoDeadlock(t *testing.T) {
+	tempDir := t.TempDir()
+	mock := &MockLedgerService{
+		ledgerDir:     tempDir,
+		currentHeight: 100,
+		stateStore:    make(map[string]string),
+		history:       make([]ChainRecord, 0),
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		if _, err := mock.CreateAuthorizationRecord(AuthorizationPayload{
+			AuthID:     "AUTH-TEST-001",
+			PatientID:  "4",
+			TargetType: "DOCTOR",
+			TargetID:   "2",
+			ScopeType:  "SINGLE",
+			RecordID:   "1",
+			Status:     "ACTIVE",
+		}); err != nil {
+			done <- err
+			return
+		}
+		if _, err := mock.RevokeAuthorizationRecord("AUTH-TEST-001"); err != nil {
+			done <- err
+			return
+		}
+
+		if _, err := mock.CreateEmergencyRecord(EmergencyPayload{
+			EventNo:   "EA-TEST-001",
+			DoctorID:  "2",
+			PatientID: "4",
+			RecordID:  "1",
+			Status:    "PENDING_AUDIT",
+		}); err != nil {
+			done <- err
+			return
+		}
+		if _, err := mock.UpdateEmergencyStatus("EA-TEST-001", "CLOSED_APPROVED"); err != nil {
+			done <- err
+			return
+		}
+		done <- nil
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("MockLedger high-level ops failed: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatalf("【死锁】MockLedgerService.RevokeAuthorizationRecord 或 UpdateEmergencyStatus 发生重入死锁")
+	}
+
+	if val, ok := mock.QueryAsset("AUTH_AUTH-TEST-001"); !ok || val["status"] != "REVOKED" {
+		t.Fatalf("预期 AUTH_AUTH-TEST-001 状态为 REVOKED，实际: ok=%v, val=%v", ok, val)
+	}
+	if val, ok := mock.QueryAsset("EMERG_EA-TEST-001"); !ok || val["status"] != "CLOSED_APPROVED" {
+		t.Fatalf("预期 EMERG_EA-TEST-001 状态为 CLOSED_APPROVED，实际: ok=%v, val=%v", ok, val)
+	}
+}
+
+func TestFabricGateway_ConcurrentReadAndClose(t *testing.T) {
+	offlineCfg := FabricGatewayConfig{
+		Mode:         "fabric",
+		Enabled:      true,
+		PeerEndpoint: "127.0.0.1:19998",
+		GatewayPeer:  "peer0.org1.example.com",
+		MSPID:        "Org1MSP",
+		ChannelID:    "medicalchannel",
+		ChaincodeID:  "medical_contract",
+		TLSCertPath:  "non_existent_tls.crt",
+		CertPath:     "non_existent_cert.crt",
+		KeyPath:      "non_existent_key.pem",
+	}
+	gateway := NewFabricGatewayService(offlineCfg)
+	defer func() { _ = gateway.Close() }()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			_, _ = gateway.QueryAsset(fmt.Sprintf("REC_%d", id))
+			_, _ = gateway.GetHistory(fmt.Sprintf("REC_%d", id))
+			_ = gateway.GetBlockchainStatus()
+			_, _ = gateway.GetStats()
+		}(i)
+	}
+	wg.Wait()
 }

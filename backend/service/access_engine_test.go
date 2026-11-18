@@ -2,12 +2,14 @@ package service_test
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"medtrust-backend/config"
 	"medtrust-backend/model"
+	"medtrust-backend/pkg/blockchain"
 	"medtrust-backend/repository"
 	"medtrust-backend/service"
 )
@@ -375,5 +377,350 @@ func TestAccessEngine_ExpiredAuthorizationDenied(t *testing.T) {
 	decValid, err := engine.EvaluateAccess(docOut.ID, patient.ID, record.ID, false)
 	if err != nil || !decValid.Allowed {
 		t.Fatalf("有效期内授权应放行: allowed=%v, decision=%s, err=%v", decValid.Allowed, decValid.Decision, err)
+	}
+}
+
+// TestAccessEngine_PrivatePolicyUnblockedByConsentAndKeyUnlock 验证：
+// 1. 病历设为 PRIVATE 后，即使存在早期全局 ALL_DOCTORS 授权，未获单独同意的外院医生仍被阻断；
+// 2. 患者审批单次申请 (ApproveRequest) 或现场密钥解锁 (UnlockByKey / UnlockPatientByKey) 后，
+//    该医生立即可通过 AccessEngine.Evaluate、GetRecords 与 AI Scope 核验调阅，其他医生仍受 PRIVATE 保护；
+// 3. 随后若患者重新对该病历执行 SetRecordAccessPolicy("PRIVATE")，先前 ALL 密钥解锁亦被新 PRIVATE 锁定阻断。
+func TestAccessEngine_PrivatePolicyUnblockedByConsentAndKeyUnlock(t *testing.T) {
+	cfg, err := config.LoadConfig("../config/config.yaml")
+	if err != nil {
+		t.Fatalf("Load config failed: %v", err)
+	}
+	if _, err = repository.InitDB(); err != nil {
+		t.Fatalf("Init DB failed: %v", err)
+	}
+	tempDir := t.TempDir()
+	blockchain.InitBlockchainService(filepath.Join(tempDir, "ledger"), blockchain.FabricGatewayConfig{Mode: "mock"})
+	service.InitMedicalService("mock", cfg.IPFS.APIURL, filepath.Join(tempDir, "ipfs"))
+	service.InitAccessEngine(cfg.Risk.LowThreshold, cfg.Risk.HighThreshold)
+
+	engine := service.DefaultAccessEngine
+	// 使用明天 14:00 作为模拟时钟：既落在工作时段 (08:00-18:00) 内，又晚于 ApproveRequest / UnlockByKey 写入的 StartTime(time.Now())
+	nowReal := time.Now()
+	mockNow := time.Date(nowReal.Year(), nowReal.Month(), nowReal.Day(), 14, 0, 0, 0, nowReal.Location()).AddDate(0, 0, 1)
+	engine.SetClock(func() time.Time { return mockNow })
+	defer engine.SetClock(nil)
+
+	ts := time.Now().UnixNano()
+	hospA := model.Hospital{HospitalNo: fmt.Sprintf("HOSP_PRV_A_%d", ts), Name: "私密测试医院A", Level: "三甲", Status: 1}
+	hospB := model.Hospital{HospitalNo: fmt.Sprintf("HOSP_PRV_B_%d", ts), Name: "私密测试医院B", Level: "三甲", Status: 1}
+	hospC := model.Hospital{HospitalNo: fmt.Sprintf("HOSP_PRV_C_%d", ts), Name: "私密测试医院C", Level: "三甲", Status: 1}
+	repository.DB.Create(&hospA)
+	repository.DB.Create(&hospB)
+	repository.DB.Create(&hospC)
+	defer func() {
+		repository.DB.Delete(&hospA)
+		repository.DB.Delete(&hospB)
+		repository.DB.Delete(&hospC)
+	}()
+
+	patUserNo := fmt.Sprintf("PAT_PRV_%d", ts)
+	pat := model.User{
+		UserNo:         patUserNo,
+		Username:       patUserNo,
+		RealName:       "私密测试患者",
+		Role:           "patient",
+		Status:         "NORMAL",
+		MedicalKeyHash: service.HashMedicalKey("654321", patUserNo),
+	}
+	docOwner := model.User{UserNo: fmt.Sprintf("DOC_PRV_OWN_%d", ts), Username: fmt.Sprintf("DOC_PRV_OWN_%d", ts), RealName: "主诊医生", Role: "doctor", HospitalID: hospA.ID, Status: "NORMAL"}
+	docApproved := model.User{UserNo: fmt.Sprintf("DOC_PRV_APP_%d", ts), Username: fmt.Sprintf("DOC_PRV_APP_%d", ts), RealName: "获批外院医生", Role: "doctor", HospitalID: hospB.ID, Status: "NORMAL"}
+	docOther := model.User{UserNo: fmt.Sprintf("DOC_PRV_OTH_%d", ts), Username: fmt.Sprintf("DOC_PRV_OTH_%d", ts), RealName: "未获批外院医生", Role: "doctor", HospitalID: hospC.ID, Status: "NORMAL"}
+	repository.DB.Create(&pat)
+	repository.DB.Create(&docOwner)
+	repository.DB.Create(&docApproved)
+	repository.DB.Create(&docOther)
+	defer func() {
+		repository.DB.Where("patient_id = ?", pat.ID).Delete(&model.Authorization{})
+		repository.DB.Where("patient_id = ?", pat.ID).Delete(&model.AccessRequest{})
+		repository.DB.Delete(&pat)
+		repository.DB.Delete(&docOwner)
+		repository.DB.Delete(&docApproved)
+		repository.DB.Delete(&docOther)
+	}()
+
+	rec := model.MedicalRecord{
+		RecordNo:       fmt.Sprintf("REC_PRV_%d", ts),
+		PatientID:      pat.ID,
+		DoctorID:       docOwner.ID,
+		HospitalID:     hospA.ID,
+		DepartmentName: "内分泌科",
+		Diagnosis:      "2型糖尿病",
+		CreatedAt:      mockNow,
+	}
+	repository.DB.Create(&rec)
+	defer repository.DB.Delete(&rec)
+
+	// 1. 先设全局 ALL_DOCTORS，再将单份病历锁定为 PRIVATE
+	if _, err := service.DefaultAccessPolicyService.BatchSetAccessPolicy(nil, pat.ID, service.BatchSetAccessPolicyInput{PolicyType: "ALL_DOCTORS", Days: 30}); err != nil {
+		t.Fatalf("BatchSetAccessPolicy ALL_DOCTORS failed: %v", err)
+	}
+	if _, err := service.DefaultAccessPolicyService.SetRecordAccessPolicy(nil, pat.ID, &rec, service.SetRecordAccessPolicyInput{RecordID: rec.ID, PolicyType: "PRIVATE"}); err != nil {
+		t.Fatalf("SetRecordAccessPolicy PRIVATE failed: %v", err)
+	}
+
+	// 验证 PRIVATE 生效：两外院医生均被阻断
+	if dec, _ := engine.EvaluateAccess(docApproved.ID, pat.ID, rec.ID, false); dec.Allowed {
+		t.Fatalf("PRIVATE 病历不应允许 docApproved 在审批前调阅")
+	}
+
+	// 2. 患者审批 docApproved 的单份调阅申请 (ApproveRequest)
+	reqRec := model.AccessRequest{
+		RequestNo: fmt.Sprintf("REQ-PRV-%d", ts),
+		DoctorID:  docApproved.ID,
+		PatientID: pat.ID,
+		RecordID:  rec.ID,
+		ScopeType: "SINGLE",
+		Status:    "PENDING",
+		Days:      7,
+		ExpireAt:  time.Now().Add(7 * 24 * time.Hour),
+		CreatedAt: time.Now(),
+	}
+	repository.DB.Create(&reqRec)
+	if _, err := service.DefaultAccessRequestService.ApproveRequest(nil, pat.ID, &reqRec); err != nil {
+		t.Fatalf("ApproveRequest failed: %v", err)
+	}
+
+	// 2a. AccessEngine 应放行 docApproved，继续拦截 docOther
+	if dec, _ := engine.EvaluateAccess(docApproved.ID, pat.ID, rec.ID, false); !dec.Allowed {
+		t.Fatalf("ApproveRequest 后 docApproved 仍被 PRIVATE 死锁拦截: decision=%s reason=%s", dec.Decision, dec.Reason)
+	}
+	if dec, _ := engine.EvaluateAccess(docOther.ID, pat.ID, rec.ID, false); dec.Allowed {
+		t.Fatalf("未获批的 docOther 不应受全局 ALL_DOCTORS 漏出而获得 PRIVATE 病历访问权")
+	}
+
+	// 2b. GetRecords 列表视图与 AI Scope 校验同样放行 docApproved、拦截 docOther
+	listApp, err := service.DefaultMedicalService.GetRecords(pat.ID, 0, 0, 0, docApproved.ID, false, "", "", 1, 20)
+	if err != nil || len(listApp) != 1 || !listApp[0].HasAccess {
+		t.Fatalf("GetRecords 中 docApproved 预期 HasAccess=true，实际: err=%v list=%+v", err, listApp)
+	}
+	listOth, err := service.DefaultMedicalService.GetRecords(pat.ID, 0, 0, 0, docOther.ID, false, "", "", 1, 20)
+	if err != nil || len(listOth) != 1 || listOth[0].HasAccess {
+		t.Fatalf("GetRecords 中 docOther 预期 HasAccess=false，实际: err=%v list=%+v", err, listOth)
+	}
+	if cnt := repository.DefaultAuthPolicyRepository.CountActiveConsentAuthorizations(pat.ID, docApproved.ID, docApproved.HospitalID, rec.ID, time.Now()); cnt == 0 {
+		t.Fatalf("CountActiveConsentAuthorizations 预期对 docApproved 返回有效授权")
+	}
+
+	// 3. 重新设为 PRIVATE 后，测试 UnlockPatientByKey (ScopeType=ALL) 也可解锁，且再次设为 PRIVATE 可重新上锁
+	if _, err := service.DefaultAccessPolicyService.SetRecordAccessPolicy(nil, pat.ID, &rec, service.SetRecordAccessPolicyInput{RecordID: rec.ID, PolicyType: "PRIVATE"}); err != nil {
+		t.Fatalf("re-lock PRIVATE failed: %v", err)
+	}
+	if dec, _ := engine.EvaluateAccess(docApproved.ID, pat.ID, rec.ID, false); dec.Allowed {
+		t.Fatalf("重新设为 PRIVATE 后，先前的审批授权必须被撤销拦截")
+	}
+	if _, _, err := service.DefaultKeyUnlockService.UnlockPatientByKey(nil, docOther.ID, service.UnlockPatientByKeyInput{
+		PatientID:  pat.ID,
+		MedicalKey: "654321",
+		Days:       7,
+	}); err != nil {
+		t.Fatalf("UnlockPatientByKey failed: %v", err)
+	}
+	if dec, _ := engine.EvaluateAccess(docOther.ID, pat.ID, rec.ID, false); !dec.Allowed {
+		t.Fatalf("UnlockPatientByKey 解锁后 docOther 仍被 PRIVATE 死锁拦截: decision=%s reason=%s", dec.Decision, dec.Reason)
+	}
+	listOth2, _ := service.DefaultMedicalService.GetRecords(pat.ID, 0, 0, 0, docOther.ID, false, "", "", 1, 20)
+	if len(listOth2) != 1 || !listOth2[0].HasAccess {
+		t.Fatalf("UnlockPatientByKey 后 GetRecords 预期 HasAccess=true")
+	}
+
+	// 4. 再次将该病历设为 PRIVATE 时，先前 UnlockPatientByKey 的 ALL 授权对该单份病历亦应受控锁定；
+	//    随后使用 UnlockByKey (单份密钥解锁) 应再次解锁 docApproved 而不放行 docOther
+	if _, err := service.DefaultAccessPolicyService.SetRecordAccessPolicy(nil, pat.ID, &rec, service.SetRecordAccessPolicyInput{RecordID: rec.ID, PolicyType: "PRIVATE"}); err != nil {
+		t.Fatalf("final PRIVATE lock failed: %v", err)
+	}
+	if dec, _ := engine.EvaluateAccess(docOther.ID, pat.ID, rec.ID, false); dec.Allowed {
+		t.Fatalf("再次设为 PRIVATE 后，应当优先锁定该单份病历")
+	}
+	if _, err := service.DefaultKeyUnlockService.UnlockByKey(nil, docApproved.ID, service.UnlockByKeyInput{
+		RecordID:   rec.ID,
+		MedicalKey: "654321",
+		Days:       7,
+	}); err != nil {
+		t.Fatalf("UnlockByKey failed: %v", err)
+	}
+	if dec, _ := engine.EvaluateAccess(docApproved.ID, pat.ID, rec.ID, false); !dec.Allowed {
+		t.Fatalf("UnlockByKey 解锁单份 PRIVATE 病历后 docApproved 仍被拦截: decision=%s reason=%s", dec.Decision, dec.Reason)
+	}
+	if dec, _ := engine.EvaluateAccess(docOther.ID, pat.ID, rec.ID, false); dec.Allowed {
+		t.Fatalf("UnlockByKey 解锁后其他医生 docOther 仍应被 PRIVATE 拦截")
+	}
+}
+
+// TestAccessEngine_IntraHospitalRiskEvaluationAndBreakGlassTelemetry 验证：
+// 1. 同院同科室/高年资医生不得绕过 RiskEngine (如 RESTRICTED + 批量访问仍受动态风控拦截)；
+// 2. Break-Glass 紧急放行时 RiskScore 对外保持 0/EMERGENCY，但写入 risk_records 的遥测评分与因子反映真实风险。
+func TestAccessEngine_IntraHospitalRiskEvaluationAndBreakGlassTelemetry(t *testing.T) {
+	cfg, err := config.LoadConfig("../config/config.yaml")
+	if err != nil {
+		t.Fatalf("Load config failed: %v", err)
+	}
+	if _, err = repository.InitDB(); err != nil {
+		t.Fatalf("Init DB failed: %v", err)
+	}
+	tempDir := t.TempDir()
+	blockchain.InitBlockchainService(filepath.Join(tempDir, "ledger"), blockchain.FabricGatewayConfig{Mode: "mock"})
+	service.InitAccessEngine(cfg.Risk.LowThreshold, cfg.Risk.HighThreshold)
+
+	engine := service.DefaultAccessEngine
+	nightClock := time.Date(2026, 5, 10, 2, 30, 0, 0, time.Local)
+	engine.SetClock(func() time.Time { return nightClock })
+	defer engine.SetClock(nil)
+
+	ts := time.Now().UnixNano()
+	hosp := model.Hospital{HospitalNo: fmt.Sprintf("HOSP_IH_%d", ts), Name: "同院风控测试医院", Level: "三甲", Status: 1}
+	repository.DB.Create(&hosp)
+	dept := model.Department{HospitalID: hosp.ID, DeptNo: fmt.Sprintf("D_%d", ts), Name: "心内科"}
+	repository.DB.Create(&dept)
+	defer func() {
+		repository.DB.Delete(&dept)
+		repository.DB.Delete(&hosp)
+	}()
+
+	pat := model.User{UserNo: fmt.Sprintf("PAT_IH_%d", ts), Username: fmt.Sprintf("PAT_IH_%d", ts), RealName: "同院患者", Role: "patient", Status: "NORMAL"}
+	docCreator := model.User{UserNo: fmt.Sprintf("DOC_IH_C_%d", ts), Username: fmt.Sprintf("DOC_IH_C_%d", ts), RealName: "开单医生", Role: "doctor", HospitalID: hosp.ID, DepartmentID: dept.ID, Status: "NORMAL"}
+	docColleagueRestricted := model.User{UserNo: fmt.Sprintf("DOC_IH_R_%d", ts), Username: fmt.Sprintf("DOC_IH_R_%d", ts), RealName: "受限同科同事", Role: "doctor", HospitalID: hosp.ID, DepartmentID: dept.ID, Title: "主任医师", Status: "RESTRICTED"}
+	repository.DB.Create(&pat)
+	repository.DB.Create(&docCreator)
+	repository.DB.Create(&docColleagueRestricted)
+	defer func() {
+		repository.DB.Delete(&pat)
+		repository.DB.Delete(&docCreator)
+		repository.DB.Delete(&docColleagueRestricted)
+	}()
+
+	rec := model.MedicalRecord{
+		RecordNo:       fmt.Sprintf("REC_IH_%d", ts),
+		PatientID:      pat.ID,
+		DoctorID:       docCreator.ID,
+		HospitalID:     hosp.ID,
+		DepartmentName: "心内科",
+		Diagnosis:      "房颤",
+		CreatedAt:      time.Now(),
+	}
+	repository.DB.Create(&rec)
+	defer func() {
+		repository.DB.Where("target_id = ?", rec.RecordNo).Delete(&model.AuditLog{})
+		repository.DB.Where("analysis_result LIKE ?", fmt.Sprintf("[REC#%d]%%", rec.ID)).Delete(&model.RiskRecord{})
+		repository.DB.Delete(&rec)
+	}()
+
+	// 同院同科室受限医生在凌晨(02:30, RULE-T1:+20 + RULE-S1:+30 = 50 -> MEDIUM) 调阅他人病历不得再被硬编码 5 分直接放行
+	dec, err := engine.EvaluateAccess(docColleagueRestricted.ID, pat.ID, rec.ID, false)
+	if err != nil {
+		t.Fatalf("EvaluateAccess failed: %v", err)
+	}
+	if dec.Allowed || dec.RiskScore < 50 {
+		t.Fatalf("同院受限医生凌晨调阅不应绕过 RiskEngine: allowed=%v decision=%s score=%d", dec.Allowed, dec.Decision, dec.RiskScore)
+	}
+
+	// 外院医生凌晨走 Break-Glass：对外决策保持 EMERGENCY/0，risk_records 需沉淀真实基线分与夜间因子
+	hospOther := model.Hospital{HospitalNo: fmt.Sprintf("HOSP_BG_%d", ts), Name: "外院测试", Level: "三甲", Status: 1}
+	repository.DB.Create(&hospOther)
+	docExt := model.User{UserNo: fmt.Sprintf("DOC_BG_%d", ts), Username: fmt.Sprintf("DOC_BG_%d", ts), RealName: "外院急救", Role: "doctor", HospitalID: hospOther.ID, Status: "NORMAL"}
+	repository.DB.Create(&docExt)
+	defer func() {
+		repository.DB.Delete(&docExt)
+		repository.DB.Delete(&hospOther)
+	}()
+
+	bgDec, err := engine.EvaluateAccess(docExt.ID, pat.ID, rec.ID, true)
+	if err != nil {
+		t.Fatalf("Break-Glass EvaluateAccess failed: %v", err)
+	}
+	if !bgDec.Allowed || bgDec.RiskLevel != "EMERGENCY" || bgDec.RiskScore != 0 {
+		t.Fatalf("Break-Glass 对外决策不符合规范: %+v", bgDec)
+	}
+
+	var latestRisk model.RiskRecord
+	if err := repository.DB.Where("analysis_result LIKE ?", fmt.Sprintf("[REC#%d] Break-Glass%%", rec.ID)).Order("id DESC").First(&latestRisk).Error; err != nil {
+		t.Fatalf("未查询到 Break-Glass 写入的 risk_records 遥测记录: %v", err)
+	}
+	if latestRisk.AccessRequestID != 0 {
+		t.Fatalf("RiskRecord.AccessRequestID 不应错误写入 MedicalRecord.ID=%d", latestRisk.AccessRequestID)
+	}
+	if latestRisk.TotalScore == 0 || latestRisk.TimeRisk == 0 {
+		t.Fatalf("Break-Glass risk_records 应沉淀真实基线风险分与夜间时间因子, got=%+v", latestRisk)
+	}
+
+	// 3. 验证 AuditRepository 按 record_no JOIN 与 ListRecentActiveEmgs 过滤已裁决违规/患者异议事件
+	tsRepo := time.Now().UnixNano()
+	patRepo := model.User{UserNo: fmt.Sprintf("PAT_R_%d", tsRepo), Username: fmt.Sprintf("PAT_R_%d", tsRepo), RealName: "审计联表测试患者", Role: "patient", Status: "NORMAL"}
+	docRepo := model.User{UserNo: fmt.Sprintf("DOC_R_%d", tsRepo), Username: fmt.Sprintf("DOC_R_%d", tsRepo), RealName: "审计联表测试医生", Role: "doctor", HospitalID: hosp.ID, Status: "NORMAL"}
+	repository.DB.Create(&patRepo)
+	repository.DB.Create(&docRepo)
+	defer func() {
+		repository.DB.Delete(&patRepo)
+		repository.DB.Delete(&docRepo)
+	}()
+
+	recRepo := model.MedicalRecord{
+		RecordNo:   fmt.Sprintf("REC_AUD_%d", tsRepo),
+		PatientID:  patRepo.ID,
+		DoctorID:   docCreator.ID,
+		HospitalID: hosp.ID,
+		Diagnosis:  "审计JOIN测试",
+		CreatedAt:  time.Now(),
+	}
+	repository.DB.Create(&recRepo)
+	auditRow := model.AuditLog{
+		LogID:         fmt.Sprintf("LOG_AUD_%d", tsRepo),
+		UserID:        docRepo.ID,
+		OperationType: "ACCESS_EVALUATE",
+		TargetType:    "RECORD",
+		TargetID:      recRepo.RecordNo,
+		HospitalID:    hosp.ID,
+		Result:        "ALLOWED",
+		RiskLevel:     "LOW",
+		CreatedAt:     time.Now(),
+	}
+	repository.DB.Create(&auditRow)
+	defer func() {
+		repository.DB.Delete(&auditRow)
+		repository.DB.Delete(&recRepo)
+	}()
+
+	if cnt := repository.DefaultAuditRepository.RecentAuditAccessCount(docRepo.ID, patRepo.ID, 10*time.Minute); cnt != 1 {
+		t.Fatalf("RecentAuditAccessCount 应经 record_no 联表统计 ACCESS_EVALUATE/ALLOWED=1，实际=%d", cnt)
+	}
+	if dCnt := repository.DefaultAuditRepository.DistinctPatientsAccessedByDoctor(docRepo.ID, 10*time.Minute); dCnt != 1 {
+		t.Fatalf("DistinctPatientsAccessedByDoctor 应统计=1，实际=%d", dCnt)
+	}
+
+	emgViolation := model.EmergencyAccessEvent{
+		EventNo:         fmt.Sprintf("EMG_VIO_%d", tsRepo),
+		DoctorID:        docRepo.ID,
+		PatientID:       patRepo.ID,
+		RecordID:        recRepo.ID,
+		AuditStatus:     "CLOSED_VIOLATION",
+		PatientFeedback: "OBJECTED",
+		CreatedAt:       time.Now(),
+	}
+	emgValid := model.EmergencyAccessEvent{
+		EventNo:         fmt.Sprintf("EMG_OK_%d", tsRepo),
+		DoctorID:        docRepo.ID,
+		PatientID:       patRepo.ID,
+		RecordID:        recRepo.ID,
+		AuditStatus:     "PENDING_AUDIT",
+		PatientFeedback: "PENDING",
+		CreatedAt:       time.Now(),
+	}
+	repository.DB.Create(&emgViolation)
+	repository.DB.Create(&emgValid)
+	defer func() {
+		repository.DB.Delete(&emgViolation)
+		repository.DB.Delete(&emgValid)
+	}()
+
+	activeEmgs, emgListErr := repository.DefaultEmergencyRepository.ListRecentActiveEmgs(docRepo.ID, time.Now().Add(-1*time.Hour))
+	if emgListErr != nil {
+		t.Fatalf("ListRecentActiveEmgs failed: %v", emgListErr)
+	}
+	if len(activeEmgs) != 1 || activeEmgs[0].EventNo != emgValid.EventNo {
+		t.Fatalf("ListRecentActiveEmgs 应过滤 CLOSED_VIOLATION 与 OBJECTED，实际=%+v", activeEmgs)
 	}
 }

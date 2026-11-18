@@ -41,8 +41,8 @@ func ValidateMedicalFile(fileName string, data []byte) error {
 		return errors.New("禁止上传可执行或脚本类危险文件")
 	}
 
-	// 扩展名白名单校验 (若文件名有扩展名)
-	if ext != "" && !AllowedMedicalExtensions[ext] {
+	// 扩展名白名单强校验（拒绝无扩展名或不在白名单内的附件）
+	if ext == "" || !AllowedMedicalExtensions[ext] {
 		return errors.New("不支持的文件扩展名，仅允许 PDF, PNG, JPG, JPEG, TXT, JSON, DICOM")
 	}
 

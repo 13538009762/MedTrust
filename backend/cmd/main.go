@@ -80,11 +80,14 @@ func main() {
 	})
 	service.InitMedicalService(cfg.IPFS.Mode, cfg.IPFS.APIURL, cfg.IPFS.StorageDir)
 	service.InitAccessEngine(cfg.Risk.LowThreshold, cfg.Risk.HighThreshold)
-	service.StartAccessRequestCleanup()
 
-	// 4. 固化标准种子病历至 Fabric 账本并清理孤立历史文件
+	bgCtx, bgCancel := context.WithCancel(context.Background())
+	defer bgCancel()
+	service.StartBackgroundMaintenance(bgCtx)
+
+	// 4. 固化标准种子病历至 Fabric 账本并清理启动前遗留孤立历史文件（HTTP 服务尚未监听，零宽限期安全清理）
 	service.EnsureBaselineLedgerAnchored()
-	_, _, _ = service.CleanOrphanedIPFSFiles()
+	_, _, _ = service.CleanOrphanedIPFSFilesWithGrace(0)
 	fmt.Println("[MedTrust] Fabric Ledger & IPFS Engine Initialized with Baseline Assets")
 
 	r := router.SetupRouter()
@@ -113,10 +116,16 @@ func main() {
 	<-quit
 	fmt.Println("\n[MedTrust] Shutting down server gracefully...")
 
+	bgCancel()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Fatalf("Server forced to shutdown: %v", err)
 	}
+	if closer, ok := blockchain.DefaultService.(interface{ Close() error }); ok {
+		_ = closer.Close()
+	}
+	repository.CloseRedis()
+	repository.DefaultCache.Close()
 	fmt.Println("[MedTrust] Server exited cleanly.")
 }

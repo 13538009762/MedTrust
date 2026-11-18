@@ -703,6 +703,72 @@ func TestSecurity_ChainAnchorFailureIsExplicit(t *testing.T) {
 	t.Logf("✅ 链上存证失败已显式落审计 (result=%s, reason=%s)", rec.Result, rec.Reason)
 }
 
+// -------------------------------------------------------------------
+// 12. Batch 1: 篡改病历禁止导出红头 PDF；附件密文解密失败严禁降级假 SVG
+// -------------------------------------------------------------------
+func TestSecurity_TamperedExportAndFileDecryptFailBlocked(t *testing.T) {
+	initSecurityTestEnv(t)
+	docLi, _, _, patZhang, _, _ := loadSecuritySeedUsers(t)
+
+	rec, err := service.DefaultMedicalService.UploadRecord(service.UploadRecordParams{
+		DoctorID:      docLi.ID,
+		PatientID:     patZhang.ID,
+		DataType:      "EMR",
+		Diagnosis:     "稳定性心绞痛（防伪导出测试）",
+		TreatmentPlan: "阿司匹林 100mg qd",
+		FileName:      "ecg_authentic.txt",
+		FileType:      "txt",
+		FileData:      []byte("authentic ecg attachment bytes"),
+	})
+	if err != nil || rec == nil || len(rec.Files) == 0 {
+		t.Fatalf("UploadRecord failed: %v", err)
+	}
+	t.Cleanup(func() {
+		repository.DB.Where("record_id = ?", rec.ID).Delete(&model.MedicalFile{})
+		repository.DB.Where("id = ?", rec.ID).Delete(&model.MedicalRecord{})
+	})
+
+	rDoc := setupMedicalFullRouter(docLi.ID, "doctor", docLi.HospitalID)
+
+	// 1. 真实未篡改病历：允许导出 PDF 且允许预览解密附件
+	wOkPDF := httptest.NewRecorder()
+	rDoc.ServeHTTP(wOkPDF, httptest.NewRequest(http.MethodGet, fmt.Sprintf("/medical-records/%d/download", rec.ID), nil))
+	if wOkPDF.Code != http.StatusOK || !strings.Contains(wOkPDF.Header().Get("Content-Type"), "application/pdf") {
+		t.Fatalf("真实病历导出 PDF 失败: code=%d type=%s", wOkPDF.Code, wOkPDF.Header().Get("Content-Type"))
+	}
+
+	wOkFile := httptest.NewRecorder()
+	rDoc.ServeHTTP(wOkFile, httptest.NewRequest(http.MethodGet, fmt.Sprintf("/medical-files/%d/view", rec.Files[0].ID), nil))
+	if wOkFile.Code != http.StatusOK || string(wOkFile.Body.Bytes()) != "authentic ecg attachment bytes" {
+		t.Fatalf("真实附件预览解密失败: code=%d body=%s", wOkFile.Code, wOkFile.Body.String())
+	}
+
+	// 2. 模拟篡改数据库临床诊断字段 -> 红头 PDF 导出必须被 409 拦截
+	repository.DB.Model(&model.MedicalRecord{}).Where("id = ?", rec.ID).Update("diagnosis", "恶意篡改后的假诊断")
+	wTamperPDF := httptest.NewRecorder()
+	rDoc.ServeHTTP(wTamperPDF, httptest.NewRequest(http.MethodGet, fmt.Sprintf("/medical-records/%d/download", rec.ID), nil))
+	if wTamperPDF.Code != http.StatusConflict {
+		t.Fatalf("【防伪漏洞】已篡改病历仍导出了红头 PDF: code=%d type=%s", wTamperPDF.Code, wTamperPDF.Header().Get("Content-Type"))
+	}
+
+	// 3. 模拟篡改附件 EncryptedDEK -> /view 与 /download 均必须返回 409，绝不降级成 "100% 吻合" 假 SVG
+	repository.DB.Model(&model.MedicalFile{}).Where("id = ?", rec.Files[0].ID).Update("encrypted_dek", "dGFtcGVyZWRfZGVrX2Jhc2U2NF9pbnZhbGlkX3RhZw==")
+	wTamperView := httptest.NewRecorder()
+	rDoc.ServeHTTP(wTamperView, httptest.NewRequest(http.MethodGet, fmt.Sprintf("/medical-files/%d/view", rec.Files[0].ID), nil))
+	if wTamperView.Code != http.StatusConflict {
+		t.Fatalf("【防伪漏洞】附件密文/DEK 损坏后 /view 未被 409 拦截: code=%d body=%s", wTamperView.Code, wTamperView.Body.String())
+	}
+	if strings.Contains(wTamperView.Body.String(), "100%") {
+		t.Fatalf("【防伪漏洞】附件解密失败后竟返回了校验通过 SVG")
+	}
+
+	wTamperDL := httptest.NewRecorder()
+	rDoc.ServeHTTP(wTamperDL, httptest.NewRequest(http.MethodGet, fmt.Sprintf("/medical-files/%d/download", rec.Files[0].ID), nil))
+	if wTamperDL.Code != http.StatusConflict {
+		t.Fatalf("【防伪漏洞】附件密文/DEK 损坏后 /download 未被 409 拦截: code=%d", wTamperDL.Code)
+	}
+}
+
 // countPendingChainAnchorLogs 统计指定 target_id 的链上存证待确认审计条数
 func countPendingChainAnchorLogs(t *testing.T, targetID string) int64 {
 	t.Helper()

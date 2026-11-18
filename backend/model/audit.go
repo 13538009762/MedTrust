@@ -11,7 +11,7 @@ type AuditLog struct {
 	UserID        uint64    `gorm:"index:idx_user_op" json:"user_id"`
 	OperationType string    `gorm:"size:50;index:idx_user_op" json:"operation_type"` // UPLOAD, ACCESS, AUTHORIZE, REVOKE, BREAK_GLASS, VERIFY, AUDIT_DECISION, AUDIT_CLOSE
 	TargetType    string    `gorm:"size:50" json:"target_type"`                      // RECORD, AUTH, EVENT, USER
-	TargetID      string    `gorm:"size:64" json:"target_id"`
+	TargetID      string    `gorm:"size:64;index" json:"target_id"`
 	HospitalID    uint64    `gorm:"index:idx_hospital_time" json:"hospital_id"`
 	Result        string    `gorm:"size:20" json:"result"` // SUCCESS, FAILED, INTERCEPTED
 	RiskScore     int       `gorm:"default:0" json:"risk_score"`

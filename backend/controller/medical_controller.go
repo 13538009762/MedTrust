@@ -63,7 +63,11 @@ func (ctrl *MedicalController) Upload(c *gin.Context) {
 	if err == nil && file != nil {
 		defer file.Close()
 		fb, readErr := io.ReadAll(file)
-		if readErr == nil && len(fb) > 0 {
+		if readErr != nil {
+			c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "读取上传附件失败: " + readErr.Error()})
+			return
+		}
+		if len(fb) > 0 {
 			if valErr := security.ValidateMedicalFile(header.Filename, fb); valErr != nil {
 				c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "文件安全校验未通过: " + valErr.Error()})
 				return
@@ -262,6 +266,21 @@ func (ctrl *MedicalController) Download(c *gin.Context) {
 			Data:    decision,
 		})
 		return
+	}
+
+	// 导出带联盟链背书印章的红头 PDF 凭据前，必须强制执行区块链与 IPFS 防篡改验真，严禁为已篡改病历签发可信背书凭据
+	if service.DefaultMedicalService != nil {
+		service.DefaultMedicalService.VerifyRecord(&rec)
+		if rec.IsTampered {
+			_ = repository.DefaultMedicalRepository.UpdateIntegrityStatus(rec.ID, "TAMPERED")
+			service.DefaultAuditService.Log(currentUserID, "TAMPER_BLOCKED_EXPORT", "RECORD", rec.RecordNo, rec.HospitalID, "INTERCEPTED", "HIGH", c.ClientIP())
+			c.JSON(http.StatusConflict, model.Response{
+				Code:    409,
+				Message: fmt.Sprintf("安全拦截：该病历未通过区块链防篡改完整性核验，禁止导出可信凭据 (%s)", rec.TamperReason),
+				Data:    rec,
+			})
+			return
+		}
 	}
 
 	if role == "doctor" {
@@ -495,7 +514,11 @@ func (ctrl *MedicalController) CompleteExamOrder(c *gin.Context) {
 	if err == nil && file != nil {
 		defer file.Close()
 		fb, readErr := io.ReadAll(file)
-		if readErr == nil && len(fb) > 0 {
+		if readErr != nil {
+			c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "读取检查报告附件失败: " + readErr.Error()})
+			return
+		}
+		if len(fb) > 0 {
 			if valErr := security.ValidateMedicalFile(header.Filename, fb); valErr != nil {
 				c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "文件安全校验未通过: " + valErr.Error()})
 				return
@@ -615,7 +638,28 @@ func (ctrl *MedicalController) retrieveAndDecryptMedicalFile(c *gin.Context, act
 
 	var plainData []byte
 	if file.IPFSCID != "" {
-		if data, _, decErr := service.DefaultMedicalService.DecryptFileAndComputeHash(&rec, &file); decErr == nil {
+		data, decryptedHash, decErr := service.DefaultMedicalService.DecryptFileAndComputeHash(&rec, &file)
+		if decErr != nil {
+			// 若已启用信封密钥或已成功拉取 IPFS 密文却验签/解密失败，严禁静默降级为仿真预览或重定向
+			if file.EncryptedDEK != "" || !strings.Contains(decErr.Error(), "从 IPFS 拉取密文失败") {
+				_ = repository.DefaultMedicalRepository.UpdateIntegrityStatus(rec.ID, "TAMPERED")
+				service.DefaultAuditService.Log(currentUserID, "FILE_INTEGRITY_FAILED", "RECORD", rec.RecordNo, rec.HospitalID, "INTERCEPTED", "HIGH", c.ClientIP())
+				c.JSON(http.StatusConflict, model.Response{
+					Code:    409,
+					Message: fmt.Sprintf("安全拦截：附件密文块拉取或 AES-256-GCM 认证标签校验失败，文件可能已遭篡改或损坏 (%v)", decErr),
+				})
+				return nil, nil, nil, "", fmt.Errorf("attachment integrity check failed: %w", decErr)
+			}
+		} else {
+			if file.FileHash != "" && decryptedHash != file.FileHash {
+				_ = repository.DefaultMedicalRepository.UpdateIntegrityStatus(rec.ID, "TAMPERED")
+				service.DefaultAuditService.Log(currentUserID, "FILE_HASH_MISMATCH", "RECORD", rec.RecordNo, rec.HospitalID, "INTERCEPTED", "HIGH", c.ClientIP())
+				c.JSON(http.StatusConflict, model.Response{
+					Code:    409,
+					Message: "安全拦截：附件解密明文 SHA-256 指纹与登记指纹不匹配，附件可能已遭替换",
+				})
+				return nil, nil, nil, "", fmt.Errorf("attachment hash mismatch")
+			}
 			plainData = data
 		}
 	}
@@ -687,6 +731,22 @@ func (ctrl *MedicalController) serveMockMedicalImage(c *gin.Context, file *model
 			rec = *r
 		}
 	}
+	verifyColor := "#f59e0b"
+	verifyText := "临床元数据预览切片（未检索到链下加密附件实体，仅作结构化预览）"
+	if rec.ID > 0 && service.DefaultMedicalService != nil {
+		service.DefaultMedicalService.VerifyRecord(&rec)
+		if rec.IsTampered {
+			c.JSON(http.StatusConflict, model.Response{
+				Code:    409,
+				Message: fmt.Sprintf("安全拦截：关联病历未通过防篡改校验，禁止渲染存证预览切片 (%s)", rec.TamperReason),
+			})
+			return
+		}
+		if rec.Verified {
+			verifyColor = "#22c55e"
+			verifyText = "Hyperledger Fabric 账本结构化摘要校验：通过 (元数据预览切片)"
+		}
+	}
 	diag := rec.Diagnosis
 	if diag == "" {
 		diag = "临床常规辅助检查未见显著器质性病变"
@@ -736,11 +796,12 @@ func (ctrl *MedicalController) serveMockMedicalImage(c *gin.Context, file *model
   <rect x="25" y="460" width="850" height="95" rx="8" fill="#1e293b" fill-opacity="0.8" stroke="#334155" stroke-width="1.2" />
   <text x="45" y="488" font-family="monospace" font-size="12" fill="#a78bfa">IPFS CID: %s</text>
   <text x="45" y="512" font-family="monospace" font-size="12" fill="#64748b">原始明文 SHA-256: %s</text>
-  <text x="45" y="536" font-family="'Microsoft YaHei', sans-serif" font-size="13" font-weight="bold" fill="#22c55e">Hyperledger Fabric 账本不可篡改存证校验：通过 (100%% 吻合，链上链下数据一致)</text>
+  <text x="45" y="536" font-family="'Microsoft YaHei', sans-serif" font-size="13" font-weight="bold" fill="%s">%s</text>
 </svg>`,
 		html.EscapeString(rec.RecordNo), html.EscapeString(strings.ToUpper(file.FileType)),
 		html.EscapeString(file.FileName), html.EscapeString(diag), html.EscapeString(rec.VitalSigns),
 		html.EscapeString(file.IPFSCID), html.EscapeString(file.FileHash),
+		verifyColor, html.EscapeString(verifyText),
 	)
 
 	encodedSvgName := url.QueryEscape(file.FileName + ".svg")

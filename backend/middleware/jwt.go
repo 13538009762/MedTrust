@@ -1,9 +1,10 @@
 package middleware
 
 import (
-	"fmt"
+	"encoding/json"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -13,6 +14,40 @@ import (
 	"medtrust-backend/model"
 	"medtrust-backend/repository"
 )
+
+// TicketPayload 一次性接入票据序列化载荷（JSON 结构化存储，杜绝分隔符注入）
+type TicketPayload struct {
+	UserID       uint64 `json:"user_id"`
+	UserNo       string `json:"user_no"`
+	Role         string `json:"role"`
+	Username     string `json:"username"`
+	HospitalID   uint64 `json:"hospital_id"`
+	DepartmentID uint64 `json:"department_id"`
+}
+
+var ticketAllowedMedicalFilePathRe = regexp.MustCompile(`^/api/v1/medical-files/[0-9]+/(view|download)$`)
+
+func isTicketAllowedEndpoint(method, path string) bool {
+	if method != http.MethodGet {
+		return false
+	}
+	return path == "/api/v1/notifications/stream" || ticketAllowedMedicalFilePathRe.MatchString(path)
+}
+
+func isUserDisabled(userID uint64) bool {
+	if userID == 0 {
+		return false
+	}
+	status, ok := repository.GetUserStatus(userID)
+	if !ok && repository.DB != nil {
+		var u model.User
+		if err := repository.DB.Select("id, status").First(&u, userID).Error; err == nil {
+			status = u.Status
+			repository.CacheUserStatus(userID, status, 60*time.Second)
+		}
+	}
+	return status == "DISABLED"
+}
 
 type CustomClaims struct {
 	UserID       uint64 `json:"user_id"`
@@ -45,30 +80,20 @@ func GenerateToken(u *model.User) (string, error) {
 
 func JWTAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 1. 优先检查单次有效票据 Ticket (主要供 /notifications/stream 等 SSE 长连接接入，防御 URL 泄露 Token)
+		// 1. 优先检查单次有效票据 Ticket (仅限 GET /notifications/stream 及 GET /medical-files/:id/(view|download))
 		if ticket := c.Query("ticket"); ticket != "" {
+			if !isTicketAllowedEndpoint(c.Request.Method, c.Request.URL.Path) {
+				c.AbortWithStatusJSON(http.StatusForbidden, model.Response{
+					Code:    403,
+					Message: "安全拦截：一次性接入票据仅允许用于 GET 实时通知流与附件浏览/下载接口",
+				})
+				return
+			}
 			if data, ok := repository.ConsumeSSETicket(ticket); ok {
-				// 单次消费成功，解析用户上下文
-				parts := strings.Split(data, "|")
-				if len(parts) >= 3 {
-					var uID uint64
-					fmt.Sscanf(parts[0], "%d", &uID)
-					uNo := parts[1]
-					uRole := parts[2]
-					uName := ""
-					var hospID, deptID uint64
-					if len(parts) >= 4 {
-						uName = parts[3]
-					}
-					if len(parts) >= 5 {
-						fmt.Sscanf(parts[4], "%d", &hospID)
-					}
-					if len(parts) >= 6 {
-						fmt.Sscanf(parts[5], "%d", &deptID)
-					}
-
-					// 检查用户封禁状态
-					if status, ok := repository.GetUserStatus(uID); ok && status == "DISABLED" {
+				var tp TicketPayload
+				if err := json.Unmarshal([]byte(data), &tp); err == nil && tp.UserID > 0 && tp.Role != "" {
+					// 检查用户封禁状态 (含缓存未命中时回源 MySQL 兜底)
+					if isUserDisabled(tp.UserID) {
 						c.AbortWithStatusJSON(http.StatusForbidden, model.Response{
 							Code:    403,
 							Message: "您的账号已被监管机构停用封禁，禁止继续执行系统操作",
@@ -76,12 +101,12 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 						return
 					}
 
-					c.Set("user_id", uID)
-					c.Set("user_no", uNo)
-					c.Set("username", uName)
-					c.Set("role", uRole)
-					c.Set("hospital_id", hospID)
-					c.Set("department_id", deptID)
+					c.Set("user_id", tp.UserID)
+					c.Set("user_no", tp.UserNo)
+					c.Set("username", tp.Username)
+					c.Set("role", tp.Role)
+					c.Set("hospital_id", tp.HospitalID)
+					c.Set("department_id", tp.DepartmentID)
 					c.Next()
 					return
 				}
@@ -158,24 +183,12 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 		}
 
 		// 实时核验账号状态 (通过 Redis / MemoryCache 高频削峰，仅在缓存未命中时回源 MySQL)
-		if claims.UserID > 0 {
-			status, ok := repository.GetUserStatus(claims.UserID)
-			if !ok {
-				if repository.DB != nil {
-					var u model.User
-					if err := repository.DB.Select("id, status").First(&u, claims.UserID).Error; err == nil {
-						status = u.Status
-						repository.CacheUserStatus(claims.UserID, status, 60*time.Second)
-					}
-				}
-			}
-			if status == "DISABLED" {
-				c.AbortWithStatusJSON(http.StatusForbidden, model.Response{
-					Code:    403,
-					Message: "您的账号已被监管机构停用封禁，禁止继续执行系统操作",
-				})
-				return
-			}
+		if isUserDisabled(claims.UserID) {
+			c.AbortWithStatusJSON(http.StatusForbidden, model.Response{
+				Code:    403,
+				Message: "您的账号已被监管机构停用封禁，禁止继续执行系统操作",
+			})
+			return
 		}
 
 		c.Set("user_id", claims.UserID)

@@ -113,8 +113,8 @@
       <el-col :span="6">
         <el-card shadow="hover" class="metric-card">
           <div class="metric-title">动态验真通过率</div>
-          <div class="metric-num text-success">{{ Number(stats.verification_pass_rate || 100).toFixed(1) }}%</div>
-          <div class="metric-foot">已核验: {{ stats.verified_count || stats.total_records }} | 异常: {{ stats.tampered_count || 0 }}</div>
+          <div class="metric-num text-success">{{ Number(stats.verification_pass_rate ?? 0).toFixed(1) }}%</div>
+          <div class="metric-foot">已核验: {{ stats.verified_count ?? stats.total_records }} | 异常: {{ stats.tampered_count ?? 0 }}</div>
         </el-card>
       </el-col>
     </el-row>
@@ -266,13 +266,6 @@
               <span class="slb-dot"></span>
               LIVE 持续监听
             </span>
-            <el-tooltip
-              v-if="showingDemoEvents"
-              content="当前审计事件不足或后端暂不可达，列表前部混入演示数据用于展示版式；后端恢复后将自动替换为真实链上审计事件"
-              placement="top"
-            >
-              <el-tag size="small" type="warning" effect="plain" class="ml-1">演示数据</el-tag>
-            </el-tooltip>
           </div>
           <div class="stream-filter-box">
             <el-radio-group v-model="eventFilter" size="small">
@@ -315,8 +308,8 @@
         <el-table-column prop="target_id" label="目标病历/事件" min-width="160" />
         <el-table-column label="系统决策结果" width="110">
           <template #default="{ row }">
-            <el-tag size="small" :type="row.result === 'SUCCESS' ? 'success' : 'danger'" effect="dark">
-              {{ row.result === 'SUCCESS' ? '核准放行' : '阻断/告警' }}
+            <el-tag size="small" :type="row.result === 'SUCCESS' || row.result === 'ALLOWED' ? 'success' : 'danger'" effect="dark">
+              {{ row.result === 'SUCCESS' || row.result === 'ALLOWED' ? '核准放行' : '阻断/告警' }}
             </el-tag>
           </template>
         </el-table-column>
@@ -488,26 +481,31 @@ const sankeyChartRef = ref<HTMLDivElement | null>(null)
 const funnelChartRef = ref<HTMLDivElement | null>(null)
 
 const funnelStats = ref({
-  total: 45,
-  handled: 38,
-  approved: 32,
-  active: 28,
+  total: 0,
+  handled: 0,
+  approved: 0,
+  active: 0,
 })
 
-const chartInstances: any[] = []
+const chartInstances: echarts.ECharts[] = []
+
+function getOrInitChart(el: HTMLElement): echarts.ECharts {
+  const existing = echarts.getInstanceByDom(el)
+  if (existing) return existing
+  const created = echarts.init(el)
+  chartInstances.push(created)
+  return created
+}
 
 const securityEvents = ref<any[]>([])
 const loadingEvents = ref(false)
-// 当前事件列表是否混入了演示数据（真实服务端事件不足或拉取失败时）。
-// 仅供模板显式标注「演示数据」，不得当作业务状态使用。
-const showingDemoEvents = ref(false)
 const eventFilter = ref('ALL')
-let pollTimer: any = null
+let pollTimer: ReturnType<typeof setInterval> | null = null
 
 const filteredEvents = computed(() => {
   const f = eventFilter.value
   if (f === 'HIGH') {
-    return securityEvents.value.filter(e => e.risk_level === 'HIGH' || e.result !== 'SUCCESS')
+    return securityEvents.value.filter(e => e.risk_level === 'HIGH' || (e.result !== 'SUCCESS' && e.result !== 'ALLOWED'))
   } else if (f === 'BREAK_GLASS') {
     return securityEvents.value.filter(e => e.operation_type === 'BREAK_GLASS' || e.operation_type === 'EMERGENCY_AUDIT')
   } else if (f === 'VERIFY') {
@@ -516,36 +514,18 @@ const filteredEvents = computed(() => {
   return securityEvents.value
 })
 
-const demoSecurityStream = [
-  { id: 301, created_at: '2026-10-23 11:45:10', user_name: '陈建明 (主任医师)', hospital_name: '广州第一附属医院', operation_type: 'UPLOAD', target_id: 'REC20261023a1029c', result: 'SUCCESS', risk_level: 'LOW' },
-  { id: 302, created_at: '2026-10-23 11:36:22', user_name: '张三 (就诊患者)', hospital_name: '国家健康档案持有者', operation_type: 'GRANT', target_id: 'REQ202610239d1da8', result: 'SUCCESS', risk_level: 'MEDIUM' },
-  { id: 303, created_at: '2026-10-23 11:21:05', user_name: '李国强 (急诊医生)', hospital_name: '深圳中心医院', operation_type: 'BREAK_GLASS', target_id: 'EA20261023f092b1', result: 'SUCCESS', risk_level: 'HIGH' },
-  { id: 304, created_at: '2026-10-23 11:05:48', user_name: '国家卫健委监管员', hospital_name: '医疗监管审计中心', operation_type: 'VERIFY', target_id: 'REC2026102388c71d', result: 'SUCCESS', risk_level: 'LOW' },
-  { id: 305, created_at: '2026-10-23 10:48:30', user_name: '林雅茹 (副主任医师)', hospital_name: '广州第一附属医院', operation_type: 'ACCESS', target_id: 'REC202610223eb470', result: 'SUCCESS', risk_level: 'LOW' }
-]
-
 async function fetchSecurityEvents() {
   loadingEvents.value = true
   try {
     const res: any = await listAuditLogsApi()
-    if (res.code === 200 && res.data) {
-      const serverLogs = Array.isArray(res.data) ? res.data : []
-      const hasNonLogin = serverLogs.some((e: any) => e.operation_type && e.operation_type !== 'LOGIN')
-      if (!hasNonLogin || serverLogs.length < 3) {
-        securityEvents.value = [...demoSecurityStream, ...serverLogs]
-        showingDemoEvents.value = true
-      } else {
-        securityEvents.value = serverLogs
-        showingDemoEvents.value = false
-      }
+    if (res.code === 200 && Array.isArray(res.data)) {
+      securityEvents.value = res.data
     } else {
-      securityEvents.value = demoSecurityStream
-      showingDemoEvents.value = true
+      securityEvents.value = []
     }
   } catch (err) {
     console.warn('fetchSecurityEvents error', err)
-    securityEvents.value = demoSecurityStream
-    showingDemoEvents.value = true
+    securityEvents.value = []
   } finally {
     loadingEvents.value = false
   }
@@ -674,10 +654,10 @@ onUnmounted(() => {
 })
 
 function renderCharts(data: any) {
-  // 1. 流转趋势与风险拦截 (折线柱状组合图)
+  // 1. 流转趋势与风险拦截 (折线柱状组合图，严格展示后端真实统计)
   if (trendChartRef.value) {
-    const cTrend = echarts.init(trendChartRef.value)
-    const trend = data.throughput_trend || []
+    const cTrend = getOrInitChart(trendChartRef.value)
+    const trend = Array.isArray(data?.throughput_trend) ? data.throughput_trend : []
     const dates = trend.map((t: any) => t.date)
     const flows = trend.map((t: any) => t.flow_count)
     const intercepts = trend.map((t: any) => t.intercept_count)
@@ -686,14 +666,15 @@ function renderCharts(data: any) {
       tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
       legend: { data: ['业务调阅流转总量', '安全风险拦截次数'], bottom: 0 },
       grid: { left: '3%', right: '4%', bottom: '12%', top: '10%', containLabel: true },
-      xAxis: { type: 'category', data: dates.length ? dates : ['09-08', '09-09', '09-10', '09-11', '09-12', '09-13', '09-14'] },
-      yAxis: [{ type: 'value', name: '次/日' }],
+      xAxis: { type: 'category', data: dates },
+      yAxis: [{ type: 'value', name: '次/日', minInterval: 1 }],
+      graphic: dates.length === 0 ? [{ type: 'text', left: 'center', top: 'middle', style: { text: '暂无趋势统计数据', fill: '#94a3b8', fontSize: 13 } }] : [],
       series: [
         {
           name: '业务调阅流转总量',
           type: 'line',
           smooth: true,
-          data: flows.length ? flows : [12, 18, 24, 21, 30, 28, 35],
+          data: flows,
           itemStyle: { color: '#3b82f6' },
           areaStyle: {
             color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
@@ -706,18 +687,18 @@ function renderCharts(data: any) {
           name: '安全风险拦截次数',
           type: 'bar',
           barWidth: '24%',
-          data: intercepts.length ? intercepts : [1, 2, 0, 1, 3, 1, 2],
+          data: intercepts,
           itemStyle: { color: '#ef4444', borderRadius: [4, 4, 0, 0] }
         }
       ]
-    })
+    }, true)
   }
 
-  // 2. 防篡改核验通过率仪表盘 (修复指针与文字重叠，设定92.4%及避让偏移)
+  // 2. 防篡改核验通过率仪表盘（动态读取后端 verification_pass_rate）
   if (gaugeChartRef.value) {
-    const cGauge = echarts.init(gaugeChartRef.value)
-    chartInstances.push(cGauge)
-    const passRate = 92.4
+    const cGauge = getOrInitChart(gaugeChartRef.value)
+    const rawRate = Number(data?.verification_pass_rate ?? stats.value.verification_pass_rate ?? 0)
+    const passRate = Number((Number.isFinite(rawRate) ? rawRate : 0).toFixed(1))
     cGauge.setOption({
       series: [
         {
@@ -746,24 +727,25 @@ function renderCharts(data: any) {
             offsetCenter: [0, '65%'],
             valueAnimation: true,
             formatter: `${passRate}%`,
-            color: passRate >= 90 ? '#10b981' : '#ef4444'
+            color: passRate >= 90 ? '#10b981' : (passRate >= 70 ? '#f59e0b' : '#ef4444')
           },
           data: [{ value: passRate, name: '真实完整率' }]
         }
       ]
-    })
+    }, true)
   }
 
   // 3. 医院分布 (环形饼图)
   if (hospChartRef.value) {
-    const c1 = echarts.init(hospChartRef.value)
-    const hospData = (data.hosp_stats || []).map((item: any) => ({
+    const c1 = getOrInitChart(hospChartRef.value)
+    const hospData = (Array.isArray(data?.hosp_stats) ? data.hosp_stats : []).map((item: any) => ({
       name: item.name,
       value: item.count,
     }))
     c1.setOption({
       tooltip: { trigger: 'item' },
       legend: { bottom: 0 },
+      graphic: hospData.length === 0 ? [{ type: 'text', left: 'center', top: 'middle', style: { text: '暂无机构分布数据', fill: '#94a3b8', fontSize: 13 } }] : [],
       series: [
         {
           name: '存证数量',
@@ -772,40 +754,46 @@ function renderCharts(data: any) {
           center: ['50%', '45%'],
           avoidLabelOverlap: false,
           itemStyle: { borderRadius: 8, borderColor: '#fff', borderWidth: 2 },
-          data: hospData.length ? hospData : [
-            { name: '第一人民医院', value: 4 },
-            { name: '省立中心医院', value: 2 },
-            { name: '协和医学中心', value: 1 }
-          ],
+          data: hospData,
         },
       ],
-    })
+    }, true)
   }
 
-  // 4. 风险分布 (饼图)
+  // 4. 风险分布 (饼图，绑定后端真实 risk_stats)
   if (riskChartRef.value) {
-    const c2 = echarts.init(riskChartRef.value)
+    const c2 = getOrInitChart(riskChartRef.value)
+    const riskLabelMap: Record<string, string> = {
+      LOW: '低风险 (0-29分: 放行)',
+      MEDIUM: '中风险 (30-59分: 确认)',
+      HIGH: '高风险 (≥60分: 拦截)',
+      EMERGENCY: '紧急破窗 (EMERGENCY)',
+    }
+    const riskStatsRaw = Array.isArray(data?.risk_stats) ? data.risk_stats : []
+    const riskData = riskStatsRaw
+      .filter((item: any) => item && item.count > 0)
+      .map((item: any) => ({
+        name: riskLabelMap[String(item.risk_level || '').toUpperCase()] || item.risk_level || '未知',
+        value: item.count,
+      }))
     c2.setOption({
       tooltip: { trigger: 'item' },
       legend: { bottom: 0 },
-      color: ['#10b981', '#f59e0b', '#ef4444'],
+      color: ['#10b981', '#f59e0b', '#ef4444', '#8b5cf6'],
+      graphic: riskData.length === 0 ? [{ type: 'text', left: 'center', top: 'middle', style: { text: '暂无风险分布数据', fill: '#94a3b8', fontSize: 13 } }] : [],
       series: [
         {
           name: '风险评级',
           type: 'pie',
           radius: '62%',
           center: ['50%', '45%'],
-          data: [
-            { value: 16, name: '低风险 (0-29分: 放行)' },
-            { value: 5, name: '中风险 (30-59分: 确认)' },
-            { value: 3, name: '高风险 (≥60分: 拦截)' },
-          ],
+          data: riskData,
           emphasis: {
             itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0, 0, 0, 0.5)' },
           },
         },
       ],
-    })
+    }, true)
   }
 }
 
@@ -820,10 +808,10 @@ async function loadAdvancedCharts() {
 
     await nextTick()
 
-    if (heatRes && heatRes.data) {
+    if (heatRes && heatRes.data !== undefined) {
       renderHeatmapChart(heatRes.data)
     }
-    if (flowRes && flowRes.data) {
+    if (flowRes && flowRes.data !== undefined) {
       renderSankeyChart(flowRes.data)
     }
     if (funnelRes && funnelRes.data) {
@@ -835,23 +823,14 @@ async function loadAdvancedCharts() {
   }
 }
 
-// 1. 跨院调阅行为时空热力图 (24h × 7天 行为基线)
+// 1. 跨院调阅行为时空热力图 (24h × 7天 真实审计频次)
 function renderHeatmapChart(data: [number, number, number][]) {
   if (!heatmapChartRef.value) return
-  const chart = echarts.init(heatmapChartRef.value)
-  chartInstances.push(chart)
+  const chart = getOrInitChart(heatmapChartRef.value)
   const hours = Array.from({ length: 24 }, (_, i) => `${i}:00`)
   const days = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
-  const validData = Array.isArray(data) && data.length > 0 ? data : [
-    [9, 0, 16], [10, 0, 22], [14, 0, 18], [15, 0, 15],
-    [9, 1, 14], [10, 1, 20], [14, 1, 19], [15, 1, 17],
-    [9, 2, 18], [10, 2, 25], [14, 2, 21], [15, 2, 14],
-    [3, 3, 7],  [9, 3, 19], [10, 3, 24], [14, 3, 16],
-    [9, 4, 15], [10, 4, 23], [14, 4, 17], [15, 4, 13],
-    [10, 5, 8], [11, 5, 10], [15, 5, 6],
-    [10, 6, 7], [11, 6, 9],  [15, 6, 5]
-  ]
-  const maxVal = Math.max(...validData.map((d: any) => d[2] || 0), 20)
+  const validData = Array.isArray(data) ? data : []
+  const maxVal = validData.length > 0 ? Math.max(...validData.map((d: any) => d[2] || 0), 1) : 1
 
   chart.setOption({
     tooltip: {
@@ -886,27 +865,19 @@ function renderHeatmapChart(data: [number, number, number][]) {
         itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0, 0, 0, 0.5)' }
       }
     }]
-  })
+  }, true)
 }
 
 // 2. 跨机构医疗数据流向拓扑 (Sankey 桑基图)
 function renderSankeyChart(flowList: any[]) {
   if (!sankeyChartRef.value) return
-  const chart = echarts.init(sankeyChartRef.value)
-  chartInstances.push(chart)
-  const flows = Array.isArray(flowList) && flowList.length > 0 ? flowList : [
-    { source: '第一人民医院 (门诊中心)', target: '省立中心医院 (急救中心)', value: 28 },
-    { source: '第一人民医院 (门诊中心)', target: '协和医学中心 (专科中心)', value: 16 },
-    { source: '省立中心医院 (急救中心)', target: '第一人民医院 (门诊中心)', value: 19 },
-    { source: '省立中心医院 (急救中心)', target: '协和医学中心 (专科中心)', value: 12 },
-    { source: '协和医学中心 (专科中心)', target: '省立中心医院 (急救中心)', value: 8 },
-    { source: '协和医学中心 (专科中心)', target: '第一人民医院 (门诊中心)', value: 14 }
-  ]
+  const chart = getOrInitChart(sankeyChartRef.value)
+  const flows = Array.isArray(flowList) ? flowList.filter((f: any) => f && f.source && f.target && f.source !== f.target && f.value > 0) : []
 
   const nodeSet = new Set<string>()
   flows.forEach((f: any) => {
-    if (f.source) nodeSet.add(f.source)
-    if (f.target) nodeSet.add(f.target)
+    nodeSet.add(f.source)
+    nodeSet.add(f.target)
   })
   const nodes = Array.from(nodeSet).map(name => ({ name }))
 
@@ -921,7 +892,8 @@ function renderSankeyChart(flowList: any[]) {
         return `医疗机构节点: <b>${params.name}</b>`
       }
     },
-    series: [{
+    graphic: flows.length === 0 ? [{ type: 'text', left: 'center', top: 'middle', style: { text: '暂无跨院数据流向记录', fill: '#94a3b8', fontSize: 13 } }] : [],
+    series: flows.length > 0 ? [{
       type: 'sankey',
       layout: 'none',
       emphasis: { focus: 'adjacency' },
@@ -936,17 +908,20 @@ function renderSankeyChart(flowList: any[]) {
       itemStyle: { borderWidth: 1, borderColor: '#cbd5e1' },
       lineStyle: { color: 'gradient', curveness: 0.5, opacity: 0.45 },
       label: { color: '#0f172a', fontSize: 11, fontWeight: 'bold' }
-    }]
-  })
+    }] : []
+  }, true)
 }
 
-// 3. 患者自主知情授权闭环漏斗 (Funnel 漏斗图 - 杜绝白板)
+// 3. 患者自主知情授权闭环漏斗 (Funnel 漏斗图，严格反映后端真实数据)
 function renderFunnelChart(funnelData: any) {
   if (!funnelChartRef.value) return
-  const chart = echarts.init(funnelChartRef.value)
-  chartInstances.push(chart)
-  const rawTotal = funnelData?.total || 0
-  const f = (rawTotal > 0) ? funnelData : { total: 45, handled: 38, approved: 32, active: 28 }
+  const chart = getOrInitChart(funnelChartRef.value)
+  const f = {
+    total: Number(funnelData?.total || 0),
+    handled: Number(funnelData?.handled || 0),
+    approved: Number(funnelData?.approved || 0),
+    active: Number(funnelData?.active || 0),
+  }
   funnelStats.value = f
 
   chart.setOption({
@@ -969,7 +944,7 @@ function renderFunnelChart(funnelData: any) {
       bottom: 35,
       width: '80%',
       min: 0,
-      max: f.total || 45,
+      max: f.total > 0 ? f.total : 1,
       minSize: '18%',
       maxSize: '100%',
       sort: 'descending',
@@ -991,7 +966,7 @@ function renderFunnelChart(funnelData: any) {
         { value: f.active, name: '链上授权固化', itemStyle: { color: '#f59e0b' } },
       ]
     }]
-  })
+  }, true)
 }
 </script>
 

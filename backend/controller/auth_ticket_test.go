@@ -2,9 +2,11 @@ package controller_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"medtrust-backend/config"
@@ -25,9 +27,16 @@ func setupTicketTestRouter() *gin.Engine {
 		authGroup.Use(middleware.JWTAuthMiddleware())
 		{
 			authGroup.POST("/auth/ticket", controller.DefaultAuthController.CreateSSETicket)
+			authGroup.POST("/auth/logout", controller.DefaultAuthController.Logout)
+			authGroup.GET("/auth/profile", func(c *gin.Context) {
+				c.JSON(http.StatusOK, gin.H{"user_id": c.GetUint64("user_id")})
+			})
 			authGroup.GET("/notifications/stream", func(c *gin.Context) {
 				userID := c.GetUint64("user_id")
 				c.JSON(http.StatusOK, gin.H{"user_id": userID, "online": true})
+			})
+			authGroup.GET("/medical-files/:id/view", func(c *gin.Context) {
+				c.JSON(http.StatusOK, gin.H{"user_id": c.GetUint64("user_id"), "username": c.GetString("username")})
 			})
 		}
 	}
@@ -104,5 +113,82 @@ func TestSSETicket_Lifecycle_CreateAndSingleUse(t *testing.T) {
 
 	if sseWFake.Code != http.StatusUnauthorized {
 		t.Fatalf("伪造 Ticket 预期返回 401 Unauthorized，实际: %d", sseWFake.Code)
+	}
+
+	// 6. 作用域严格隔离：Ticket 不得用于非白名单业务端点 (应 403 且不消耗或越权通过)
+	reqTkt := httptest.NewRequest("POST", "/api/v1/auth/ticket", nil)
+	reqTkt.Header.Set("Authorization", "Bearer "+token)
+	wTkt := httptest.NewRecorder()
+	router.ServeHTTP(wTkt, reqTkt)
+	var tktResp struct {
+		Data struct {
+			Ticket string `json:"ticket"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(wTkt.Body.Bytes(), &tktResp)
+
+	disallowedReq := httptest.NewRequest("GET", "/api/v1/auth/profile?ticket="+tktResp.Data.Ticket, nil)
+	disallowedW := httptest.NewRecorder()
+	router.ServeHTTP(disallowedW, disallowedReq)
+	if disallowedW.Code != http.StatusForbidden {
+		t.Fatalf("非白名单路径携带 ?ticket= 预期返回 403 Forbidden，实际: %d (%s)", disallowedW.Code, disallowedW.Body.String())
+	}
+
+	// 同一个未被消耗的合法 Ticket 用于 GET /medical-files/1/view 必须成功，且即使 Username 含 '|' 也不破坏 JSON 解析
+	pipeTicketUser := &model.User{
+		ID:       10087,
+		UserNo:   "NO|PIPE|01",
+		Username: "name|with|pipes",
+		Role:     "patient",
+	}
+	pipeToken, _ := middleware.GenerateToken(pipeTicketUser)
+	reqPipeTkt := httptest.NewRequest("POST", "/api/v1/auth/ticket", nil)
+	reqPipeTkt.Header.Set("Authorization", "Bearer "+pipeToken)
+	wPipeTkt := httptest.NewRecorder()
+	router.ServeHTTP(wPipeTkt, reqPipeTkt)
+	var pipeResp struct {
+		Data struct {
+			Ticket string `json:"ticket"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(wPipeTkt.Body.Bytes(), &pipeResp)
+
+	viewReq := httptest.NewRequest("GET", "/api/v1/medical-files/12/view?ticket="+pipeResp.Data.Ticket, nil)
+	viewW := httptest.NewRecorder()
+	router.ServeHTTP(viewW, viewReq)
+	if viewW.Code != http.StatusOK {
+		t.Fatalf("GET /medical-files/:id/view 携带合法 Ticket 预期 200，实际: %d (%s)", viewW.Code, viewW.Body.String())
+	}
+
+	// 7. DISABLED 用户在缓存失效时使用 Ticket 也必须经由 MySQL 兜底被 403 拦截
+	if _, dbErr := repository.InitDB(); dbErr == nil && repository.DB != nil {
+		ts := time.Now().UnixNano()
+		disabledPat := model.User{
+			UserNo:   fmt.Sprintf("DIS_TKT_%d", ts),
+			Username: fmt.Sprintf("dis_tkt_%d", ts),
+			RealName: "已封禁Ticket用户",
+			Role:     "patient",
+			Status:   "DISABLED",
+		}
+		repository.DB.Create(&disabledPat)
+		defer repository.DB.Unscoped().Delete(&disabledPat)
+
+		_ = repository.StoreSSETicket("dis_ticket_"+fmt.Sprintf("%d", ts), fmt.Sprintf(`{"user_id":%d,"user_no":"%s","role":"patient","username":"%s","hospital_id":0,"department_id":0}`, disabledPat.ID, disabledPat.UserNo, disabledPat.Username), time.Minute)
+		repository.InvalidateUserStatus(disabledPat.ID)
+
+		disReq := httptest.NewRequest("GET", "/api/v1/notifications/stream?ticket=dis_ticket_"+fmt.Sprintf("%d", ts), nil)
+		disW := httptest.NewRecorder()
+		router.ServeHTTP(disW, disReq)
+		if disW.Code != http.StatusForbidden {
+			t.Fatalf("缓存失效时 DISABLED 用户 Ticket 必须被 DB 回源拦截返回 403，实际: %d (%s)", disW.Code, disW.Body.String())
+		}
+	}
+
+	// 8. Logout 接口拒绝伪造 JWT 并防止黑名单污染
+	reqBadLogout := httptest.NewRequest("POST", "/api/v1/auth/logout?token=not.a.valid.jwt", nil)
+	wBadLogout := httptest.NewRecorder()
+	router.ServeHTTP(wBadLogout, reqBadLogout)
+	if wBadLogout.Code != http.StatusUnauthorized {
+		t.Fatalf("Logout 伪造 token 预期 401，实际: %d", wBadLogout.Code)
 	}
 }

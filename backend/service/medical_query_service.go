@@ -34,23 +34,33 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 	now := time.Now()
 	var docAuths []model.Authorization
 	var docEmgRecordIDs = make(map[uint64]bool)
-	var privateRecordIDs = make(map[uint64]bool)
+	var privAuthMap = make(map[uint64]model.Authorization)
 	var authRecordIDs []uint64
 	var authPatientIDs []uint64
 	var patientAuths []model.Authorization
 
 	if currentUserID > 0 && currentUser.Role == "doctor" {
-		docAuths, _ = repository.DefaultAuthPolicyRepository.ListAuthorizationsForDoctor(currentUserID, currentUser.HospitalID, "ACTIVE")
+		rawDocAuths, _ := repository.DefaultAuthPolicyRepository.ListAuthorizationsForDoctor(currentUserID, currentUser.HospitalID, "ACTIVE")
+		for _, a := range rawDocAuths {
+			if !a.StartTime.After(now) && a.EndTime.After(now) {
+				docAuths = append(docAuths, a)
+			}
+		}
+
 		privAuths, _ := repository.DefaultAuthPolicyRepository.ListPrivAuthsByTime(now, now)
 		for _, pa := range privAuths {
 			if pa.RecordID > 0 {
-				privateRecordIDs[pa.RecordID] = true
+				if existing, ok := privAuthMap[pa.RecordID]; !ok || repository.IsAuthorizationNewerThan(pa, existing) {
+					privAuthMap[pa.RecordID] = pa
+				}
 			}
 		}
 
 		for _, a := range docAuths {
-			if a.ScopeType == "SINGLE" && a.RecordID > 0 && !privateRecordIDs[a.RecordID] {
-				authRecordIDs = append(authRecordIDs, a.RecordID)
+			if a.ScopeType == "SINGLE" && a.RecordID > 0 {
+				if priv, hasPriv := privAuthMap[a.RecordID]; !hasPriv || repository.IsAuthorizationNewerThan(a, priv) {
+					authRecordIDs = append(authRecordIDs, a.RecordID)
+				}
 			} else if a.ScopeType == "ALL" {
 				authPatientIDs = append(authPatientIDs, a.PatientID)
 			}
@@ -316,14 +326,16 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 				} else {
 					hasAuth := false
 					isAllDocAuth := false
-					if !privateRecordIDs[list[i].ID] {
-						for _, a := range docAuths {
-							if a.PatientID == list[i].PatientID && (a.ScopeType == "ALL" || (a.ScopeType == "SINGLE" && a.RecordID == list[i].ID)) {
-								hasAuth = true
-								if a.AuthTargetType == "ALL_DOCTORS" {
-									isAllDocAuth = true
-									break
-								}
+					priv, hasPriv := privAuthMap[list[i].ID]
+					for _, a := range docAuths {
+						if a.PatientID == list[i].PatientID && (a.ScopeType == "ALL" || (a.ScopeType == "SINGLE" && a.RecordID == list[i].ID)) {
+							if hasPriv && !repository.IsAuthorizationNewerThan(a, priv) {
+								continue
+							}
+							hasAuth = true
+							if a.AuthTargetType == "ALL_DOCTORS" {
+								isAllDocAuth = true
+								break
 							}
 						}
 					}
@@ -347,14 +359,16 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 				} else {
 					hasAuth := false
 					isAllDocAuth := false
-					if !privateRecordIDs[list[i].ID] {
-						for _, a := range docAuths {
-							if a.PatientID == list[i].PatientID && (a.ScopeType == "ALL" || (a.ScopeType == "SINGLE" && a.RecordID == list[i].ID)) {
-								hasAuth = true
-								if a.AuthTargetType == "ALL_DOCTORS" {
-									isAllDocAuth = true
-									break
-								}
+					priv, hasPriv := privAuthMap[list[i].ID]
+					for _, a := range docAuths {
+						if a.PatientID == list[i].PatientID && (a.ScopeType == "ALL" || (a.ScopeType == "SINGLE" && a.RecordID == list[i].ID)) {
+							if hasPriv && !repository.IsAuthorizationNewerThan(a, priv) {
+								continue
+							}
+							hasAuth = true
+							if a.AuthTargetType == "ALL_DOCTORS" {
+								isAllDocAuth = true
+								break
 							}
 						}
 					}
@@ -437,13 +451,33 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 			list[i].Files = nil
 		}
 
-		// 医护职业暴露安全与传染病预警检测（严格遵循访问控制边界：仅已获得合法调阅权限的记录才暴露传染病诊断明细，杜绝越权隐私泄露）
-		if list[i].HasAccess {
-			if alert, err := GetInfectionService().AnalyzeRecordRisks(list[i].ID); err == nil && alert.HasRisk {
-				list[i].InfectionAlert = alert
+		list[i].InfectionAlert = nil
+	}
+
+	// WP-13 / Batch 2: 按患者维度批量聚合职业暴露传染病预警（消除原循环内 3N 次数据库往返，并按当前调用者已授权病历集合脱敏跨院未授权来源单号）
+	authRecordIDsByPatient := make(map[uint64]map[uint64]bool)
+	for i := range list {
+		if list[i].HasAccess && list[i].PatientID > 0 {
+			if authRecordIDsByPatient[list[i].PatientID] == nil {
+				authRecordIDsByPatient[list[i].PatientID] = make(map[uint64]bool)
 			}
-		} else {
-			list[i].InfectionAlert = nil
+			authRecordIDsByPatient[list[i].PatientID][list[i].ID] = true
+		}
+	}
+	if len(authRecordIDsByPatient) > 0 {
+		infectionSvc := GetInfectionService()
+		alertCache := make(map[uint64]*model.InfectionRiskAlert, len(authRecordIDsByPatient))
+		for patID, authSet := range authRecordIDsByPatient {
+			if alert, err := infectionSvc.AnalyzePatientRisksWithScope(patID, authSet); err == nil && alert != nil && alert.HasRisk {
+				alertCache[patID] = alert
+			}
+		}
+		for i := range list {
+			if list[i].HasAccess {
+				if alert, ok := alertCache[list[i].PatientID]; ok {
+					list[i].InfectionAlert = alert
+				}
+			}
 		}
 	}
 	return list, nil

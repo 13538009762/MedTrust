@@ -16,19 +16,11 @@ export function getRecordDetailApi(id: number): Promise<ApiEnvelope<MedicalRecor
 }
 
 export function createRecordApi(data: FormData | Record<string, any>): Promise<ApiEnvelope<MedicalRecord>> {
-  return client.post('/medical-records', data)
+  return client.post('/medical-records/upload', data)
 }
 
 export function downloadRecordApi(id: number): Promise<Blob> {
   return client.get(`/medical-records/${id}/download`, { responseType: 'blob' })
-}
-
-export function getRecordFileApi(id: number): Promise<any> {
-  return client.get(`/medical-records/${id}/file`)
-}
-
-export function previewRecordFileApi(id: number): Promise<any> {
-  return client.get(`/medical-records/${id}/preview`)
 }
 
 export function getRecordInfectionRisksApi(id: number): Promise<ApiEnvelope<InfectionRiskSummary>> {
@@ -49,10 +41,6 @@ export function createInitialEncounterApi(payload: Record<string, any>): Promise
 
 export function completeEncounterFinalApi(id: number, payload: Record<string, any>): Promise<ApiEnvelope<any>> {
   return client.post(`/encounters/${id}/complete`, payload)
-}
-
-export function createEncounterOrdersApi(payload: Record<string, any>): Promise<ApiEnvelope<any>> {
-  return client.post('/encounters/orders', payload)
 }
 
 export function listExamOrdersApi(params?: {

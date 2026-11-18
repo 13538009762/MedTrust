@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -307,13 +308,23 @@ func (ctrl *AuthController) Logout(c *gin.Context) {
 		return
 	}
 
-	// 解析 Token 剩余有效期，动态设置黑名单 TTL
+	// 校验 Token 签名合法性并解析剩余有效期，拒绝伪造串污染黑名单
 	claims := &middleware.CustomClaims{}
 	ttl := 24 * time.Hour
-	token, _ := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
+	token, parseErr := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, jwt.ErrSignatureInvalid
+		}
 		return []byte(config.AppConfig.Server.JWTSecret), nil
 	})
-	if token != nil && claims.ExpiresAt != nil {
+	if parseErr != nil || token == nil || !token.Valid {
+		c.JSON(http.StatusUnauthorized, model.Response{
+			Code:    401,
+			Message: "无效或已过期的身份令牌，注销请求被拒绝",
+		})
+		return
+	}
+	if claims.ExpiresAt != nil {
 		remaining := time.Until(claims.ExpiresAt.Time)
 		if remaining > 0 {
 			ttl = remaining
@@ -351,11 +362,11 @@ func (ctrl *AuthController) CreateSSETicket(c *gin.Context) {
 		return
 	}
 	userID := userIDVal.(uint64)
-	userNo, _ := c.Get("user_no")
-	role, _ := c.Get("role")
-	username, _ := c.Get("username")
-	hospitalID, _ := c.Get("hospital_id")
-	departmentID, _ := c.Get("department_id")
+	userNo := c.GetString("user_no")
+	role := c.GetString("role")
+	username := c.GetString("username")
+	hospitalID := c.GetUint64("hospital_id")
+	departmentID := c.GetUint64("department_id")
 
 	// 生成 24 字节高熵随机票据 (48 位十六进制字符)
 	ticketBytes := make([]byte, 24)
@@ -365,10 +376,21 @@ func (ctrl *AuthController) CreateSSETicket(c *gin.Context) {
 	}
 	ticket := hex.EncodeToString(ticketBytes)
 
-	// 序列化用户上下文
-	ticketData := fmt.Sprintf("%d|%v|%v|%v|%v|%v", userID, userNo, role, username, hospitalID, departmentID)
+	// 结构化 JSON 序列化用户上下文，杜绝用户名/编号含分隔符引发字段注入
+	payloadBytes, err := json.Marshal(middleware.TicketPayload{
+		UserID:       userID,
+		UserNo:       userNo,
+		Role:         role,
+		Username:     username,
+		HospitalID:   hospitalID,
+		DepartmentID: departmentID,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "序列化票据失败"})
+		return
+	}
 
-	if err := repository.StoreSSETicket(ticket, ticketData, 60*time.Second); err != nil {
+	if err := repository.StoreSSETicket(ticket, string(payloadBytes), 60*time.Second); err != nil {
 		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "保存票据失败"})
 		return
 	}

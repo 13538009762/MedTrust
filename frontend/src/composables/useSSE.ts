@@ -15,7 +15,7 @@ type EventCallback = (event: SSENotifyEvent) => void
 const isConnected = ref(false)
 const eventListeners: EventCallback[] = []
 let eventSource: EventSource | null = null
-let reconnectTimer: any = null
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
 export function useSSE() {
   function addEventListener(cb: EventCallback) {
@@ -39,7 +39,7 @@ export function useSSE() {
   }
 
   async function connect(token?: string) {
-    const effectiveToken = token || sessionStorage.getItem('medtrust_token') || sessionStorage.getItem('token')
+    const effectiveToken = token || sessionStorage.getItem('medtrust_token')
     if (!effectiveToken) return
     if (eventSource && eventSource.readyState === EventSource.OPEN) return
 
@@ -57,13 +57,25 @@ export function useSSE() {
         ticket = res.data.ticket
       }
     } catch (err) {
-      console.warn('[MedTrust SSE] 获取单次 Ticket 失败，降级使用 Token 模式:', err)
+      console.warn('[MedTrust SSE] 获取单次 Ticket 失败:', err)
     }
 
-    const baseApi = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8080/api/v1'
-    const sseUrl = ticket
-      ? `${baseApi}/notifications/stream?ticket=${encodeURIComponent(ticket)}`
-      : `${baseApi}/notifications/stream?token=${encodeURIComponent(effectiveToken)}`
+    // 严禁在 URL 查询参数中降级透传长效 JWT，无有效一次性票据时交由重连定时器退避重试
+    if (!ticket) {
+      if (!reconnectTimer) {
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null
+          const currentToken = sessionStorage.getItem('medtrust_token')
+          if (currentToken) {
+            connect(currentToken)
+          }
+        }, 5000)
+      }
+      return
+    }
+
+    const baseApi = import.meta.env.VITE_API_BASE_URL || '/api/v1'
+    const sseUrl = `${baseApi}/notifications/stream?ticket=${encodeURIComponent(ticket)}`
 
     try {
       eventSource = new EventSource(sseUrl)
@@ -103,7 +115,7 @@ export function useSSE() {
         if (!reconnectTimer) {
           reconnectTimer = setTimeout(() => {
             reconnectTimer = null
-            const currentToken = sessionStorage.getItem('medtrust_token') || sessionStorage.getItem('token')
+            const currentToken = sessionStorage.getItem('medtrust_token')
             if (currentToken) {
               connect(currentToken)
             }

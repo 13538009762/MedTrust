@@ -344,6 +344,9 @@ func (e *RiskEngine) RecordSuccessfulAccess(doctorID, patientID uint64) {
 	defer e.mu.Unlock()
 
 	now := time.Now()
+	if e.nowFunc != nil {
+		now = e.nowFunc()
+	}
 	cutoff := now.Add(-10 * time.Minute)
 	valid := make([]AccessRecordItem, 0)
 	for _, item := range e.accessWindow {

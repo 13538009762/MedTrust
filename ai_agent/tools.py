@@ -212,31 +212,48 @@ def tool_verify_integrity(token: str, record_id: int) -> Dict[str, Any]:
 
 
 class ControlledMedicalTools:
-    """受控医疗工具集类 (严格按照 updatev1.txt 第七节规范实现，全程携带 JWT，记录审计轨迹)"""
+    """受控医疗工具集类 (全程携带 JWT 转发 Go 网关，实施入参白名单校验并记录审计轨迹)"""
     def __init__(self, bearer_token: str):
         self.headers = {
             "Authorization": bearer_token if bearer_token.startswith("Bearer ") else f"Bearer {bearer_token}",
             "Content-Type": "application/json",
             "X-Source": "AI_AGENT"
         }
-        self.trace_logs = []
+        self.session = requests.Session()
+        self.trace_logs: list[Dict[str, Any]] = []
+
+    @staticmethod
+    def _parse_non_200(resp: requests.Response) -> Dict[str, Any]:
+        try:
+            body = resp.json()
+            if isinstance(body, dict) and body.get("message"):
+                return {"code": body.get("code", resp.status_code), "message": str(body["message"])}
+        except Exception:
+            pass
+        return {"code": resp.status_code, "message": f"网关请求受阻 (HTTP {resp.status_code})"}
 
     def query_patient_records(self, patient_id: int = 0, data_type: str = "", keyword: str = "") -> Dict[str, Any]:
         """受控工具1：查询当前登录用户有权查看的医疗记录列表"""
-        params = {}
-        if patient_id > 0:
-            params["patient_id"] = patient_id
-        if data_type:
-            params["data_type"] = data_type
-        if keyword:
-            params["keyword"] = keyword
+        params: Dict[str, Any] = {}
         try:
-            resp = requests.get(f"{GO_BACKEND_URL}/medical-records", headers=self.headers, params=params, timeout=10)
-            result = resp.json() if resp.status_code == 200 else {"code": resp.status_code, "message": "权限拦截"}
+            if patient_id and int(patient_id) > 0:
+                params["patient_id"] = int(patient_id)
+        except (TypeError, ValueError):
+            return {"code": 400, "message": "非法的患者 ID", "data": None}
+        if data_type:
+            clean_dt = re.sub(r'[^A-Za-z0-9_]', '', str(data_type).strip().upper())
+            if clean_dt:
+                params["data_type"] = clean_dt
+        clean_kw = validate_keyword(str(keyword or ""))
+        if clean_kw:
+            params["keyword"] = clean_kw
+        try:
+            resp = self.session.get(f"{GO_BACKEND_URL}/medical-records", headers=self.headers, params=params, timeout=10)
+            result = resp.json() if resp.status_code == 200 else self._parse_non_200(resp)
             status_code = resp.status_code
-        except Exception as e:
-            result = {"code": 500, "message": str(e)}
-            status_code = 500
+        except Exception:
+            result = {"code": 502, "message": "Go 安全网关暂不可达"}
+            status_code = 502
         records_data = result.get("data") if isinstance(result, dict) else []
         has_unauthorized = False
         if isinstance(records_data, list) and len(records_data) > 0:
@@ -246,7 +263,7 @@ class ControlledMedicalTools:
         gate3_msg = "已核验返回结果中全部 RecordID 均在有效 Consent 集合内，无隐私越权泄露"
         if status_code != 200:
             auth_status = "INTERCEPTED_BY_GATEKEEPER"
-            gate1_msg = f"未获患者授权，安全网关主动阻断 (HTTP {status_code})"
+            gate1_msg = f"安全网关拦截或鉴权失败 (HTTP {status_code})"
             gate3_msg = "未放行，跳过"
         elif has_unauthorized:
             auth_status = "PARTIAL_MASKED_BY_GATEKEEPER"
@@ -265,19 +282,20 @@ class ControlledMedicalTools:
 
     def query_my_authorizations(self, status: str = "") -> Dict[str, Any]:
         """受控工具2：查询患者授权策略状态列表"""
-        params = {"status": status} if status else {}
+        clean_status = re.sub(r'[^A-Za-z0-9_]', '', str(status or "").strip().upper())
+        params = {"status": clean_status} if clean_status else {}
         try:
-            resp = requests.get(f"{GO_BACKEND_URL}/authorizations", headers=self.headers, params=params, timeout=10)
-            result = resp.json() if resp.status_code == 200 else {"code": resp.status_code, "message": "权限拦截"}
+            resp = self.session.get(f"{GO_BACKEND_URL}/authorizations", headers=self.headers, params=params, timeout=10)
+            result = resp.json() if resp.status_code == 200 else self._parse_non_200(resp)
             status_code = resp.status_code
-        except Exception as e:
-            result = {"code": 500, "message": str(e)}
-            status_code = 500
+        except Exception:
+            result = {"code": 502, "message": "Go 安全网关暂不可达"}
+            status_code = 502
         self.trace_logs.append({
             "tool": "query_my_authorizations",
             "endpoint": "GET /api/v1/authorizations",
             "status_code": status_code,
-            "gate1_guard": "RBAC角色白名单与患者本人隔离核验通过 (HTTP 200)" if status_code == 200 else f"权限拦截 (HTTP {status_code})",
+            "gate1_guard": "RBAC角色白名单与患者本人隔离核验通过 (HTTP 200)" if status_code == 200 else f"安全网关拦截 (HTTP {status_code})",
             "gate2_semantic": "执行工具: query_my_authorizations (患者授权策略全景检索)",
             "gate3_post_check": "已通过 Go 授权安全范围校验，仅返回当前用户合法授权数据" if status_code == 200 else "未放行，跳过",
             "auth_check": "PASSED" if status_code == 200 else "INTERCEPTED_BY_GATEKEEPER"
@@ -287,19 +305,32 @@ class ControlledMedicalTools:
     def verify_record_integrity(self, record_id: int) -> Dict[str, Any]:
         """受控工具3：触发指定病历的 IPFS 链下密文与 Fabric 链上存证 Hash 动态完整性核验"""
         try:
-            resp = requests.post(f"{GO_BACKEND_URL}/verification/{record_id}", headers=self.headers, timeout=10)
-            result = resp.json() if resp.status_code == 200 else {"code": resp.status_code, "message": "权限拦截"}
+            valid_id = validate_record_id(record_id)
+        except ValueError as err:
+            self.trace_logs.append({
+                "tool": "verify_record_integrity",
+                "endpoint": "POST /api/v1/verification/invalid",
+                "status_code": 400,
+                "gate1_guard": str(err),
+                "gate2_semantic": "入参校验拦截",
+                "gate3_post_check": "未放行，跳过",
+                "auth_check": "INTERCEPTED_BY_PARAMETER_GUARD"
+            })
+            return {"code": 400, "message": str(err), "data": None}
+        try:
+            resp = self.session.post(f"{GO_BACKEND_URL}/verification/{valid_id}", headers=self.headers, timeout=10)
+            result = resp.json() if resp.status_code == 200 else self._parse_non_200(resp)
             status_code = resp.status_code
-        except Exception as e:
-            result = {"code": 500, "message": str(e)}
-            status_code = 500
+        except Exception:
+            result = {"code": 502, "message": "Go 安全网关暂不可达"}
+            status_code = 502
         self.trace_logs.append({
             "tool": "verify_record_integrity",
-            "endpoint": f"POST /api/v1/verification/{record_id}",
+            "endpoint": f"POST /api/v1/verification/{valid_id}",
             "status_code": status_code,
-            "gate1_guard": "角色白名单核准 + 目标病历明文查阅权校验通过 (HTTP 200)" if status_code == 200 else f"权限拦截 (HTTP {status_code})",
+            "gate1_guard": "角色白名单核准 + 目标病历明文查阅权校验通过 (HTTP 200)" if status_code == 200 else f"安全网关拦截 (HTTP {status_code})",
             "gate2_semantic": "执行工具: verify_record_integrity (IPFS 链下密文与 Fabric 链上 Hash 动态核验)",
-            "gate3_post_check": "三阶段数据真实性与防篡改链条核验闭环已完成",
+            "gate3_post_check": "三阶段数据真实性与防篡改链条核验闭环已完成" if status_code == 200 else "未放行，跳过",
             "auth_check": "PASSED" if status_code == 200 else "INTERCEPTED_BY_GATEKEEPER"
         })
         return result
@@ -307,28 +338,26 @@ class ControlledMedicalTools:
     def summarize_patient_soap(self, patient_id: int) -> Dict[str, Any]:
         """受控工具5：调用 Go 后端 /ai/diagnostic-assist 统一 SOAP 摘要边界 (Python 零数据库驱动)"""
         try:
-            valid_pid = int(patient_id)
-            if valid_pid <= 0:
-                raise ValueError
-        except (TypeError, ValueError):
+            valid_pid = validate_record_id(patient_id)
+        except ValueError:
             return {"code": 400, "message": "非法的患者 ID", "data": None}
         try:
-            resp = requests.post(
+            resp = self.session.post(
                 f"{GO_BACKEND_URL}/ai/diagnostic-assist",
                 headers=self.headers,
                 json={"patient_id": valid_pid},
                 timeout=15,
             )
-            result = resp.json() if resp.status_code == 200 else {"code": resp.status_code, "message": "权限拦截"}
+            result = resp.json() if resp.status_code == 200 else self._parse_non_200(resp)
             status_code = resp.status_code
-        except Exception as e:
-            result = {"code": 500, "message": str(e)}
-            status_code = 500
+        except Exception:
+            result = {"code": 502, "message": "Go 安全网关暂不可达"}
+            status_code = 502
         self.trace_logs.append({
             "tool": "summarize_patient_soap",
             "endpoint": "POST /api/v1/ai/diagnostic-assist",
             "status_code": status_code,
-            "gate1_guard": "角色白名单 (仅执业医生) 核验通过 (HTTP 200)" if status_code == 200 else f"权限拦截 (HTTP {status_code})",
+            "gate1_guard": "角色白名单 (仅执业医生) 核验通过 (HTTP 200)" if status_code == 200 else f"安全网关拦截 (HTTP {status_code})",
             "gate2_semantic": "执行工具: summarize_patient_soap (经 Go 统一 SOAP 摘要边界，零诊断零处方)",
             "gate3_post_check": "Go 侧 enforceNonDiagnosticOutputGuard 已强制清空疾病预测与新处方" if status_code == 200 else "未放行，跳过",
             "auth_check": "PASSED" if status_code == 200 else "INTERCEPTED_BY_GATEKEEPER"
@@ -337,21 +366,22 @@ class ControlledMedicalTools:
 
     def analyze_audit_anomalies(self, risk_level: str = "") -> Dict[str, Any]:
         """受控工具4：检索访问审计日志与异常高风险行为记录（仅监管员/患者本人可用）"""
+        clean_risk = validate_risk_level(str(risk_level or ""))
+        params = {"risk_level": clean_risk} if clean_risk else {}
         try:
-            params = {"risk_level": risk_level} if risk_level else {}
-            resp = requests.get(f"{GO_BACKEND_URL}/audit-logs", headers=self.headers, params=params, timeout=10)
-            result = resp.json() if resp.status_code == 200 else {"code": resp.status_code, "message": "权限拦截"}
+            resp = self.session.get(f"{GO_BACKEND_URL}/audit-logs", headers=self.headers, params=params, timeout=10)
+            result = resp.json() if resp.status_code == 200 else self._parse_non_200(resp)
             status_code = resp.status_code
-        except Exception as e:
-            result = {"code": 500, "message": str(e)}
-            status_code = 500
+        except Exception:
+            result = {"code": 502, "message": "Go 安全网关暂不可达"}
+            status_code = 502
         self.trace_logs.append({
             "tool": "analyze_audit_anomalies",
             "endpoint": "GET /api/v1/audit-logs",
             "status_code": status_code,
-            "gate1_guard": "监管员/患者本人隔离角色准入通过 (HTTP 200)" if status_code == 200 else f"权限拦截 (HTTP {status_code})",
+            "gate1_guard": "监管员/患者本人隔离角色准入通过 (HTTP 200)" if status_code == 200 else f"安全网关拦截 (HTTP {status_code})",
             "gate2_semantic": "执行工具: analyze_audit_anomalies (跨机构流转审计日志检索)",
-            "gate3_post_check": "脱敏审计事件范围已核准，杜绝未授权隐私透出",
+            "gate3_post_check": "脱敏审计事件范围已核准，杜绝未授权隐私透出" if status_code == 200 else "未放行，跳过",
             "auth_check": "PASSED" if status_code == 200 else "INTERCEPTED_BY_GATEKEEPER"
         })
         return result

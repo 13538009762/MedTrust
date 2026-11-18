@@ -29,21 +29,51 @@ const (
 	SyncStatusNeedsReconciliation = "NEEDS_RECONCILIATION" // 数据不一致/链上缺失，需人工或对账任务深度补偿
 )
 
+type refCountedKeyLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
 type ConsistencyService struct {
-	// keyLocks 按 key（idempotencyKey 或 recordID）粒度加锁：同一业务键的并发请求串行化，
-	// 不同键并行执行，避免单个全局 Mutex 把整条"IPFS+Fabric+DB"流水线变成全局串行瓶颈。
-	// 仅用于进程内互斥；真正的幂等由 idempotency_key 唯一约束 + 查询兜底保证。
-	keyLocks sync.Map
+	// keyLocks 按 key（idempotencyKey 或 recordID）粒度引用计数加锁：
+	// 同一业务键并发请求串行化，不同键并行执行；所有持有者释放后立即清理 map 条目，杜绝内存泄漏。
+	locksMu  sync.Mutex
+	keyLocks map[string]*refCountedKeyLock
 }
 
 var DefaultConsistencyService = &ConsistencyService{}
 
-// lockKey 取出（或创建）该业务键专属的互斥锁并加锁，返回解锁函数。
+// lockKey 取出（或创建）该业务键专属的引用计数互斥锁并加锁，解锁后在无其他等待者时回收条目。
 func (s *ConsistencyService) lockKey(key string) func() {
-	v, _ := s.keyLocks.LoadOrStore(key, &sync.Mutex{})
-	mu := v.(*sync.Mutex)
-	mu.Lock()
-	return mu.Unlock
+	s.locksMu.Lock()
+	if s.keyLocks == nil {
+		s.keyLocks = make(map[string]*refCountedKeyLock)
+	}
+	entry, ok := s.keyLocks[key]
+	if !ok {
+		entry = &refCountedKeyLock{}
+		s.keyLocks[key] = entry
+	}
+	entry.refs++
+	s.locksMu.Unlock()
+
+	entry.mu.Lock()
+	return func() {
+		entry.mu.Unlock()
+		s.locksMu.Lock()
+		entry.refs--
+		if entry.refs <= 0 {
+			delete(s.keyLocks, key)
+		}
+		s.locksMu.Unlock()
+	}
+}
+
+// KeyLockCount 返回当前活跃的业务键锁条目数（供单测核验无泄漏）。
+func (s *ConsistencyService) KeyLockCount() int {
+	s.locksMu.Lock()
+	defer s.locksMu.Unlock()
+	return len(s.keyLocks)
 }
 
 // CreateRecordWithConsistency 基于状态机流水线创建病历，支持幂等去重与跨分布式节点事务补偿

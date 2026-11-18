@@ -760,7 +760,7 @@
             <strong>患者门诊/急诊现场授权机制</strong>
           </template>
           <div>
-            患者可在其手机端个人中心或就医卡上查看专属 6 位数字调阅密钥（初始预置密钥为: <code>123456</code>）。
+            患者可在其手机端个人中心或就医卡上查看专属 6 位数字调阅密钥。
             医生在就医现场输入核验后，系统将即时解密放行该患者全量档案，并即时上链存证！
           </div>
         </el-alert>
@@ -772,7 +772,7 @@
           <el-form-item label="患者现场出示的专属授权密钥" required>
             <el-input
               v-model="keyUnlockForm.medicalKey"
-              placeholder="请输入患者6位授权密码 (默认初始密码: 123456)"
+              placeholder="请输入患者现场出示的 6 位数字授权密钥"
               maxlength="16"
               size="large"
               clearable
@@ -1118,7 +1118,7 @@ const aiDiagnosticVisible = ref(false)
 // 密钥核验验证码状态
 const keyUnlockCaptchaImg = ref('')
 const keyUnlockForm = ref({
-  medicalKey: '123456',
+  medicalKey: '',
   days: 7,
   captchaAnswer: '',
   captchaToken: '',
@@ -1399,7 +1399,7 @@ async function submitBatchConsent() {
 // 打开现场密钥解锁弹窗
 function openKeyUnlockDialog() {
   if (!selectedPatient.value) return
-  keyUnlockForm.value.medicalKey = selectedPatient.value.medical_key || '123456'
+  keyUnlockForm.value.medicalKey = ''
   fetchKeyUnlockCaptcha()
   keyUnlockDialogVisible.value = true
 }

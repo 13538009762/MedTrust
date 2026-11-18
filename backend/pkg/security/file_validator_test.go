@@ -26,11 +26,11 @@ func TestValidateMedicalFile_AllowedTypes(t *testing.T) {
 
 func TestValidateMedicalFile_RejectsDangerousExtensions(t *testing.T) {
 	fakeData := []byte("echo 'malicious payload'")
-	badFiles := []string{"malware.exe", "trojan.sh", "backdoor.php", "script.vbs", "exploit.bat"}
+	badFiles := []string{"malware.exe", "trojan.sh", "backdoor.php", "script.vbs", "exploit.bat", "no_extension_payload"}
 
 	for _, bf := range badFiles {
 		if err := ValidateMedicalFile(bf, fakeData); err == nil {
-			t.Fatalf("预期拒绝危险扩展名 %s，但未报错", bf)
+			t.Fatalf("预期拒绝危险/无扩展名文件 %s，但未报错", bf)
 		}
 	}
 }

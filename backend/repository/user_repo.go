@@ -4,6 +4,7 @@ import (
 	"errors"
 	"medtrust-backend/model"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -193,8 +194,43 @@ func (r *UserRepository) ListAllUsers() ([]model.User, error) {
 		return nil, errors.New("database not initialized")
 	}
 	var users []model.User
-	err := DB.Order("id asc").Find(&users).Error
+	err := DB.Omit("avatar").Order("id asc").Find(&users).Error
 	return users, err
+}
+
+// ListUsersPaged 分页及按角色/状态/关键字检索用户目录（显式忽略 LONGTEXT avatar 列防列表 OOM）
+func (r *UserRepository) ListUsersPaged(page, pageSize int, role, status, keyword string) ([]model.User, int64, error) {
+	if DB == nil {
+		return nil, 0, errors.New("database not initialized")
+	}
+	if page < 1 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 50
+	} else if pageSize > 200 {
+		pageSize = 200
+	}
+
+	q := DB.Model(&model.User{}).Omit("avatar")
+	if role != "" && strings.ToUpper(role) != "ALL" {
+		q = q.Where("role = ?", role)
+	}
+	if status != "" {
+		q = q.Where("status = ?", strings.ToUpper(status))
+	}
+	if keyword != "" {
+		like := "%" + keyword + "%"
+		q = q.Where("(username LIKE ? OR real_name LIKE ? OR phone LIKE ? OR id_card LIKE ? OR user_no LIKE ?)", like, like, like, like, like)
+	}
+
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var users []model.User
+	err := q.Order("id asc").Offset((page - 1) * pageSize).Limit(pageSize).Find(&users).Error
+	return users, total, err
 }
 
 func (r *UserRepository) ListDoctors(keyword string, hospitalID uint64) ([]model.User, error) {

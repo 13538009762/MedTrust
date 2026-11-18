@@ -67,8 +67,8 @@ func (r *AuditRepository) CountDistinctPatients(doctorID uint64, duration time.D
 	var count int64
 	since := time.Now().Add(-duration)
 	DB.Table("audit_logs").
-		Joins("JOIN medical_records ON audit_logs.target_id = CAST(medical_records.id AS CHAR)").
-		Where("audit_logs.user_id = ? AND audit_logs.created_at >= ?", doctorID, since).
+		Joins("JOIN medical_records ON audit_logs.target_id = medical_records.record_no").
+		Where("audit_logs.user_id = ? AND audit_logs.operation_type IN ('ACCESS', 'ACCESS_EVALUATE') AND audit_logs.result IN ('SUCCESS', 'ALLOWED') AND audit_logs.created_at >= ?", doctorID, since).
 		Distinct("medical_records.patient_id").
 		Count(&count)
 	return count
@@ -98,7 +98,7 @@ func (r *AuditRepository) GetDashboardStats() (*model.DashboardStatsDTO, error) 
 
 	// 跨院共享与调阅总数
 	var accessCount int64
-	DB.Model(&model.AuditLog{}).Where("operation_type IN ('ACCESS', 'ACCESS_EVALUATE', 'BREAK_GLASS') AND result = 'SUCCESS'").Count(&accessCount)
+	DB.Model(&model.AuditLog{}).Where("operation_type IN ('ACCESS', 'ACCESS_EVALUATE', 'BREAK_GLASS') AND result IN ('SUCCESS', 'ALLOWED')").Count(&accessCount)
 	stats.TotalSharedCount = accessCount
 
 	// 高危拦截
@@ -198,24 +198,43 @@ func (r *AuditRepository) GetRiskStats() []RiskStat {
 }
 
 func (r *AuditRepository) GetThroughputTrends(days int) []DayTrend {
-	if DB == nil {
+	if DB == nil || days <= 0 {
 		return nil
 	}
-	var trendList []DayTrend
+	now := time.Now()
+	loc := now.Location()
+	startOfRange := time.Date(now.Year(), now.Month(), now.Day()-(days-1), 0, 0, 0, 0, loc)
+	endOfRange := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, loc)
+
+	type dayRow struct {
+		DayKey         string `gorm:"column:day_key"`
+		FlowCount      int64  `gorm:"column:flow_cnt"`
+		InterceptCount int64  `gorm:"column:int_cnt"`
+	}
+	var rows []dayRow
+	DB.Raw(`
+		SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS day_key,
+			COUNT(*) AS flow_cnt,
+			SUM(CASE WHEN result IN ('INTERCEPTED', 'FAILED') THEN 1 ELSE 0 END) AS int_cnt
+		FROM audit_logs
+		WHERE created_at >= ? AND created_at < ?
+		GROUP BY day_key
+	`, startOfRange, endOfRange).Scan(&rows)
+
+	byDay := make(map[string]dayRow, len(rows))
+	for _, row := range rows {
+		byDay[row.DayKey] = row
+	}
+
+	trendList := make([]DayTrend, 0, days)
 	for i := days - 1; i >= 0; i-- {
-		dStr := time.Now().AddDate(0, 0, -i).Format("01-02")
-		startOfDay := time.Now().AddDate(0, 0, -i).Truncate(24 * time.Hour)
-		endOfDay := startOfDay.Add(24 * time.Hour)
-		var flowCnt, intCnt int64
-		DB.Model(&model.AuditLog{}).Where("created_at >= ? AND created_at < ?", startOfDay, endOfDay).Count(&flowCnt)
-		DB.Model(&model.AuditLog{}).Where("created_at >= ? AND created_at < ? AND result IN ('INTERCEPTED', 'FAILED')", startOfDay, endOfDay).Count(&intCnt)
-		if flowCnt == 0 {
-			flowCnt = int64(14 + (days-1-i)*4)
-		}
+		dayTime := time.Date(now.Year(), now.Month(), now.Day()-i, 0, 0, 0, 0, loc)
+		dayKey := dayTime.Format("2006-01-02")
+		row := byDay[dayKey]
 		trendList = append(trendList, DayTrend{
-			Date:           dStr,
-			FlowCount:      flowCnt,
-			InterceptCount: intCnt,
+			Date:           dayTime.Format("01-02"),
+			FlowCount:      row.FlowCount,
+			InterceptCount: row.InterceptCount,
 		})
 	}
 	return trendList
@@ -238,25 +257,10 @@ func (r *AuditRepository) GetAccessHeatmapMatrix() [][3]int {
 		GROUP BY wd, hr
 	`).Scan(&dbItems)
 
-	matrix := make(map[string]int)
-	for wd := 0; wd < 7; wd++ {
-		for hr := 0; hr < 24; hr++ {
-			baseVal := 1
-			if hr >= 8 && hr <= 11 {
-				baseVal = 12 + ((hr*3 + wd*2) % 7)
-			} else if hr >= 14 && hr <= 17 {
-				baseVal = 9 + ((hr*2 + wd*3) % 6)
-			} else if hr == 2 || hr == 3 {
-				baseVal = 3 + (wd % 3)
-			}
-			key := fmt.Sprintf("%d-%d", hr, wd)
-			matrix[key] = baseVal
-		}
-	}
-
+	matrix := make(map[string]int, 7*24)
 	for _, item := range dbItems {
 		key := fmt.Sprintf("%d-%d", item.Hour, item.Weekday)
-		matrix[key] += item.Count * 3
+		matrix[key] += item.Count
 	}
 
 	result := make([][3]int, 0, 7*24)
@@ -273,29 +277,17 @@ func (r *AuditRepository) GetHospitalFlows() []FlowItem {
 	if DB == nil {
 		return nil
 	}
-	var flows []FlowItem
+	flows := make([]FlowItem, 0)
 	DB.Raw(`
 		SELECT 
-			COALESCE(sh.name, '第一人民医院') AS src,
-			COALESCE(th.name, '省立中心医院') AS tgt,
+			sh.name AS src,
+			th.name AS tgt,
 			COUNT(*) AS cnt
 		FROM access_requests ar
-		LEFT JOIN hospitals sh ON ar.source_hospital_id = sh.id
-		LEFT JOIN hospitals th ON ar.target_hospital_id = th.id
-		WHERE sh.name IS NOT NULL AND th.name IS NOT NULL
+		JOIN hospitals sh ON ar.source_hospital_id = sh.id
+		JOIN hospitals th ON ar.target_hospital_id = th.id
 		GROUP BY sh.name, th.name
 	`).Scan(&flows)
-
-	if len(flows) == 0 {
-		flows = []FlowItem{
-			{Source: "第一人民医院 (门诊中心)", Target: "省立中心医院 (急救中心)", Value: 28},
-			{Source: "第一人民医院 (门诊中心)", Target: "协和医学中心 (专科中心)", Value: 16},
-			{Source: "省立中心医院 (急救中心)", Target: "第一人民医院 (门诊中心)", Value: 19},
-			{Source: "省立中心医院 (急救中心)", Target: "协和医学中心 (专科中心)", Value: 12},
-			{Source: "协和医学中心 (专科中心)", Target: "省立中心医院 (急救中心)", Value: 8},
-			{Source: "协和医学中心 (专科中心)", Target: "第一人民医院 (门诊中心)", Value: 14},
-		}
-	}
 	return flows
 }
 
@@ -307,13 +299,6 @@ func (r *AuditRepository) GetAuthFunnelStats() (total, handled, approved, active
 	DB.Model(&model.AccessRequest{}).Where("status IN ('APPROVED', 'REJECTED')").Count(&handled)
 	DB.Model(&model.AccessRequest{}).Where("status = 'APPROVED'").Count(&approved)
 	DB.Model(&model.Authorization{}).Where("status = 'ACTIVE'").Count(&active)
-
-	if total < 20 {
-		total += 45
-		handled += 38
-		approved += 32
-		active += 28
-	}
 	return total, handled, approved, active
 }
 
@@ -371,8 +356,8 @@ func (r *AuditRepository) RecentAuditAccessCount(doctorID, patientID uint64, dur
 	var count int64
 	since := time.Now().Add(-duration)
 	DB.Table("audit_logs").
-		Joins("JOIN medical_records ON audit_logs.target_id = CAST(medical_records.id AS CHAR)").
-		Where("audit_logs.user_id = ? AND medical_records.patient_id = ? AND audit_logs.operation_type = 'ACCESS' AND audit_logs.result = 'SUCCESS' AND audit_logs.created_at >= ?", doctorID, patientID, since).
+		Joins("JOIN medical_records ON audit_logs.target_id = medical_records.record_no").
+		Where("audit_logs.user_id = ? AND medical_records.patient_id = ? AND audit_logs.operation_type IN ('ACCESS', 'ACCESS_EVALUATE') AND audit_logs.result IN ('SUCCESS', 'ALLOWED') AND audit_logs.created_at >= ?", doctorID, patientID, since).
 		Count(&count)
 	return count
 }
@@ -385,8 +370,8 @@ func (r *AuditRepository) DistinctPatientsAccessedByDoctor(doctorID uint64, dura
 	var count int64
 	since := time.Now().Add(-duration)
 	DB.Table("audit_logs").
-		Joins("JOIN medical_records ON audit_logs.target_id = CAST(medical_records.id AS CHAR)").
-		Where("audit_logs.user_id = ? AND audit_logs.operation_type = 'ACCESS' AND audit_logs.result = 'SUCCESS' AND audit_logs.created_at >= ?", doctorID, since).
+		Joins("JOIN medical_records ON audit_logs.target_id = medical_records.record_no").
+		Where("audit_logs.user_id = ? AND audit_logs.operation_type IN ('ACCESS', 'ACCESS_EVALUATE') AND audit_logs.result IN ('SUCCESS', 'ALLOWED') AND audit_logs.created_at >= ?", doctorID, since).
 		Distinct("medical_records.patient_id").
 		Count(&count)
 	return count

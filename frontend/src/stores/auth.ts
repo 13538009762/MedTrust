@@ -49,15 +49,7 @@ export const useAuthStore = defineStore('auth', () => {
     setUser(newUser)
   }
 
-  async function logout() {
-    const currentToken = token.value || sessionStorage.getItem('medtrust_token')
-    if (currentToken) {
-      try {
-        await logoutApi()
-      } catch (err) {
-        console.warn('[Auth] Backend logout error or offline:', err)
-      }
-    }
+  function clearAuth() {
     token.value = ''
     user.value = null
     sessionStorage.removeItem('medtrust_token')
@@ -68,12 +60,25 @@ export const useAuthStore = defineStore('auth', () => {
     } catch {}
   }
 
+  async function logout() {
+    const currentToken = token.value || sessionStorage.getItem('medtrust_token')
+    if (currentToken) {
+      try {
+        await logoutApi()
+      } catch (err) {
+        console.warn('[Auth] Backend logout error or offline:', err)
+      }
+    }
+    clearAuth()
+  }
+
   return {
     token,
     user,
     setAuth,
     setToken,
     setUser,
+    clearAuth,
     logout,
   }
 })

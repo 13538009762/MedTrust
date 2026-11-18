@@ -154,5 +154,39 @@ class TestAIAgentSecurity(unittest.TestCase):
         self.assertTrue(len(res_verify["tool_trace"]) > 0)
         self.assertEqual(res_verify["tool_trace"][0]["tool"], "verify_record_integrity")
 
+        # 5. 非示例名单患者("林秀芝的病历")应准确抽取出"林秀芝"而不带trailing"的"字
+        res_name = self.agent.run("查询患者林秀芝的病历", self.doctor_token)
+        self.assertEqual(res_name["tool_called"], "query_patient_records(keyword='林秀芝')")
+
+        # 6. 未提供病历 ID 时，核验不得静默默认 record_id=1
+        res_missing_id = self.agent.run("核验病历完整性", self.doctor_token)
+        self.assertEqual(res_missing_id["tool_called"], "NEED_PARAMETER")
+        self.assertEqual(res_missing_id["tool_status"], "PROMPT_USER")
+
+        # 7. ControlledMedicalTools 必须拦截非法 ID 入参
+        from tools import ControlledMedicalTools
+        tool_inst = ControlledMedicalTools(self.doctor_token)
+        bad_verify = tool_inst.verify_record_integrity(-1)
+        self.assertEqual(bad_verify["code"], 400)
+
+        # 8. FastAPI HTTP 层对伪造 Token 必须返回 HTTP 401，且空消息被 Pydantic 校验拦截 (422)
+        from fastapi.testclient import TestClient
+        import main as ai_main
+        client = TestClient(ai_main.app)
+        resp_unauth = client.post("/api/v1/ai/chat", json={"message": "查询患者信息"})
+        self.assertEqual(resp_unauth.status_code, 401)
+        resp_forged = client.post(
+            "/api/v1/ai/chat",
+            json={"message": "查询患者信息"},
+            headers={"Authorization": "Bearer forged.jwt.token"},
+        )
+        self.assertEqual(resp_forged.status_code, 401)
+        resp_empty = client.post(
+            "/api/v1/ai/chat",
+            json={"message": ""},
+            headers={"Authorization": f"Bearer {self.doctor_token}"},
+        )
+        self.assertEqual(resp_empty.status_code, 422)
+
 if __name__ == "__main__":
     unittest.main()

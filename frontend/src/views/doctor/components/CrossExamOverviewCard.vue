@@ -159,7 +159,7 @@
               <div class="pure-diag-head">
                 <strong>临床确诊 / 主诉：</strong>
               </div>
-              <div class="pure-diag-text font-bold" v-html="(exam.diagnosis || exam.symptoms || '')"></div>
+              <div class="pure-diag-text font-bold" v-html="highlightText(exam.diagnosis || exam.symptoms || '', searchKeyword)"></div>
               <div v-if="exam.treatment_plan" class="pure-diag-plan">
                 <span>处置方案：{{ exam.treatment_plan }}</span>
               </div>
