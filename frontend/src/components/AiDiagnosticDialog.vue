@@ -2,7 +2,7 @@
   <el-dialog
     v-model="visible"
     title="跨院既往病史 SOAP 客观摘要（经治医生复核）"
-    width="980px"
+    width="min(980px, 94vw)"
     class="ai-diagnostic-dialog"
     :close-on-click-modal="false"
     destroy-on-close
@@ -25,11 +25,11 @@
           <div class="p-auth-stats">
             <span class="stat-pill success">
               <el-icon><CircleCheckFilled /></el-icon>
-              已授权调阅 <strong>{{ diagnosticResult?.authorized_record_count || authCount }}</strong> 份跨期病历
+              已授权调阅 <strong>{{ diagnosticResult ? (diagnosticResult.authorized_record_count ?? 0) : (loading ? '...' : '—') }}</strong> 份跨期病历
             </span>
             <span class="stat-pill info">
               <el-icon><Document /></el-icon>
-              关联 <strong>{{ diagnosticResult?.total_exam_order_count || examCount }}</strong> 份医技化验单
+              关联 <strong>{{ diagnosticResult ? (diagnosticResult.total_exam_order_count ?? 0) : (loading ? '...' : '—') }}</strong> 份医技化验单
             </span>
           </div>
         </div>
@@ -97,11 +97,17 @@
           <SoapSummaryPanel :result="diagnosticResult" @adopt-soap="adoptSOAP" />
         </el-tab-pane>
 
-        <el-tab-pane label="隐匿过敏与高危线索" name="clues">
+        <el-tab-pane
+          :label="`隐匿过敏与高危线索${diagnosticResult.hidden_allergy_clues?.length ? ` (${diagnosticResult.hidden_allergy_clues.length})` : ''}`"
+          name="clues"
+        >
           <HiddenCluesPanel :result="diagnosticResult" />
         </el-tab-pane>
 
-        <el-tab-pane label="跨院记录语义矛盾提示" name="contradictions">
+        <el-tab-pane
+          :label="`跨院记录语义矛盾提示${diagnosticResult.semantic_contradictions?.length ? ` (${diagnosticResult.semantic_contradictions.length})` : ''}`"
+          name="contradictions"
+        >
           <ContradictionPanel :result="diagnosticResult" />
         </el-tab-pane>
 
@@ -140,6 +146,21 @@
       </div>
     </div>
 
+    <!-- 请求失败或空态引导（杜绝失败后主体区域一片空白） -->
+    <div v-else class="ai-error-fallback">
+      <el-result
+        :icon="errorMessage ? 'error' : 'info'"
+        :title="errorMessage ? '跨院 SOAP 摘要提取失败' : '暂无可展示的跨院汇总结果'"
+        :sub-title="errorMessage || '请点击下方按钮重新拉取已授权的跨期历史病历并生成客观摘要'"
+      >
+        <template #extra>
+          <el-button type="primary" :icon="Refresh" @click="runDiagnosticAnalysis">
+            重新提取摘要
+          </el-button>
+        </template>
+      </el-result>
+    </div>
+
     <!-- 弹窗底部操作工具栏 -->
     <template #footer>
       <div class="ai-dialog-footer">
@@ -173,13 +194,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onUnmounted } from 'vue'
 import {
   DocumentChecked, CircleCheckFilled, Document, Cpu, Loading,
   InfoFilled, WarningFilled, Refresh, DocumentCopy
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
+import axios from 'axios'
 import { diagnosticAssistApi } from '../api'
+import { isErrorToastShown, extractApiErrorMessage } from '@/utils/passwordPolicy'
 import SoapSummaryPanel from './ai-diagnostic/SoapSummaryPanel.vue'
 import HiddenCluesPanel from './ai-diagnostic/HiddenCluesPanel.vue'
 import ContradictionPanel from './ai-diagnostic/ContradictionPanel.vue'
@@ -213,10 +236,26 @@ const loading = ref(false)
 const pipelineStep = ref(1)
 const activeTab = ref('soap')
 const diagnosticResult = ref<any>(null)
-const authCount = ref(4)
-const examCount = ref(2)
+const errorMessage = ref('')
+let stepTimer: ReturnType<typeof setInterval> | null = null
+let activeAbortController: AbortController | null = null
 
 const patientInfo = computed(() => props.patient || {})
+
+function cleanupPendingAnalysis() {
+  if (stepTimer) {
+    clearInterval(stepTimer)
+    stepTimer = null
+  }
+  if (activeAbortController) {
+    activeAbortController.abort()
+    activeAbortController = null
+  }
+}
+
+onUnmounted(() => {
+  cleanupPendingAnalysis()
+})
 
 function formatGender(gender?: string) {
   if (!gender) return '性别未登记'
@@ -232,50 +271,79 @@ watch(
     if (val) {
       activeTab.value = 'soap'
       runDiagnosticAnalysis()
+    } else {
+      cleanupPendingAnalysis()
+      loading.value = false
     }
   }
 )
 
 async function runDiagnosticAnalysis() {
   if (!props.patient?.id) {
+    errorMessage.value = '尚未指定有效的就诊患者，无法执行跨院病历汇总'
     ElMessage.warning('尚未指定有效的就诊患者')
     return
   }
 
+  cleanupPendingAnalysis()
+  const controller = new AbortController()
+  activeAbortController = controller
+
   loading.value = true
   pipelineStep.value = 1
   diagnosticResult.value = null
+  errorMessage.value = ''
 
   // 动画流水线定时推进
-  const stepTimer = setInterval(() => {
+  stepTimer = setInterval(() => {
     if (pipelineStep.value < 4) {
       pipelineStep.value++
     }
-  }, 350)
+  }, 1200)
 
   try {
-    const res: any = await diagnosticAssistApi({
-      patient_id: props.patient.id,
-      current_symptoms: props.currentSymptoms || '',
-      present_illness: props.presentIllness || '',
-      vital_signs: props.vitalSigns || '',
-      department_name: props.departmentName || '全科/综合门诊',
-    })
+    const res: any = await diagnosticAssistApi(
+      {
+        patient_id: props.patient.id,
+        current_symptoms: props.currentSymptoms || '',
+        present_illness: props.presentIllness || '',
+        vital_signs: props.vitalSigns || '',
+        department_name: props.departmentName || '全科/综合门诊',
+      },
+      { signal: controller.signal }
+    )
 
-    clearInterval(stepTimer)
+    if (activeAbortController !== controller) return
+    if (stepTimer) {
+      clearInterval(stepTimer)
+      stepTimer = null
+    }
     pipelineStep.value = 4
 
     if (res.code === 200 && res.data) {
       diagnosticResult.value = res.data
     } else {
-      ElMessage.warning(res.message || '临床摘要检索返回格式异常')
+      errorMessage.value = res?.message || '临床摘要检索返回格式异常，请重试'
+      ElMessage.warning(errorMessage.value)
     }
   } catch (err: any) {
-    clearInterval(stepTimer)
+    if (axios.isCancel(err) || err?.code === 'ERR_CANCELED') {
+      return
+    }
+    if (stepTimer) {
+      clearInterval(stepTimer)
+      stepTimer = null
+    }
     console.error('[AI Diagnostic Assist Error]:', err)
-    ElMessage.error(err?.response?.data?.message || err?.message || '调用临床线索聚合服务失败')
+    errorMessage.value = extractApiErrorMessage(err, '调用临床线索聚合服务超时或失败，请稍后重试')
+    if (!isErrorToastShown(err)) {
+      ElMessage.error(errorMessage.value)
+    }
   } finally {
-    loading.value = false
+    if (activeAbortController === controller) {
+      activeAbortController = null
+      loading.value = false
+    }
   }
 }
 

@@ -111,11 +111,19 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 	}
 
 	if keyword != "" {
-		// 支持通过病历编号、诊断、症状、检查项目、报告结论，以及患者姓名、手机号、身份证号精准搜索，杜绝同名混淆
-		query = query.Where(
-			"record_no LIKE ? OR diagnosis LIKE ? OR symptoms LIKE ? OR exam_items LIKE ? OR exam_result LIKE ? OR patient_id IN (SELECT id FROM users WHERE real_name LIKE ? OR phone LIKE ? OR id_card LIKE ?)",
-			"%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%",
-		)
+		if currentUserID > 0 && currentUser.Role == "supervisor" {
+			// 监管员仅可按病历编号、患者姓名或完整手机号/身份证号检索，严禁对临床诊断明文做模糊盲注探测
+			query = query.Where(
+				"record_no LIKE ? OR patient_id IN (SELECT id FROM users WHERE real_name LIKE ? OR phone = ? OR id_card = ?)",
+				"%"+keyword+"%", "%"+keyword+"%", keyword, keyword,
+			)
+		} else {
+			// 支持通过病历编号、诊断、症状、检查项目、报告结论，以及患者姓名、完整手机号/身份证号精确检索（防掩码段逐位盲猜）
+			query = query.Where(
+				"record_no LIKE ? OR diagnosis LIKE ? OR symptoms LIKE ? OR exam_items LIKE ? OR exam_result LIKE ? OR patient_id IN (SELECT id FROM users WHERE real_name LIKE ? OR phone = ? OR id_card = ?)",
+				"%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%", keyword, keyword,
+			)
+		}
 	}
 
 	var list []model.MedicalRecord
@@ -150,6 +158,9 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 		if r.HospitalID > 0 {
 			hospIDMap[r.HospitalID] = true
 		}
+	}
+	if currentUser.HospitalID > 0 {
+		hospIDMap[currentUser.HospitalID] = true
 	}
 	for _, a := range patientAuths {
 		if a.AuthTargetType == "DOCTOR" && a.AuthTargetID > 0 {
@@ -194,12 +205,15 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 	}
 
 	// 补充外联展示信息与区块链实时动态核验及权限标记
+	filtered := make([]model.MedicalRecord, 0, len(list))
 	for i := range list {
 		if pat, ok := userMap[list[i].PatientID]; ok {
 			list[i].PatientName = pat.RealName
 			list[i].PatientIDCard = pat.IDCard
 			list[i].PatientPhone = pat.Phone
 		}
+		rawPatPhone := list[i].PatientPhone
+		rawPatIDCard := list[i].PatientIDCard
 		if doc, ok := userMap[list[i].DoctorID]; ok {
 			list[i].DoctorName = doc.RealName
 		}
@@ -207,7 +221,7 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 			list[i].HospitalName = hosp.Name
 		}
 
-		// 计算针对当前调用者的访问权限状态 (基于 RBAC + ABAC + 患者所有权)
+		// 计算针对当前调用者的访问权限状态 (基于 RBAC + ABAC + 患者所有权 + PRIVATE 隐私锁 + 动态风控)
 		if currentUserID > 0 {
 			// 1. 患者本人查阅自己的就诊档案：依法享有 100% 完整知情权与查阅权，直接放行
 			if list[i].PatientID == currentUserID || (currentUser.Role == "patient" && list[i].PatientID == currentUser.ID) {
@@ -312,51 +326,19 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 				list[i].ActiveAuthTargetType = targetType
 				list[i].ActiveAuthTargetID = targetID
 				list[i].ActiveAuthTargetName = targetName
-			} else if list[i].DoctorID == currentUserID {
-				// 2. 接诊责任医生本人病历
-				list[i].HasAccess = true
-				list[i].AccessType = "OWNER"
-			} else if currentUser.Role == "doctor" && list[i].HospitalID == currentUser.HospitalID {
-				// 3. 院内机构：同科室或全科综合门诊协同，或高级职称专家
-				isSameDept := currentUser.DepartmentID == 0 || list[i].DepartmentName == "" ||
-					list[i].DepartmentName == "综合门诊" || (currentUserDeptName != "" && currentUserDeptName == list[i].DepartmentName)
-				if isSameDept || currentUser.Title == "主任医师" || currentUser.Title == "副主任医师" {
-					list[i].HasAccess = true
-					list[i].AccessType = "HOSPITAL"
-				} else {
-					hasAuth := false
-					isAllDocAuth := false
-					priv, hasPriv := privAuthMap[list[i].ID]
-					for _, a := range docAuths {
-						if a.PatientID == list[i].PatientID && (a.ScopeType == "ALL" || (a.ScopeType == "SINGLE" && a.RecordID == list[i].ID)) {
-							if hasPriv && !repository.IsAuthorizationNewerThan(a, priv) {
-								continue
-							}
-							hasAuth = true
-							if a.AuthTargetType == "ALL_DOCTORS" {
-								isAllDocAuth = true
-								break
-							}
-						}
-					}
-					if hasAuth {
-						list[i].HasAccess = true
-						if isAllDocAuth {
-							list[i].AccessType = "ALL_DOCTORS"
-						} else {
-							list[i].AccessType = "AUTHORIZED"
-						}
-					} else {
-						list[i].HasAccess = false
-						list[i].AccessType = "UNAUTHORIZED"
-					}
-				}
 			} else if currentUser.Role == "doctor" {
-				// 4. 跨院机构医生 (若医生处于受限状态 RESTRICTED，严禁跨院调阅)
-				if currentUser.Status == "RESTRICTED" {
+				docHospDisabled := currentUser.HospitalID > 0 && hospMap[currentUser.HospitalID].ID > 0 && hospMap[currentUser.HospitalID].Status == 0
+				recHospDisabled := list[i].HospitalID > 0 && hospMap[list[i].HospitalID].ID > 0 && hospMap[list[i].HospitalID].Status == 0
+
+				if currentUser.Status == "DISABLED" || docHospDisabled || recHospDisabled {
 					list[i].HasAccess = false
 					list[i].AccessType = "UNAUTHORIZED"
-				} else {
+				} else if list[i].DoctorID == currentUserID {
+					// 2. 接诊责任医生本人病历
+					list[i].HasAccess = true
+					list[i].AccessType = "OWNER"
+				} else if list[i].HospitalID == currentUser.HospitalID {
+					// 3. 院内机构：严格尊重患者 PRIVATE 隐私锁，无隐私锁时才允许同科室或高级职称专家协同
 					hasAuth := false
 					isAllDocAuth := false
 					priv, hasPriv := privAuthMap[list[i].ID]
@@ -372,9 +354,16 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 							}
 						}
 					}
-					if docEmgRecordIDs[list[i].ID] {
+					isSameDept := currentUser.DepartmentID == 0 || list[i].DepartmentName == "" ||
+						list[i].DepartmentName == "综合门诊" || (currentUserDeptName != "" && currentUserDeptName == list[i].DepartmentName)
+					isSenior := currentUser.Title == "主任医师" || currentUser.Title == "副主任医师"
+
+					if currentUser.Status != "RESTRICTED" && docEmgRecordIDs[list[i].ID] {
 						list[i].HasAccess = true
 						list[i].AccessType = "BREAK_GLASS"
+					} else if !hasPriv && (isSameDept || isSenior) {
+						list[i].HasAccess = true
+						list[i].AccessType = "HOSPITAL"
 					} else if hasAuth {
 						list[i].HasAccess = true
 						if isAllDocAuth {
@@ -386,6 +375,53 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 						list[i].HasAccess = false
 						list[i].AccessType = "UNAUTHORIZED"
 					}
+				} else {
+					// 4. 跨院机构医生 (若医生处于受限状态 RESTRICTED，严禁跨院调阅)
+					if currentUser.Status == "RESTRICTED" {
+						list[i].HasAccess = false
+						list[i].AccessType = "UNAUTHORIZED"
+					} else {
+						hasAuth := false
+						isAllDocAuth := false
+						priv, hasPriv := privAuthMap[list[i].ID]
+						for _, a := range docAuths {
+							if a.PatientID == list[i].PatientID && (a.ScopeType == "ALL" || (a.ScopeType == "SINGLE" && a.RecordID == list[i].ID)) {
+								if hasPriv && !repository.IsAuthorizationNewerThan(a, priv) {
+									continue
+								}
+								hasAuth = true
+								if a.AuthTargetType == "ALL_DOCTORS" {
+									isAllDocAuth = true
+									break
+								}
+							}
+						}
+						if docEmgRecordIDs[list[i].ID] {
+							list[i].HasAccess = true
+							list[i].AccessType = "BREAK_GLASS"
+						} else if hasAuth {
+							list[i].HasAccess = true
+							if isAllDocAuth {
+								list[i].AccessType = "ALL_DOCTORS"
+							} else {
+								list[i].AccessType = "AUTHORIZED"
+							}
+						} else {
+							list[i].HasAccess = false
+							list[i].AccessType = "UNAUTHORIZED"
+						}
+					}
+				}
+
+				// 对齐 AccessEngine 动态多因子风控：非经治本人且非破窗通道达到 HIGH 风险时阻断明文展示
+				if list[i].HasAccess && list[i].DoctorID != currentUserID && list[i].AccessType != "BREAK_GLASS" {
+					if DefaultAccessEngine != nil && DefaultAccessEngine.GetRiskEngine() != nil {
+						eval := DefaultAccessEngine.GetRiskEngine().Evaluate(currentUser.ID, list[i].PatientID, list[i].HospitalID != currentUser.HospitalID, true, false)
+						if eval.Level == "HIGH" {
+							list[i].HasAccess = false
+							list[i].AccessType = "UNAUTHORIZED"
+						}
+					}
 				}
 			} else {
 				list[i].HasAccess = false
@@ -393,6 +429,19 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 			}
 		} else {
 			list[i].HasAccess = true
+		}
+
+		// 防范关键字布尔盲注探测预言机 (V-03)：若调用者对该病历无查阅权限，仅当 keyword 命中公开编号、姓名或完整手机号/身份证号时才允许返回掩码卡片；
+		// 若仅因 SQL LIKE 命中了未授权临床明文（诊断/主诉/检验），直接从结果集剥离，阻断盲猜推断
+		if keyword != "" && currentUserID > 0 && !list[i].HasAccess {
+			kwLower := strings.ToLower(keyword)
+			matchedPublicMeta := strings.Contains(strings.ToLower(list[i].RecordNo), kwLower) ||
+				strings.Contains(strings.ToLower(list[i].PatientName), kwLower) ||
+				(rawPatPhone != "" && rawPatPhone == keyword) ||
+				(rawPatIDCard != "" && rawPatIDCard == keyword)
+			if !matchedPublicMeta {
+				continue
+			}
 		}
 
 		// WP-12: 列表端点不再执行 O(N) Fabric+IPFS 同步核验（每条记录一次链查询+密文拉取+解密），
@@ -452,7 +501,9 @@ func (s *MedicalService) GetRecords(patientID, doctorID, hospitalID, excludeHosp
 		}
 
 		list[i].InfectionAlert = nil
+		filtered = append(filtered, list[i])
 	}
+	list = filtered
 
 	// WP-13 / Batch 2: 按患者维度批量聚合职业暴露传染病预警（消除原循环内 3N 次数据库往返，并按当前调用者已授权病历集合脱敏跨院未授权来源单号）
 	authRecordIDsByPatient := make(map[uint64]map[uint64]bool)

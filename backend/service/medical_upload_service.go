@@ -49,11 +49,11 @@ type UploadRecordParams struct {
 
 // UploadRecord 录入就诊事件并在本地完成 AES-256-GCM 加密，存入 IPFS，上链锚定存证 (具备幂等拦截与 DB.Transaction 强原子事务保护)
 func (s *MedicalService) UploadRecord(p UploadRecordParams) (*model.MedicalRecord, error) {
-	// 0. 幂等性校验拦截 (防止网络抖动并发重复录入相同就诊事件)
+	// 0. 幂等性校验拦截 (严格绑定 doctor_id + idempotency_key，防止跨医生碰撞回放)
 	if p.IdempotencyKey != "" {
-		existing, err := repository.DefaultMedicalRepository.FindByIdempotencyKeyWithFiles(p.IdempotencyKey)
+		existing, err := repository.DefaultMedicalRepository.FindByDoctorAndIdempotencyKeyWithFiles(p.DoctorID, p.IdempotencyKey)
 		if err == nil && existing.ID > 0 {
-			log.Printf("[MedicalService] ⚠️ 触发幂等拦截: IdempotencyKey=%s, 复用既有就诊记录 ID=%d, RecordNo=%s", p.IdempotencyKey, existing.ID, existing.RecordNo)
+			log.Printf("[MedicalService] ⚠️ 触发幂等拦截: DoctorID=%d, IdempotencyKey=%s, 复用既有就诊记录 ID=%d, RecordNo=%s", p.DoctorID, p.IdempotencyKey, existing.ID, existing.RecordNo)
 			return existing, nil
 		}
 	}

@@ -91,7 +91,15 @@ func main() {
 	fmt.Println("[MedTrust] Fabric Ledger & IPFS Engine Initialized with Baseline Assets")
 
 	r := router.SetupRouter()
-	_ = r.SetTrustedProxies([]string{"127.0.0.1", "::1"})
+	var trustedProxies []string
+	for _, p := range strings.Split(strings.TrimSpace(cfg.Security.TrustedProxies), ",") {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			trustedProxies = append(trustedProxies, p)
+		}
+	}
+	// 默认不信任任何代理头（防本机直连伪造 X-Forwarded-For），仅在容器/反向代理拓扑下显式通过 TRUSTED_PROXIES 声明
+	_ = r.SetTrustedProxies(trustedProxies)
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	srv := &http.Server{

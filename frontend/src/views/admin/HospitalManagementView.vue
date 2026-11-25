@@ -80,7 +80,7 @@
             <div v-for="node in topologyNodes" :key="node.msp" class="topo-node-box">
               <div class="tn-top">
                 <div class="tn-name-row">
-                  <span class="mini-pulse-dot dot-green mr-1"></span>
+                  <span class="mini-pulse-dot mr-1" :class="nodeDotClass"></span>
                   <strong class="tn-name">{{ node.name }}</strong>
                   <el-tag size="small" type="primary" effect="plain" class="mono ml-auto">{{ node.msp }}</el-tag>
                 </div>
@@ -91,8 +91,8 @@
               <div class="tn-divider"></div>
               <div class="tn-bottom">
                 <div class="tn-info-row">
-                  <span class="k">X.509 根证书：</span>
-                  <span class="v text-emerald-700 font-semibold">{{ node.certExpire }}</span>
+                  <span class="k">节点运行状态：</span>
+                  <span class="v font-semibold" :class="nodeStatusTextClass">{{ nodeStatusLabel }}</span>
                 </div>
                 <div class="tn-info-row">
                   <span class="k">TLS 传输加密：</span>
@@ -100,14 +100,16 @@
                 </div>
                 <div class="tn-info-row">
                   <span class="k">共识区块高度：</span>
-                  <span class="v mono font-bold text-amber-400">#{{ blockchainStatus.latest_block || node.blockHeight }} (已同步)</span>
+                  <span class="v mono font-bold text-amber-700">
+                    {{ blockchainStatus.latest_block ? `#${blockchainStatus.latest_block}` : '待同步' }}
+                  </span>
                 </div>
               </div>
             </div>
           </div>
-          <div class="mt-3 px-3 py-2 bg-slate-900/60 rounded border border-slate-700/50 text-xs text-slate-400 flex items-center justify-between">
+          <div class="topology-footer-bar mt-3">
             <span><el-icon class="mr-1"><InfoFilled /></el-icon>底层引擎状态: <strong>{{ blockchainStatus.mode === 'fabric' ? (blockchainStatus.connected ? '真实 Fabric 2.5 网关' : 'Fabric 连接未就绪') : 'MockLedger 模拟账本' }}</strong></span>
-            <span class="mono text-emerald-400">通道: {{ blockchainStatus.network || 'medicalchannel' }}</span>
+            <span class="mono text-emerald-700 font-semibold">通道: {{ blockchainStatus.network || 'medicalchannel' }}</span>
           </div>
         </el-card>
       </el-col>
@@ -277,7 +279,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { Connection, Platform, Plus, InfoFilled } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   getBlockchainStatusApi,
   listHospitalsApi,
@@ -371,37 +373,36 @@ async function fetchBlockchainStatus() {
   }
 }
 
-const topologyNodes = ref([
-  {
-    name: '广州第一附属医院背书节点',
-    msp: 'Org1MSP',
-    peer: 'peer0.org1.example.com:7051',
-    certExpire: '有效期至 2036-09-12 · 正常',
+const topologyNodes = computed(() => {
+  return hospitals.value.map((h, idx) => ({
+    name: `${h.name}背书节点`,
+    msp: getHospitalMsp(h, idx),
+    peer: `peer0.org${h.id || idx + 1}.example.com:7051`,
     tlsVersion: 'TLSv1.3',
-    blockHeight: 357
-  },
-  {
-    name: '深圳中心医院背书节点',
-    msp: 'Org2MSP',
-    peer: 'peer0.org2.example.com:7051',
-    certExpire: '有效期至 2036-09-12 · 正常',
-    tlsVersion: 'TLSv1.3',
-    blockHeight: 357
-  },
-  {
-    name: '珠海人民医院背书节点',
-    msp: 'Org3MSP',
-    peer: 'peer0.org3.example.com:7051',
-    certExpire: '有效期至 2036-09-12 · 正常',
-    tlsVersion: 'TLSv1.3',
-    blockHeight: 357
-  }
-])
+  }))
+})
+
+const nodeDotClass = computed(() => {
+  if (blockchainStatus.value.mode === 'fabric' && blockchainStatus.value.connected) return 'dot-green'
+  if (blockchainStatus.value.mode === 'mock') return 'dot-amber'
+  return 'dot-red'
+})
+
+const nodeStatusLabel = computed(() => {
+  if (blockchainStatus.value.mode === 'fabric' && blockchainStatus.value.connected) return '背书节点在线 · 已同步'
+  if (blockchainStatus.value.mode === 'mock') return '模拟账本模式（非真实共识）'
+  return '节点未连接（离线）'
+})
+
+const nodeStatusTextClass = computed(() => {
+  if (blockchainStatus.value.mode === 'fabric' && blockchainStatus.value.connected) return 'text-emerald-700'
+  if (blockchainStatus.value.mode === 'mock') return 'text-amber-700'
+  return 'text-red-600'
+})
 
 function getHospitalMsp(row: Hospital, index: number): string {
-  if (row.id === 1 || row.name?.includes('第一') || index === 0) return 'Org1MSP'
-  if (row.id === 2 || row.name?.includes('中心') || index === 1) return 'Org2MSP'
-  return 'Org3MSP'
+  const num = row.id || index + 1
+  return `Org${num}MSP`
 }
 
 function getHospitalNameById(id: number): string {
@@ -502,14 +503,33 @@ async function submitHospitalForm() {
 async function toggleHospitalStatus(row: Hospital) {
   const targetStatus = row.status === 1 ? 0 : 1
   const actionText = targetStatus === 0 ? '暂停' : '恢复'
+  if (targetStatus === 0) {
+    try {
+      await ElMessageBox.confirm(
+        `确认要暂停「${row.name}」的医联体接入服务吗？暂停后该院区跨机构业务协同可能受影响。`,
+        '暂停医疗机构接入确认',
+        {
+          confirmButtonText: '确认暂停',
+          cancelButtonText: '取消',
+          type: 'warning',
+        }
+      )
+    } catch {
+      return
+    }
+  }
   try {
     const res: any = await updateHospitalStatusApi(row.id, targetStatus)
     if (res.code === 200) {
       ElMessage.success(`机构已成功${actionText}接入服务`)
       row.status = targetStatus
+    } else {
+      ElMessage.error(res?.message || `${actionText}机构状态失败`)
     }
   } catch (err: any) {
-    ElMessage.error(err.response?.data?.message || `${actionText}机构状态失败`)
+    if (!err?.__toastShown) {
+      ElMessage.error(err?.message || `${actionText}机构状态失败`)
+    }
   }
 }
 
@@ -688,5 +708,24 @@ onMounted(async () => {
 }
 .dot-green {
   background-color: #059669;
+}
+.dot-amber {
+  background-color: #d97706;
+}
+.dot-red {
+  background-color: #dc2626;
+}
+.topology-footer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #334155;
 }
 </style>

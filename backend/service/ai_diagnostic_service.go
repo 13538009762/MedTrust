@@ -311,6 +311,9 @@ func (s *AIDiagnosticService) AnalyzePatientDiagnosticCorrelation(doctorID uint6
 		Reason:        fmt.Sprintf("跨机构病历 SOAP 结构化摘要与隐匿线索提取 (调阅 %d 份已授权病历)", len(authorizedRecords)),
 	})
 
+	if config.AppConfig.IsProduction() {
+		result.RawPrompt = ""
+	}
 	return result, nil
 }
 
@@ -327,10 +330,26 @@ func (s *AIDiagnosticService) ValidateAuthorizedRecordScope(doctorID, patientID 
 	} else {
 		doctor = *dPtr
 	}
+	if doctor.Status == "DISABLED" {
+		return nil
+	}
+	if doctor.HospitalID > 0 {
+		if docHosp, hErr := repository.DefaultUserRepository.FindHospitalByID(doctor.HospitalID); hErr == nil && docHosp.Status == 0 {
+			return nil
+		}
+	}
+
+	var docDeptName string
+	if doctor.DepartmentID > 0 {
+		if deptPtr, deptErr := repository.DefaultUserRepository.FindDepartmentByID(doctor.DepartmentID); deptErr == nil && deptPtr != nil {
+			docDeptName = deptPtr.Name
+		}
+	}
+
+	now := time.Now()
+	auths, _ := repository.DefaultAuthPolicyRepository.ListAuthorizations(patientID, "ACTIVE")
 
 	var validatedIDs []uint64
-	now := time.Now()
-
 	for _, rid := range recordIDs {
 		rec, err := repository.DefaultMedicalRepository.FindRecordByID(rid)
 		if err != nil || rec == nil {
@@ -340,23 +359,51 @@ func (s *AIDiagnosticService) ValidateAuthorizedRecordScope(doctorID, patientID 
 		if rec.PatientID != patientID {
 			continue
 		}
+		if rec.HospitalID > 0 {
+			if recHosp, hErr := repository.DefaultUserRepository.FindHospitalByID(rec.HospitalID); hErr == nil && recHosp.Status == 0 {
+				continue
+			}
+		}
 
-		// 1. 本院病历：当班医生有直接执业查阅权
+		// 1. 经治医生本人开立病历直接放行
+		if rec.DoctorID == doctorID {
+			validatedIDs = append(validatedIDs, rid)
+			continue
+		}
+
+		hasConsent, _ := repository.EvaluateConsentInAuthorizations(auths, doctorID, doctor.HospitalID, rid, now)
+
+		// 2. 急诊紧急破窗 (Break-Glass) 24h 有效通行权
+		if doctor.Status != "RESTRICTED" {
+			emgCount := repository.DefaultEmergencyRepository.CountRecentActiveBreakGlass(doctorID, rid, now.Add(-24*time.Hour))
+			if emgCount > 0 {
+				validatedIDs = append(validatedIDs, rid)
+				continue
+			}
+		}
+
+		// 3. 本院非经治医生：必须严格尊重患者 PRIVATE 隐私锁，仅无有效隐私锁时允许同科室或高级职称协同
 		if rec.HospitalID == doctor.HospitalID {
-			validatedIDs = append(validatedIDs, rid)
+			hasActivePrivateLock := false
+			for _, a := range auths {
+				if a.ScopeType == "SINGLE" && a.RecordID == rid && a.AuthTargetType == "PRIVATE" {
+					if (a.StartTime.IsZero() || !now.Before(a.StartTime)) && (a.EndTime.IsZero() || a.EndTime.After(now)) {
+						hasActivePrivateLock = true
+						break
+					}
+				}
+			}
+			isSameDept := doctor.DepartmentID == 0 || rec.DepartmentName == "" ||
+				rec.DepartmentName == "综合门诊" || (docDeptName != "" && docDeptName == rec.DepartmentName)
+			isSenior := doctor.Title == "主任医师" || doctor.Title == "副主任医师"
+			if (!hasActivePrivateLock && (isSameDept || isSenior)) || hasConsent {
+				validatedIDs = append(validatedIDs, rid)
+			}
 			continue
 		}
 
-		// 2. 跨院病历：核验患者显式授权 (Consent: 支持按医生、按医院或全体医生开放)
-		authCount := repository.DefaultAuthPolicyRepository.CountActiveConsentAuthorizations(patientID, doctorID, doctor.HospitalID, rid, now)
-		if authCount > 0 {
-			validatedIDs = append(validatedIDs, rid)
-			continue
-		}
-
-		// 3. 跨院病历：核验急诊紧急破窗 (Break-Glass) 24h 有效通行权
-		emgCount := repository.DefaultEmergencyRepository.CountRecentActiveBreakGlass(doctorID, rid, now.Add(-24*time.Hour))
-		if emgCount > 0 {
+		// 4. 跨院病历：核验患者显式授权（受限账号禁止跨院调阅）
+		if doctor.Status != "RESTRICTED" && hasConsent {
 			validatedIDs = append(validatedIDs, rid)
 			continue
 		}

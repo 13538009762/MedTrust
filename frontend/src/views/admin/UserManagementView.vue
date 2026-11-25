@@ -112,13 +112,13 @@
 
         <el-table-column prop="phone" label="联系手机号" width="130">
           <template #default="{ row }">
-            <span class="mono">{{ row.phone || '-' }}</span>
+            <span class="mono">{{ maskPhone(row.phone) }}</span>
           </template>
         </el-table-column>
 
-        <el-table-column prop="id_card" label="居民身份证号" width="180">
+        <el-table-column prop="id_card" label="居民身份证号" width="185">
           <template #default="{ row }">
-            <span class="mono">{{ row.id_card ? row.id_card : '-' }}</span>
+            <span class="mono">{{ maskIdCard(row.id_card) }}</span>
           </template>
         </el-table-column>
 
@@ -307,16 +307,19 @@
           </div>
           <div class="grid-item">
             <span class="lbl">联系电话：</span>
-            <span class="val mono">{{ selectedUser.phone || '-' }}</span>
+            <span class="val mono">{{ maskPhone(selectedUser.phone) }}</span>
           </div>
           <div class="grid-item full">
             <span class="lbl">居民身份证号：</span>
-            <span class="val mono font-semibold text-slate-800">{{ selectedUser.id_card || '-' }}</span>
+            <span class="val mono font-semibold text-slate-800">{{ maskIdCard(selectedUser.id_card) }}</span>
           </div>
           <div class="grid-item full">
             <span class="lbl">实名核验状态：</span>
-            <el-tag type="success" size="small" effect="plain">
-              公安部二代身份证/可信电子证照实名认证通过
+            <el-tag v-if="selectedUser.id_card" type="success" size="small" effect="plain">
+              已登记实名身份凭证（脱敏保护）
+            </el-tag>
+            <el-tag v-else type="info" size="small" effect="plain">
+              未登记身份证件信息
             </el-tag>
           </div>
         </div>
@@ -364,8 +367,7 @@
             </div>
             <div class="grid-item full">
               <span class="lbl">病历调阅专属密钥：</span>
-              <span class="val mono font-bold text-emerald-700">{{ selectedUser.medical_key || '123456 (默认)' }}</span>
-              <span class="text-xs text-slate-400 ml-2">（用于跨院就医现场医生即时解密放行）</span>
+              <el-tag size="small" type="success" effect="plain">已启用单向加密保护（仅患者本人可见与重置）</el-tag>
             </div>
             <div class="grid-item full">
               <span class="lbl">跨院数据主权：</span>
@@ -424,7 +426,7 @@
           <el-button
             v-if="selectedUser.status !== 'DISABLED'"
             type="danger"
-            :disabled="selectedUser.username === 'admin'"
+            :disabled="selectedUser.username === 'admin' || selectedUser.id === auth.user?.id"
             @click="changeStatus(selectedUser.id, 'DISABLED')"
           >
             停用此账号 (DISABLED)
@@ -474,7 +476,7 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="初始密码">
-              <el-input v-model="form.password" placeholder="留空默认 123456" show-password />
+              <el-input v-model="form.password" placeholder="留空使用系统预设，或填≥8位含字母数字密码" show-password />
             </el-form-item>
           </el-col>
         </el-row>
@@ -492,27 +494,30 @@
           </el-col>
         </el-row>
 
-        <!-- 医生专属表单项 -->
+        <!-- 医生专属表单项（动态读取真实医院与科室字典） -->
         <template v-if="form.role === 'doctor'">
           <el-row :gutter="12">
             <el-col :span="12">
               <el-form-item label="执业机构" required>
-                <el-select v-model="form.hospital_id" style="width: 100%;">
-                  <el-option label="第一人民医院" :value="1" />
-                  <el-option label="省立中心医院" :value="2" />
-                  <el-option label="协和医学中心" :value="3" />
+                <el-select v-model="form.hospital_id" style="width: 100%;" filterable @change="onCreateHospitalChange">
+                  <el-option
+                    v-for="h in hospitalsList"
+                    :key="h.id"
+                    :label="h.name"
+                    :value="h.id"
+                  />
                 </el-select>
               </el-form-item>
             </el-col>
             <el-col :span="12">
               <el-form-item label="执业科室">
-                <el-select v-model="form.department_id" style="width: 100%;">
-                  <el-option label="心血管内科" :value="2" />
-                  <el-option label="急救中心 / 急诊科" :value="4" />
-                  <el-option label="呼吸与危重症医学科" :value="5" />
-                  <el-option label="神经内科" :value="6" />
-                  <el-option label="医学检验科 (LIS)" :value="3" />
-                  <el-option label="放射影像与心电中心 (PACS)" :value="16" />
+                <el-select v-model="form.department_id" style="width: 100%;" filterable clearable placeholder="请选择科室">
+                  <el-option
+                    v-for="d in filteredCreateDepartments"
+                    :key="d.id"
+                    :label="d.name"
+                    :value="d.id"
+                  />
                 </el-select>
               </el-form-item>
             </el-col>
@@ -532,7 +537,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitAddUser">确认录入开设账号</el-button>
+        <el-button type="primary" :loading="creatingUser" @click="submitAddUser">确认录入开设账号</el-button>
       </template>
     </el-dialog>
   </div>
@@ -541,13 +546,17 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { Plus, User, Search, Refresh, View, FirstAidKit, UserFilled, Management } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
-import { listUsersApi, updateUserStatusApi, createUserApi } from '../../api'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { listUsersApi, updateUserStatusApi, createUserApi, listHospitalsApi, listDepartmentsApi } from '../../api'
 import { useAuthStore } from '../../stores/auth'
+import { validatePasswordStrength, isErrorToastShown, extractApiErrorMessage } from '@/utils/passwordPolicy'
 
 const auth = useAuthStore()
 const users = ref<any[]>([])
+const hospitalsList = ref<any[]>([])
+const departmentsList = ref<any[]>([])
 const loading = ref(false)
+const creatingUser = ref(false)
 const dialogVisible = ref(false)
 const drawerVisible = ref(false)
 const selectedUser = ref<any>(null)
@@ -594,8 +603,48 @@ const filteredUsers = computed(() => {
   return list
 })
 
+const filteredCreateDepartments = computed(() => {
+  if (!form.value.hospital_id) return departmentsList.value
+  const matched = departmentsList.value.filter(d => d.hospital_id === form.value.hospital_id)
+  return matched.length > 0 ? matched : departmentsList.value
+})
+
+function onCreateHospitalChange() {
+  const firstDept = filteredCreateDepartments.value[0]
+  form.value.department_id = firstDept ? firstDept.id : undefined
+}
+
+function maskPhone(phone?: string) {
+  if (!phone) return '-'
+  const s = String(phone).trim()
+  if (s.length < 7) return s
+  return `${s.slice(0, 3)}****${s.slice(-4)}`
+}
+
+function maskIdCard(id?: string) {
+  if (!id) return '-'
+  const s = String(id).trim()
+  if (s.length < 10) return s
+  return `${s.slice(0, 6)}********${s.slice(-4)}`
+}
+
+async function loadDictData() {
+  try {
+    const [hRes, dRes]: any = await Promise.all([listHospitalsApi(), listDepartmentsApi()])
+    if (hRes?.code === 200 && Array.isArray(hRes.data)) {
+      hospitalsList.value = hRes.data
+    }
+    if (dRes?.code === 200 && Array.isArray(dRes.data)) {
+      departmentsList.value = dRes.data
+    }
+  } catch (err) {
+    console.warn('加载医院/科室字典失败:', err)
+  }
+}
+
 onMounted(() => {
   loadUsers()
+  loadDictData()
 })
 
 async function loadUsers() {
@@ -605,18 +654,23 @@ async function loadUsers() {
     if (res.code === 200) {
       users.value = res.data || []
     }
-  } catch (err: any) {
-    ElMessage.error(err?.message || '获取用户列表失败')
+  } catch (err: unknown) {
+    if (!isErrorToastShown(err)) {
+      ElMessage.error(extractApiErrorMessage(err, '获取用户列表失败'))
+    }
   } finally {
     loading.value = false
   }
 }
 
 function formatHospName(hId?: number) {
+  if (!hId) return '-'
+  const matched = hospitalsList.value.find(h => h.id === hId)
+  if (matched?.name) return matched.name
   if (hId === 1) return '第一人民医院'
   if (hId === 2) return '省立中心医院'
   if (hId === 3) return '协和医学中心'
-  return '-'
+  return `机构 #${hId}`
 }
 
 function formatRoleLabel(role: string) {
@@ -645,13 +699,15 @@ function openUserDrawer(row: any) {
 }
 
 function openCreateDialog() {
+  const defaultHospId = hospitalsList.value[0]?.id ?? 1
+  const defaultDept = departmentsList.value.find(d => d.hospital_id === defaultHospId) || departmentsList.value[0]
   form.value = {
     username: '',
     password: '',
     real_name: '',
     role: activeRoleTab.value !== 'ALL' ? activeRoleTab.value : 'doctor',
-    hospital_id: 1,
-    department_id: 2,
+    hospital_id: defaultHospId,
+    department_id: defaultDept?.id ?? 2,
     title: '主治医师',
     phone: '',
     id_card: '',
@@ -687,6 +743,25 @@ function getDialogAlertDesc(role: string) {
 }
 
 async function changeStatus(id: number, status: string) {
+  const targetUser = users.value.find(u => u.id === id) || selectedUser.value
+  if (status === 'DISABLED' || status === 'RESTRICTED') {
+    const actionLabel = status === 'DISABLED' ? '停用该账号' : '限制该医生跨院与急救破窗权限'
+    const userNameText = targetUser ? `${targetUser.real_name || targetUser.username}（@${targetUser.username}）` : `用户 #${id}`
+    try {
+      await ElMessageBox.confirm(
+        `确认对 ${userNameText} 执行「${actionLabel}」操作吗？变更后权限将立即生效。`,
+        '高危账号状态变更确认',
+        {
+          confirmButtonText: '确认执行',
+          cancelButtonText: '取消',
+          type: 'warning',
+        }
+      )
+    } catch {
+      return
+    }
+  }
+
   try {
     const res: any = await updateUserStatusApi(id, status)
     if (res.code === 200) {
@@ -695,9 +770,13 @@ async function changeStatus(id: number, status: string) {
         selectedUser.value.status = status
       }
       loadUsers()
+    } else {
+      ElMessage.error(res?.message || '账号状态变更失败')
     }
-  } catch (err: any) {
-    ElMessage.error(err?.message || '变更失败')
+  } catch (err: unknown) {
+    if (!isErrorToastShown(err)) {
+      ElMessage.error(extractApiErrorMessage(err, '变更失败'))
+    }
   }
 }
 
@@ -706,15 +785,29 @@ async function submitAddUser() {
     ElMessage.warning('请填写完整的用户名、姓名、身份证号与联系电话')
     return
   }
+  if (form.value.password && form.value.password.trim()) {
+    const pwdErr = validatePasswordStrength(form.value.password)
+    if (pwdErr) {
+      ElMessage.warning(pwdErr)
+      return
+    }
+  }
+  creatingUser.value = true
   try {
     const res: any = await createUserApi(form.value)
     if (res.code === 200) {
-      ElMessage.success('用户创建成功，初始密码为 123456')
+      ElMessage.success(form.value.password?.trim() ? '用户账号创建成功！' : '用户账号创建成功，已启用系统默认初始密码')
       dialogVisible.value = false
       loadUsers()
+    } else {
+      ElMessage.error(res?.message || '创建失败')
     }
-  } catch (err: any) {
-    ElMessage.error(err?.message || '创建失败')
+  } catch (err: unknown) {
+    if (!isErrorToastShown(err)) {
+      ElMessage.error(extractApiErrorMessage(err, '创建失败'))
+    }
+  } finally {
+    creatingUser.value = false
   }
 }
 </script>

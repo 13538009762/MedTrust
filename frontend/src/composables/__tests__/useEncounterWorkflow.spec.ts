@@ -143,4 +143,33 @@ describe('useEncounterWorkflow patient selection regression tests', () => {
     expect(wf.initForm.value.patient_id).toBeUndefined()
     expect(wf.selectedPatientInfectionAlert.value).toBeNull()
   })
+
+  it('does not auto-fill fake symptoms on select and resets clinical fields when switching patients', async () => {
+    getPatientInfectionRisksApiMock.mockResolvedValue({
+      code: 200,
+      data: { has_risk: false },
+    })
+
+    const wf = useEncounterWorkflow({
+      setView: vi.fn(),
+      refreshRecords: vi.fn(),
+    })
+    wf.patientList.value = [
+      { id: 4, user_no: 'PAT_0001', real_name: '张三', username: 'pat_zhang' },
+      { id: 5, user_no: 'PAT_0002', real_name: '李四', username: 'pat_li' },
+    ]
+
+    await wf.onPatientSelect(4)
+    expect(wf.initForm.value.chief_complaint).toBe('')
+    expect(wf.directForm.value.diagnosis).toBe('')
+
+    wf.initForm.value.chief_complaint = '患者A专属主诉'
+    wf.directForm.value.diagnosis = '患者A专属确诊'
+    wf.vitals.value.blood_pressure = '150/95'
+
+    wf.changeSelectedPatient()
+    expect(wf.initForm.value.chief_complaint).toBe('')
+    expect(wf.directForm.value.diagnosis).toBe('')
+    expect(wf.vitals.value.blood_pressure).toBe('')
+  })
 })

@@ -187,17 +187,35 @@
             />
           </div>
 
-          <!-- 结构化医嘱 CPOE 标签徽标栏 (对齐医院商业 SaaS 处方视图) -->
+          <!-- 结构化医嘱 CPOE 标签徽标栏（仅展示实际识别出的剂量/途径/频次，严禁无中生有编造默认频次） -->
           <div v-if="getParsedRx(localData.prescriptions[index])" class="rx-cpoe-tags-row">
             <span class="cpoe-label">结构化解析：</span>
             <span class="cpoe-drug-badge">{{ getParsedRx(localData.prescriptions[index])?.name }}</span>
-            <el-tag size="small" type="primary" effect="plain" class="cpoe-tag font-mono">
+            <el-tag
+              v-if="getParsedRx(localData.prescriptions[index])?.dose"
+              size="small"
+              type="primary"
+              effect="plain"
+              class="cpoe-tag font-mono"
+            >
               {{ getParsedRx(localData.prescriptions[index])?.dose }}
             </el-tag>
-            <el-tag size="small" type="success" effect="plain" class="cpoe-tag">
+            <el-tag
+              v-if="getParsedRx(localData.prescriptions[index])?.route"
+              size="small"
+              type="success"
+              effect="plain"
+              class="cpoe-tag"
+            >
               {{ getParsedRx(localData.prescriptions[index])?.route }}
             </el-tag>
-            <el-tag size="small" type="warning" effect="plain" class="cpoe-tag">
+            <el-tag
+              v-if="getParsedRx(localData.prescriptions[index])?.freq"
+              size="small"
+              type="warning"
+              effect="plain"
+              class="cpoe-tag"
+            >
               {{ getParsedRx(localData.prescriptions[index])?.freq }}
             </el-tag>
             <span v-if="getParsedRx(localData.prescriptions[index])?.instructions" class="cpoe-inst">
@@ -817,22 +835,47 @@ function setStructuredData(data: { disposals?: string[]; orders?: string[]; pres
 
 function getParsedRx(str: string) {
   if (!str || !str.trim()) return null
-  const s = str.trim()
-  const tokens = s.split(/\s+/)
-  if (tokens.length >= 3) {
-    let name = tokens[0]
-    let idx = 1
-    if (tokens[1]?.startsWith('(') || tokens[1]?.startsWith('（')) {
-      name = `${tokens[0]} ${tokens[1]}`
-      idx = 2
-    }
-    const dose = tokens[idx] || '适量'
-    const route = tokens[idx + 1] || '口服'
-    const freq = tokens[idx + 2] || '每日一次'
-    const instructions = tokens.slice(idx + 3).join(' ') || ''
-    return { name, dose, route, freq, instructions }
+  const tokens = str.trim().split(/\s+/)
+  if (tokens.length < 2) return null
+
+  let name = tokens[0]
+  let idx = 1
+  if (tokens[1]?.startsWith('(') || tokens[1]?.startsWith('（')) {
+    name = `${tokens[0]} ${tokens[1]}`
+    idx = 2
   }
-  return null
+
+  const rest = tokens.slice(idx)
+  const DOSE_RE = /^(\d+(?:\.\d+)?(?:[-~]\d+(?:\.\d+)?)?\s*(?:mg|g|ml|ug|μg|iu|u|片|粒|袋|支|丸|喷|滴|贴|瓶|盒)|每次\d+.*|一次\d+.*)$/i
+  const ROUTE_RE = /^(口服|静滴|静脉滴注|静推|静脉注射|肌注|肌肉注射|皮下注射|舌下含服|含服|嚼服|外用|外涂|滴眼|滴鼻|雾化吸入|吸入|直肠给药|冲服)$/
+  const FREQ_RE = /^(每日[一二两三四五六\d]+次|每晚(?:睡前)?[一\d]?次|每晨[一\d]?次|每\d+小时一次|隔日一次|每周[一二三\d]+次|必要时|临时一次|qd|bid|tid|qid|qn|prn|q\d+h)$/i
+
+  let dose = ''
+  let route = ''
+  let freq = ''
+  const instructionTokens: string[] = []
+
+  for (const tok of rest) {
+    if (!dose && DOSE_RE.test(tok)) {
+      dose = tok
+    } else if (!route && ROUTE_RE.test(tok)) {
+      route = tok
+    } else if (!freq && FREQ_RE.test(tok)) {
+      freq = tok
+    } else {
+      instructionTokens.push(tok)
+    }
+  }
+
+  // 至少识别出一个临床用药维度（剂量/途径/频次）才展示结构化解析，避免空壳或误拆
+  if (!dose && !route && !freq) return null
+  return {
+    name,
+    dose,
+    route,
+    freq,
+    instructions: instructionTokens.join(' '),
+  }
 }
 
 defineExpose({

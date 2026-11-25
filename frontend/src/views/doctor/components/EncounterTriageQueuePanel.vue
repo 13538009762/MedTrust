@@ -58,7 +58,7 @@
             <el-button type="primary" :icon="Plus" @click="$emit('create-encounter')">
               新建就诊记录 (接诊初诊)
             </el-button>
-            <el-button :icon="Refresh" circle @click="$emit('refresh')" />
+            <el-button :icon="Refresh" circle title="刷新就诊记录列表" aria-label="刷新就诊记录列表" @click="$emit('refresh')" />
           </div>
         </div>
       </template>

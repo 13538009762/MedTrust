@@ -616,16 +616,21 @@
   text-align: center;
 }
 
-/* 打印样式 */
+/* 仅在主动打印红头电子病历时隔离打印区域，避免误杀全站其他页面 Ctrl+P，并防止多页截断 */
 @media print {
-  body * {
+  body.printing-emr * {
     visibility: hidden;
   }
-  #emr-print-container,
-  #emr-print-container * {
+  body.printing-emr #emr-print-container,
+  body.printing-emr #emr-print-container * {
     visibility: visible;
   }
-  #emr-print-container {
+  body.printing-emr .pdf-preview-dialog,
+  body.printing-emr .el-dialog__body {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+  body.printing-emr #emr-print-container {
     position: absolute;
     left: 0;
     top: 0;
@@ -804,36 +809,60 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* 顶部工作台导航卡片 (纤细轻量条 48px - 纯白实色杜绝重影透光) */
+/* 顶部工作台导航卡片（自适应高度防窄屏裁切，吸顶 top: 0 不被遮盖） */
 .ws-page-header-card {
   position: relative;
   z-index: 40;
-  height: 48px;
   min-height: 48px;
-  max-height: 48px;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
   background: #ffffff !important;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
-  padding: 0 16px;
+  padding: 6px 16px;
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
-  white-space: nowrap !important;
   box-sizing: border-box;
   margin-bottom: 16px;
 }
 
 .ws-page-header-card.sticky-header {
   position: sticky;
-  top: -24px;
+  top: 0;
   z-index: 40;
-  background: #ffffff !important;
+  background: transparent !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   opacity: 1 !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* 吸顶时用画布底色遮盖顶部圆角外缘，防止滚动时下方卡片边线从圆角缝隙透出 */
+.ws-page-header-card.sticky-header::before {
+  content: '';
+  position: absolute;
+  left: -28px;
+  right: -28px;
+  top: -24px;
+  bottom: 50%;
+  background: var(--mt-bg-canvas, #f8fafc);
+  z-index: -2;
+  pointer-events: none;
+}
+
+.ws-page-header-card.sticky-header::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: #ffffff;
   border: 1px solid #cbd5e1;
+  border-radius: 8px;
   box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+  z-index: -1;
+  pointer-events: none;
 }
 
 .ws-header-left {
@@ -1283,11 +1312,22 @@
   line-height: 1.6;
 }
 
-/* O 维度 生命体征 4 项紧凑临床横条 (HIS 单行四栏) */
+/* O 维度 生命体征 4 项紧凑临床横条（自适应列数防 1280/1366 屏溢出） */
 .vitals-sensor-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
   gap: 8px;
+}
+
+@media (max-width: 1120px) {
+  .ws-body-grid {
+    flex-direction: column !important;
+  }
+  .ws-col-left {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
 }
 
 .vital-sensor-card {
@@ -1320,15 +1360,32 @@
   white-space: nowrap;
 }
 
-.vsc-status.normal {
+.vsc-status {
   font-size: 11px;
-  color: #059669;
-  background: #ecfdf5;
-  border: 1px solid #a7f3d0;
   padding: 1px 6px;
   border-radius: 4px;
   font-weight: 600;
   white-space: nowrap;
+}
+.vsc-status.normal {
+  color: #059669;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+}
+.vsc-status.elevated {
+  color: #b45309;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+}
+.vsc-status.critical {
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+}
+.vsc-status.unknown {
+  color: #64748b;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
 }
 
 /* 医技检验板块 */
@@ -1625,8 +1682,18 @@
 }
 .vital-badge-tag.elevated {
   background: #fffbeb;
-  color: #d97706;
-  border: 1px solid #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+.vital-badge-tag.critical {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+.vital-badge-tag.unknown {
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #cbd5e1;
 }
 
 /* 链上存证与信封加密就绪预览卡 (#f8fafc 实体面板) */

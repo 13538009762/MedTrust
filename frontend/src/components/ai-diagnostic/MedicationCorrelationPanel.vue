@@ -21,13 +21,19 @@
             {{ med }}
           </el-tag>
         </div>
-        <div class="dsc-text-block">
+        <div v-if="result.medication_correlation?.drug_response_analysis" class="dsc-text-block">
           <strong>用药疗效与病情反复评估：</strong>
-          <p>{{ result.medication_correlation?.drug_response_analysis }}</p>
+          <p>{{ result.medication_correlation.drug_response_analysis }}</p>
         </div>
-        <div class="dsc-text-block alert-block mt-2">
+        <div v-if="result.medication_correlation?.interactions_and_risks" class="dsc-text-block alert-block mt-2">
           <strong>用药配伍禁忌与安全提示：</strong>
-          <p>{{ result.medication_correlation?.interactions_and_risks }}</p>
+          <p>{{ result.medication_correlation.interactions_and_risks }}</p>
+        </div>
+        <div
+          v-if="!result.medication_correlation?.past_medications?.length && !result.medication_correlation?.drug_response_analysis && !result.medication_correlation?.interactions_and_risks"
+          class="text-xs text-slate-500"
+        >
+          暂无已授权的跨院既往处方与用药关联记录。
         </div>
       </div>
     </div>
@@ -52,9 +58,9 @@
             <template #default="{ row }">
               <el-tag
                 size="small"
-                :type="row.status === 'ABNORMAL' ? 'danger' : (row.status === 'WARNING' ? 'warning' : 'success')"
+                :type="getLabStatusTagType(row.status)"
               >
-                {{ row.status === 'ABNORMAL' ? '异常' : (row.status === 'WARNING' ? '提示' : '正常') }}
+                {{ getLabStatusText(row.status) }}
               </el-tag>
             </template>
           </el-table-column>
@@ -75,6 +81,21 @@ import { FolderChecked, Collection, InfoFilled } from '@element-plus/icons-vue'
 defineProps<{
   result: any
 }>()
+
+function getLabStatusTagType(status?: string): 'danger' | 'warning' | 'success' {
+  const s = String(status || '').trim().toUpperCase()
+  if (s === 'ABNORMAL' || s === 'HIGH' || s === 'CRITICAL' || s === 'POSITIVE') return 'danger'
+  if (s === 'WARNING' || s === 'ELEVATED' || s === 'BORDERLINE') return 'warning'
+  return 'success'
+}
+
+function getLabStatusText(status?: string): string {
+  const s = String(status || '').trim().toUpperCase()
+  if (s === 'CRITICAL') return '危急'
+  if (s === 'ABNORMAL' || s === 'HIGH' || s === 'POSITIVE') return '异常'
+  if (s === 'WARNING' || s === 'ELEVATED' || s === 'BORDERLINE') return '提示'
+  return '正常'
+}
 </script>
 
 <style scoped>

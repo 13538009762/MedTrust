@@ -127,13 +127,25 @@ func (r *UserRepository) FindDepartmentByID(id uint64) (*model.Department, error
 }
 
 func (r *UserRepository) UpdatePassword(id uint64, newHash string) error {
+	return r.UpdatePasswordWithPolicy(id, newHash, false)
+}
+
+func (r *UserRepository) UpdatePasswordWithPolicy(id uint64, newHash string, mustChangePwd bool) error {
 	if DB == nil {
 		return errors.New("database not initialized")
 	}
-	return DB.Model(&model.User{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"password_hash":   newHash,
-		"must_change_pwd": false,
+	now := time.Now()
+	nowNs := now.UnixNano()
+	err := DB.Model(&model.User{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"password_hash":          newHash,
+		"must_change_pwd":        mustChangePwd,
+		"password_changed_at_ns": nowNs,
+		"updated_at":             now,
 	}).Error
+	if err == nil {
+		CachePasswordChangedAtNs(id, nowNs, 24*time.Hour)
+	}
+	return err
 }
 
 func (r *UserRepository) UpdateMedicalKeyHash(id uint64, hash string) error {
@@ -221,7 +233,7 @@ func (r *UserRepository) ListUsersPaged(page, pageSize int, role, status, keywor
 	}
 	if keyword != "" {
 		like := "%" + keyword + "%"
-		q = q.Where("(username LIKE ? OR real_name LIKE ? OR phone LIKE ? OR id_card LIKE ? OR user_no LIKE ?)", like, like, like, like, like)
+		q = q.Where("(username LIKE ? OR real_name LIKE ? OR phone = ? OR id_card = ? OR user_no LIKE ?)", like, like, keyword, keyword, like)
 	}
 
 	var total int64
@@ -309,8 +321,8 @@ func (r *UserRepository) ListPatients(keyword string) ([]model.User, error) {
 	}
 	query := DB.Model(&model.User{}).Where("role = ?", "patient")
 	if keyword != "" {
-		query = query.Where("real_name LIKE ? OR phone LIKE ? OR id_card LIKE ? OR user_no LIKE ?",
-			"%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%")
+		query = query.Where("real_name LIKE ? OR phone = ? OR id_card = ? OR user_no LIKE ?",
+			"%"+keyword+"%", keyword, keyword, "%"+keyword+"%")
 	}
 	var list []model.User
 	err := query.Order("id asc").Find(&list).Error

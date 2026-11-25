@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import { ElNotification } from 'element-plus'
 import router from '../router'
 import { createSSETicketApi } from '../api/auth'
+import { onAuthCleared } from '../stores/auth'
 
 export interface SSENotifyEvent {
   type: 'access_request' | 'request_approved' | 'request_rejected' | 'break_glass' | string
@@ -16,8 +17,43 @@ const isConnected = ref(false)
 const eventListeners: EventCallback[] = []
 let eventSource: EventSource | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+let reconnectAttempt = 0
+const RECONNECT_BACKOFF_MS = [5000, 10000, 20000, 30000, 60000]
+let authClearRegistered = false
+
+function teardownSSE() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+  if (eventSource) {
+    try {
+      eventSource.close()
+    } catch {}
+    eventSource = null
+  }
+  isConnected.value = false
+  reconnectAttempt = 0
+}
 
 export function useSSE() {
+  if (!authClearRegistered) {
+    authClearRegistered = true
+    onAuthCleared(() => teardownSSE())
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimer) return
+    const delay = RECONNECT_BACKOFF_MS[Math.min(reconnectAttempt, RECONNECT_BACKOFF_MS.length - 1)]
+    reconnectAttempt += 1
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null
+      const currentToken = sessionStorage.getItem('medtrust_token')
+      if (currentToken) {
+        connect(currentToken)
+      }
+    }, delay)
+  }
   function addEventListener(cb: EventCallback) {
     if (!eventListeners.includes(cb)) {
       eventListeners.push(cb)
@@ -60,17 +96,9 @@ export function useSSE() {
       console.warn('[MedTrust SSE] 获取单次 Ticket 失败:', err)
     }
 
-    // 严禁在 URL 查询参数中降级透传长效 JWT，无有效一次性票据时交由重连定时器退避重试
+    // 严禁在 URL 查询参数中降级透传长效 JWT，无有效一次性票据时交由重连定时器指数退避重试
     if (!ticket) {
-      if (!reconnectTimer) {
-        reconnectTimer = setTimeout(() => {
-          reconnectTimer = null
-          const currentToken = sessionStorage.getItem('medtrust_token')
-          if (currentToken) {
-            connect(currentToken)
-          }
-        }, 5000)
-      }
+      scheduleReconnect()
       return
     }
 
@@ -82,6 +110,7 @@ export function useSSE() {
 
       eventSource.addEventListener('connected', () => {
         isConnected.value = true
+        reconnectAttempt = 0
         if (reconnectTimer) {
           clearTimeout(reconnectTimer)
           reconnectTimer = null
@@ -111,16 +140,7 @@ export function useSSE() {
           } catch {}
           eventSource = null
         }
-        // 5秒后尝试静默重连
-        if (!reconnectTimer) {
-          reconnectTimer = setTimeout(() => {
-            reconnectTimer = null
-            const currentToken = sessionStorage.getItem('medtrust_token')
-            if (currentToken) {
-              connect(currentToken)
-            }
-          }, 5000)
-        }
+        scheduleReconnect()
       }
     } catch (e) {
       console.warn('[MedTrust SSE] 创建 EventSource 异常:', e)
@@ -152,11 +172,15 @@ export function useSSE() {
         notifyType = 'info'
     }
 
+    const displayMessage = targetPath
+      ? `${event.message || ''}（点击立即查看）`
+      : event.message
+
     ElNotification({
       title: event.title || '系统即时通知',
-      message: event.message,
+      message: displayMessage,
       type: notifyType,
-      duration: 9000,
+      duration: event.type === 'break_glass' ? 0 : 9000,
       position: 'top-right',
       dangerouslyUseHTMLString: false,
       onClick: () => {
@@ -168,17 +192,7 @@ export function useSSE() {
   }
 
   function disconnect() {
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer)
-      reconnectTimer = null
-    }
-    if (eventSource) {
-      try {
-        eventSource.close()
-      } catch {}
-      eventSource = null
-    }
-    isConnected.value = false
+    teardownSSE()
   }
 
   return {

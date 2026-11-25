@@ -36,6 +36,29 @@
             </el-input>
           </div>
         </div>
+
+        <!-- 多结果匹配消歧选择栏：检索到多位同名/相似患者时强制由医生核对选定，杜绝调错档案 -->
+        <div v-if="matchedCandidates.length > 1" class="candidate-disambiguation-bar mt-3">
+          <div class="disambig-head">
+            <el-icon color="#d97706"><WarningFilled /></el-icon>
+            <span>共检索到 <strong>{{ matchedCandidates.length }}</strong> 位匹配患者，请核对身份证号与手机号后点击确认：</span>
+          </div>
+          <div class="disambig-list">
+            <div
+              v-for="cand in matchedCandidates"
+              :key="cand.id"
+              class="disambig-item"
+              :class="{ active: selectedPatient?.id === cand.id }"
+              @click="confirmCandidatePatient(cand)"
+            >
+              <span class="cand-name">{{ cand.real_name }}</span>
+              <el-tag size="small" plain>{{ cand.gender || '未登记' }} / {{ cand.age ? `${cand.age}岁` : '年龄未登记' }}</el-tag>
+              <span class="cand-meta mono">身份证：{{ maskIdCard(cand.id_card) }}</span>
+              <span class="cand-meta">手机：{{ cand.phone || '未登记' }}</span>
+              <el-button type="primary" size="small" plain class="ml-auto">选定此患者</el-button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -135,9 +158,13 @@
             </div>
             <div class="bento-body">
               <div class="blood-type-display">
-                <span class="blood-big">{{ selectedPatient.blood_type || 'O型 (Rh阳性)' }}</span>
+                <span class="blood-big" :class="{ 'is-unrecorded': !selectedPatient.blood_type }">
+                  {{ selectedPatient.blood_type || '未登记 · 输血前须急查血型' }}
+                </span>
               </div>
-              <p class="bento-note">急救输血配型核心依据 · 链上历史验血存证</p>
+              <p class="bento-note">
+                {{ selectedPatient.blood_type ? '急救输血配型核心依据 · 链上历史验血存证' : '档案暂无血型记录，严禁推定血型，须立即交叉配血' }}
+              </p>
             </div>
           </div>
 
@@ -196,13 +223,18 @@
             </div>
             <div class="bento-body">
               <div class="vitals-display-row">
-                {{ selectedPatient.latest_vital_signs || 'BP: 122/80 mmHg, HR: 74 bpm, SpO2: 99%, T: 36.6℃' }}
+                {{ selectedPatient.latest_vital_signs || '暂无近期床旁体征记录（请立即进行现场床旁实测）' }}
               </div>
-              <div class="vitals-tags-row">
-                <span class="v-tag">血压正常</span>
-                <span class="v-tag">血氧饱和 > 95%</span>
-                <span class="v-tag">窦性心律</span>
+              <div v-if="emergencyVitalTags.length > 0" class="vitals-tags-row">
+                <span
+                  v-for="(vt, idx) in emergencyVitalTags"
+                  :key="idx"
+                  :class="['v-tag', `v-tag-${vt.level}`]"
+                >
+                  {{ vt.text }}
+                </span>
               </div>
+              <p v-else class="bento-note">以急诊床旁监护仪实时读数为准</p>
             </div>
           </div>
 
@@ -214,7 +246,7 @@
             </div>
             <div class="bento-body">
               <div class="chronic-text">
-                {{ selectedPatient.chronic_diseases || '高血压、冠心病' }}
+                {{ selectedPatient.chronic_diseases || '暂未登记既往重大慢性病史' }}
               </div>
               <p class="bento-note">用药注意靶器官损伤与并发症相互作用</p>
             </div>
@@ -836,7 +868,7 @@
 
         <el-form label-position="top" class="mt-4">
           <el-form-item label="抢救患者姓名及身份">
-            <el-input :model-value="`${selectedPatient?.real_name} | 身份证号: ${selectedPatient?.id_card} | 血型: ${selectedPatient?.blood_type || 'O型'}`" disabled />
+            <el-input :model-value="`${selectedPatient?.real_name} | 身份证号: ${selectedPatient?.id_card || '未登记'} | 血型: ${selectedPatient?.blood_type || '未登记'}`" disabled />
           </el-form-item>
 
           <el-form-item label="急危重症抢救原因分类" required>
@@ -871,7 +903,7 @@
           <el-button @click="emergencyDialogVisible = false">取消放弃</el-button>
           <el-button
             type="danger"
-            :disabled="!emergencyForm.doctorConfirmed"
+            :disabled="!emergencyForm.doctorConfirmed || emergencyForm.description.trim().length < 10"
             :loading="submittingEmergency"
             @click="submitEmergencyAccess"
           >
@@ -885,10 +917,18 @@
     <el-drawer
       v-model="detailDrawerVisible"
       title="就诊病历与跨院医疗档案详细视图"
-      size="720px"
+      size="min(720px, 94vw)"
       append-to-body
     >
       <div v-if="activeRecord" class="record-detail-container">
+        <el-alert
+          v-if="activeRecord.is_tampered"
+          title="高危警示：该份病历链上完整性核验失败，疑似已被非法篡改，禁止作为临床急救依据！"
+          type="error"
+          show-icon
+          :closable="false"
+          class="mb-3"
+        />
         <!-- 头部状态徽章 -->
         <div class="detail-header-pill">
           <div class="dh-left">
@@ -1067,6 +1107,8 @@ import {
 } from '../../api'
 import { useAuthStore } from '../../stores/auth'
 import AiDiagnosticDialog from '../../components/AiDiagnosticDialog.vue'
+import { evaluateVitalSummaryTags } from '@/utils/vitalSignsEvaluator'
+import { copyTextToClipboard } from '@/utils/hashFormatters'
 
 const auth = useAuthStore()
 const route = useRoute()
@@ -1075,7 +1117,21 @@ const route = useRoute()
 const searchKeyword = ref('')
 const searching = ref(false)
 const candidatePatients = ref<any[]>([])
+const matchedCandidates = ref<any[]>([])
 const selectedPatient = ref<any | null>(null)
+
+const emergencyVitalTags = computed(() => evaluateVitalSummaryTags(selectedPatient.value?.latest_vital_signs))
+
+function maskIdCard(id?: string) {
+  if (!id || id.length < 8) return id || '未登记'
+  return `${id.slice(0, 6)}********${id.slice(-4)}`
+}
+
+function confirmCandidatePatient(patient: any) {
+  matchedCandidates.value = []
+  selectPatient(patient)
+  ElMessage.success(`已确认选定患者「${patient.real_name}」`)
+}
 
 // 病历状态与分页
 const patientRecords = ref<any[]>([])
@@ -1139,7 +1195,7 @@ async function fetchKeyUnlockCaptcha() {
 
 const emergencyForm = ref({
   emergencyReason: 'CRITICAL',
-  description: '患者急性胸痛晕厥，生命体征不稳，急诊床旁即刻抢救调用全量病史',
+  description: '',
   doctorConfirmed: false,
 })
 
@@ -1243,13 +1299,15 @@ function clearSelection() {
   selectedRecordRows.value = []
 }
 
-function copyText(text: string, label: string) {
+async function copyText(text: string, label: string) {
   if (!text) return
-  navigator.clipboard.writeText(text).then(() => {
-    ElMessage.success(`已复制${label}: ${text}`)
-  }).catch(() => {
-    ElMessage.info(`请手动复制: ${text}`)
-  })
+  // 使用共享 HTTP 降级复制工具，且不在 Toast 中回显完整敏感明文（防诊室肩窥）
+  const ok = await copyTextToClipboard(text)
+  if (ok) {
+    ElMessage.success(`已复制${label}到剪贴板`)
+  } else {
+    ElMessage.warning(`浏览器暂不支持自动复制，请手动复制${label}`)
+  }
 }
 
 // 检索所有候选患者
@@ -1275,9 +1333,10 @@ async function fetchCandidatePatients() {
   }
 }
 
-// 根据关键字搜索患者
+// 根据关键字搜索患者（多结果时要求医生显式核对消歧，严禁静默加载第 1 条）
 async function handleSearch() {
   if (!searchKeyword.value.trim()) {
+    matchedCandidates.value = []
     fetchCandidatePatients()
     return
   }
@@ -1285,10 +1344,15 @@ async function handleSearch() {
   try {
     const res: any = await listPatientsApi({ keyword: searchKeyword.value.trim() })
     const list = res.data || []
-    if (list.length > 0) {
+    if (list.length === 1) {
+      matchedCandidates.value = []
       selectPatient(list[0])
       ElMessage.success(`已精准定位到患者「${list[0].real_name}」`)
+    } else if (list.length > 1) {
+      matchedCandidates.value = list
+      ElMessage.warning(`检索到 ${list.length} 位相似患者，请在上方列表核对身份证号后确认选定`)
     } else {
+      matchedCandidates.value = []
       ElMessage.warning('未检索到匹配的患者，请核对姓名或身份证号')
     }
   } catch (err) {
@@ -1438,13 +1502,21 @@ async function submitKeyUnlock() {
 // 打开急救破窗弹窗
 function openEmergencyBreakGlassDialog() {
   if (!selectedPatient.value) return
-  emergencyForm.value.doctorConfirmed = false
+  emergencyForm.value = {
+    emergencyReason: 'CRITICAL',
+    description: '',
+    doctorConfirmed: false,
+  }
   emergencyDialogVisible.value = true
 }
 
 // 提交急救破窗绿色通道
 async function submitEmergencyAccess() {
   if (!selectedPatient.value) return
+  if (emergencyForm.value.description.trim().length < 10) {
+    ElMessage.warning('请详细填写至少 10 个字的抢救指征与调阅依据')
+    return
+  }
   if (!emergencyForm.value.doctorConfirmed) {
     ElMessage.warning('请先勾选主管医生知情法律责任声明')
     return

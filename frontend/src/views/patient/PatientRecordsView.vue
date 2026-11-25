@@ -38,28 +38,80 @@
         </div>
       </div>
       <div class="psc-right">
-        <div class="psc-metric">
+        <div
+          class="psc-metric cursor-pointer"
+          :class="{ 'is-active-metric': scopeFilter === 'ALL' }"
+          title="点击查看全部病历"
+          @click="scopeFilter = 'ALL'"
+        >
           <span class="metric-val">{{ records.length }}</span>
           <span class="metric-lbl">累计病历</span>
         </div>
         <div class="psc-metric-sep"></div>
-        <div class="psc-metric">
+        <div
+          class="psc-metric cursor-pointer"
+          :class="{ 'is-active-metric': scopeFilter === 'PUBLIC' }"
+          title="点击筛选全网公开病历"
+          @click="scopeFilter = scopeFilter === 'PUBLIC' ? 'ALL' : 'PUBLIC'"
+        >
           <span class="metric-val text-emerald-600">{{ publicRecordCount }}</span>
           <span class="metric-lbl">全网公开</span>
         </div>
         <div class="psc-metric-sep"></div>
-        <div class="psc-metric">
+        <div
+          class="psc-metric cursor-pointer"
+          :class="{ 'is-active-metric': scopeFilter === 'TARGETED' }"
+          title="点击筛选定向授权病历"
+          @click="scopeFilter = scopeFilter === 'TARGETED' ? 'ALL' : 'TARGETED'"
+        >
           <span class="metric-val text-blue-600">{{ targetedRecordCount }}</span>
           <span class="metric-lbl">定向授权</span>
         </div>
       </div>
     </div>
 
+    <!-- 2.5 搜索与筛选工具条 -->
+    <div class="patient-filter-bar mb-4 flex items-center gap-2 flex-wrap">
+      <el-input
+        v-model="searchKeyword"
+        placeholder="搜索诊断、症状、医院、医生或病历编号..."
+        clearable
+        style="width: min(320px, 100%);"
+      />
+      <el-select v-model="scopeFilter" style="width: 160px;">
+        <el-option label="全部共享状态" value="ALL" />
+        <el-option label="全网公开" value="PUBLIC" />
+        <el-option label="定向授权" value="TARGETED" />
+        <el-option label="私密受控" value="PRIVATE" />
+      </el-select>
+      <el-select v-model="hospitalFilter" clearable placeholder="按就诊医院筛选" style="width: 180px;">
+        <el-option v-for="h in hospitalsList" :key="h.id" :label="h.name" :value="h.name" />
+      </el-select>
+      <el-button
+        v-if="searchKeyword || scopeFilter !== 'ALL' || hospitalFilter"
+        link
+        type="primary"
+        @click="resetFilters"
+      >
+        重置筛选
+      </el-button>
+    </div>
+
     <!-- 3. 时间线就诊记录列表 -->
-    <div class="timeline-wrapper">
-      <el-timeline v-if="records.length">
+    <div class="timeline-wrapper" v-loading="loadingRecords" element-loading-text="正在加载您的电子健康档案...">
+      <el-result
+        v-if="loadError && !loadingRecords"
+        icon="error"
+        title="健康档案加载失败"
+        :sub-title="loadError"
+      >
+        <template #extra>
+          <el-button type="primary" @click="fetchRecords">重新加载</el-button>
+        </template>
+      </el-result>
+      <el-timeline v-else-if="filteredRecords.length">
         <el-timeline-item
-          v-for="rec in records"
+          v-for="rec in filteredRecords"
           :key="rec.id"
           :timestamp="rec.created_at ? rec.created_at.substring(0, 16).replace('T', ' ') : ''"
           placement="top"
@@ -80,7 +132,7 @@
                   <span>{{ formatDoctorTitle(rec.doctor_name) }}</span>
                 </div>
                 <el-tag size="small" effect="plain" type="info" class="encounter-type-tag">
-                  {{ rec.encounter_type === 'EMERGENCY' ? '急诊就诊' : '普通门诊' }}
+                  {{ formatEncounterType(rec.encounter_type) }}
                 </el-tag>
               </div>
 
@@ -142,10 +194,10 @@
                 <ChainVerifyBadge v-else status="verified" label="链上核验通过" />
 
                 <!-- 数据类型与区块高度 -->
-                <el-tag size="small" class="data-type-pill">{{ rec.data_type || 'EMR' }}</el-tag>
-                <span class="block-pill">
+                <el-tag size="small" class="data-type-pill">{{ formatDataTypeLabel(rec.data_type) }}</el-tag>
+                <span v-if="rec.block_height" class="block-pill">
                   <el-icon><Connection /></el-icon>
-                  Fabric #{{ rec.block_height }}
+                  存证区块 #{{ rec.block_height }}
                 </span>
               </div>
             </div>
@@ -230,11 +282,11 @@
           </div>
         </el-timeline-item>
       </el-timeline>
-      <el-empty v-else description="暂无就诊记录" />
+      <el-empty v-else-if="!loadingRecords" description="暂无就诊记录" />
     </div>
 
-    <!-- 完整病历大表格对话框 -->
-    <el-dialog v-model="detailVisible" title="个人就诊档案（结构化临床大表单视图）" width="760px">
+    <!-- 完整病历详情对话框 -->
+    <el-dialog v-model="detailVisible" title="个人就诊病历详情" width="min(760px, 94vw)">
       <div v-if="selectedRec" class="patient-detail-box">
         <!-- 篡改告警横幅 -->
         <div v-if="selectedRec.is_tampered" class="tamper-warning-box">
@@ -316,6 +368,14 @@
               <th>治疗建议方案</th>
               <td><div class="plan-box">{{ selectedRec.treatment_plan || '遵医嘱随诊' }}</div></td>
             </tr>
+            <tr v-if="selectedRec.exam_items || selectedRec.exam_result">
+              <th>检查检验报告</th>
+              <td>
+                <div v-if="selectedRec.exam_items" class="text-xs text-slate-600 mb-1">检查项目：{{ selectedRec.exam_items }}</div>
+                <pre v-if="selectedRec.exam_result" class="full-pre">{{ selectedRec.exam_result }}</pre>
+                <span v-else class="text-xs text-slate-500">检查报告尚未回传</span>
+              </td>
+            </tr>
             <tr>
               <th>完整病历小结</th>
               <td><pre class="full-pre">{{ selectedRec.diagnosis }}</pre></td>
@@ -323,13 +383,25 @@
           </tbody>
         </table>
       </div>
+      <template #footer>
+        <el-button @click="detailVisible = false">关闭</el-button>
+        <el-button
+          v-if="selectedRec"
+          type="primary"
+          plain
+          :loading="downloadingPdf"
+          @click="downloadPatientRecordPdf(selectedRec)"
+        >
+          下载电子病历 PDF
+        </el-button>
+      </template>
     </el-dialog>
 
     <!-- 单病历访问权限选择弹窗 -->
     <el-dialog
       v-model="policyDialogVisible"
       title="病历访问权限与共享范围配置"
-      width="650px"
+      width="min(650px, 94vw)"
       :close-on-click-modal="false"
     >
       <div v-if="policyTargetRec" class="policy-modal-body">
@@ -700,7 +772,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import {
   WarningFilled,
   CircleCheckFilled,
@@ -714,7 +786,7 @@ import {
   CopyDocument,
   ArrowRight
 } from '@element-plus/icons-vue'
-import { ElMessage, ElNotification } from 'element-plus'
+import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import ChainVerifyBadge from '@/components/common/ChainVerifyBadge.vue'
 import { getIcdCode } from '@/utils/clinicalTemplates'
 import {
@@ -723,12 +795,70 @@ import {
   listRecordsApi,
   getRecordDetailApi,
   setRecordAccessPolicyApi,
-  setBatchAccessPolicyApi
+  setBatchAccessPolicyApi,
+  downloadRecordApi
 } from '../../api'
+import { formatEncounterType } from '@/utils/recordFormatters'
 
 const records = ref<any[]>([])
+const loadingRecords = ref(false)
+const loadError = ref('')
+const searchKeyword = ref('')
+const scopeFilter = ref<'ALL' | 'PUBLIC' | 'TARGETED' | 'PRIVATE'>('ALL')
+const hospitalFilter = ref('')
+const downloadingPdf = ref(false)
 const detailVisible = ref(false)
 const selectedRec = ref<any>(null)
+
+const filteredRecords = computed(() => {
+  return records.value.filter(rec => {
+    if (scopeFilter.value === 'PUBLIC' && rec.sharing_scope !== 'ALL_DOCTORS') return false
+    if (scopeFilter.value === 'TARGETED' && !['HOSPITAL', 'DOCTOR', 'AUTHORIZED'].includes(rec.sharing_scope)) return false
+    if (scopeFilter.value === 'PRIVATE' && ['ALL_DOCTORS', 'HOSPITAL', 'DOCTOR', 'AUTHORIZED'].includes(rec.sharing_scope)) return false
+    if (hospitalFilter.value && rec.hospital_name !== hospitalFilter.value) return false
+    if (searchKeyword.value.trim()) {
+      const kw = searchKeyword.value.trim().toLowerCase()
+      const hay = `${rec.record_no || ''} ${rec.diagnosis || ''} ${rec.symptoms || ''} ${rec.hospital_name || ''} ${rec.doctor_name || ''}`.toLowerCase()
+      if (!hay.includes(kw)) return false
+    }
+    return true
+  })
+})
+
+function resetFilters() {
+  searchKeyword.value = ''
+  scopeFilter.value = 'ALL'
+  hospitalFilter.value = ''
+}
+
+function formatDataTypeLabel(dt?: string): string {
+  if (dt === 'REPORT') return '检查报告'
+  if (dt === 'IMAGE') return '影像记录'
+  return '门诊病历'
+}
+
+async function downloadPatientRecordPdf(rec: any) {
+  if (!rec?.id) return
+  downloadingPdf.value = true
+  try {
+    const res: any = await downloadRecordApi(rec.id)
+    const blob = new Blob([res], { type: 'application/pdf;charset=utf-8' })
+    const link = document.createElement('a')
+    link.href = window.URL.createObjectURL(blob)
+    link.download = `我的电子病历_${rec.record_no || rec.id}.pdf`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(link.href)
+    ElMessage.success('电子病历 PDF 下载成功')
+  } catch (err: any) {
+    if (!err?.__toastShown) {
+      ElMessage.error(err?.message || '病历 PDF 下载失败，请稍后重试')
+    }
+  } finally {
+    downloadingPdf.value = false
+  }
+}
 
 // 统计公开与定向授权数量
 const publicRecordCount = computed(() => {
@@ -743,6 +873,24 @@ const hospitalsList = ref<any[]>([])
 const doctorsList = ref<any[]>([])
 const doctorHospFilter = ref<number | undefined>(undefined)
 const batchHospFilter = ref<number | undefined>(undefined)
+
+watch(doctorHospFilter, (hospId) => {
+  if (hospId && policyForm.value.doctor_id) {
+    const doc = doctorsList.value.find(d => d.id === policyForm.value.doctor_id)
+    if (doc && doc.hospital_id !== hospId) {
+      policyForm.value.doctor_id = undefined
+    }
+  }
+})
+
+watch(batchHospFilter, (hospId) => {
+  if (hospId && batchForm.value.doctor_id) {
+    const doc = doctorsList.value.find(d => d.id === batchForm.value.doctor_id)
+    if (doc && doc.hospital_id !== hospId) {
+      batchForm.value.doctor_id = undefined
+    }
+  }
+})
 
 const filteredDoctors = computed(() => {
   if (!doctorHospFilter.value) {
@@ -802,6 +950,8 @@ async function loadDoctors() {
 }
 
 async function fetchRecords() {
+  loadingRecords.value = true
+  loadError.value = ''
   try {
     const res: any = await listRecordsApi()
     if (res.code === 200) {
@@ -811,9 +961,13 @@ async function fetchRecords() {
         ...rec,
         icd_code: rec.icd_code || getIcdCode(rec.diagnosis),
       }))
+    } else {
+      loadError.value = res?.message || '无法获取就诊记录，请稍后重试'
     }
-  } catch (err) {
-    console.error(err)
+  } catch (err: any) {
+    loadError.value = err?.message || '网络连接异常，暂时无法拉取电子健康档案'
+  } finally {
+    loadingRecords.value = false
   }
 }
 
@@ -908,16 +1062,21 @@ async function submitAccessPolicy() {
       policyDialogVisible.value = false
       await fetchRecords()
       if (selectedRec.value && selectedRec.value.id === policyTargetRec.value.id) {
-        selectedRec.value.sharing_scope = policyForm.value.policy_type
-        if (res.data?.target_name) {
-          selectedRec.value.active_auth_target_name = res.data.target_name
+        const refreshed = records.value.find(r => r.id === policyTargetRec.value.id)
+        if (refreshed) {
+          selectedRec.value = { ...selectedRec.value, ...refreshed }
+        } else {
+          selectedRec.value.sharing_scope = policyForm.value.policy_type
+          selectedRec.value.sharing_summary = ''
         }
       }
     } else {
       ElMessage.error(res.message || '设置失败')
     }
   } catch (err: any) {
-    ElMessage.error(err.response?.data?.message || '网络请求异常，请稍后重试')
+    if (!err?.__toastShown) {
+      ElMessage.error(err?.message || '网络请求异常，请稍后重试')
+    }
   } finally {
     policySubmitting.value = false
   }
@@ -950,6 +1109,22 @@ async function submitBatchPolicy() {
     authTargetId = batchForm.value.doctor_id
   }
 
+  if (batchForm.value.policy_type === 'ALL_DOCTORS') {
+    try {
+      await ElMessageBox.confirm(
+        `您确定要将名下全部 ${records.value.length} 份电子病历批量设为「全体合作医院医生可见」吗？您后续可随时改回私密受控。`,
+        '批量公开全部病历确认',
+        {
+          confirmButtonText: '确认全部公开',
+          cancelButtonText: '取消',
+          type: 'warning',
+        }
+      )
+    } catch {
+      return
+    }
+  }
+
   batchSubmitting.value = true
   try {
     const res: any = await setBatchAccessPolicyApi({
@@ -965,7 +1140,9 @@ async function submitBatchPolicy() {
       ElMessage.error(res.message || '操作失败')
     }
   } catch (err: any) {
-    ElMessage.error(err.response?.data?.message || '网络请求异常')
+    if (!err?.__toastShown) {
+      ElMessage.error(err?.message || '网络请求异常')
+    }
   } finally {
     batchSubmitting.value = false
   }

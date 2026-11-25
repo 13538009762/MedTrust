@@ -301,30 +301,30 @@
           </div>
 
           <div class="soap-card-content">
-            <!-- 4 项生命体征紧凑临床条 (HIS 单行四栏) -->
+            <!-- 4 项生命体征紧凑临床条 (HIS 单行四栏，基于真实数值动态判定) -->
             <div class="vitals-sensor-grid vitals-strip-compact">
               <div class="vital-sensor-card compact-vital-item">
                 <span class="vsc-name">体温 (T)</span>
-                <span class="vsc-val mono">{{ parseVitals(record.vital_signs).temperature || '36.5 ℃' }}</span>
-                <span class="vsc-status normal">正常</span>
+                <span class="vsc-val mono">{{ parsedVitals.temperature || '未录入' }}</span>
+                <span :class="['vsc-status', tempVitalBadge.level]">{{ tempVitalBadge.shortLabel }}</span>
               </div>
 
               <div class="vital-sensor-card compact-vital-item">
                 <span class="vsc-name">血压 (BP)</span>
-                <span class="vsc-val mono">{{ parseVitals(record.vital_signs).blood_pressure || '120/80 mmHg' }}</span>
-                <span class="vsc-status normal">正常</span>
+                <span class="vsc-val mono">{{ parsedVitals.blood_pressure || '未录入' }}</span>
+                <span :class="['vsc-status', bpVitalBadge.level]">{{ bpVitalBadge.shortLabel }}</span>
               </div>
 
               <div class="vital-sensor-card compact-vital-item">
                 <span class="vsc-name">心率 (HR)</span>
-                <span class="vsc-val mono">{{ parseVitals(record.vital_signs).heart_rate || '75 bpm' }}</span>
-                <span class="vsc-status normal">窦性</span>
+                <span class="vsc-val mono">{{ parsedVitals.heart_rate || '未录入' }}</span>
+                <span :class="['vsc-status', hrVitalBadge.level]">{{ hrVitalBadge.shortLabel }}</span>
               </div>
 
               <div class="vital-sensor-card compact-vital-item">
                 <span class="vsc-name">血氧 (SpO2)</span>
-                <span class="vsc-val mono">{{ parseVitals(record.vital_signs).spo2 || '98 %' }}</span>
-                <span class="vsc-status normal">正常</span>
+                <span class="vsc-val mono">{{ parsedVitals.spo2 || '未录入' }}</span>
+                <span :class="['vsc-status', spo2VitalBadge.level]">{{ spo2VitalBadge.shortLabel }}</span>
               </div>
             </div>
 
@@ -346,6 +346,10 @@
                   <span>报告出具医师/技师：<strong>{{ record.exam_doctor }}</strong></span>
                   <span v-if="record.exam_time" class="ml-3">检验时间：{{ record.exam_time }}</span>
                 </div>
+              </div>
+              <div v-else-if="record.need_exam || record.status === 'WAITING_EXAM' || record.status === 'PROCESSING_EXAM'" class="erb-empty-box">
+                <el-icon color="#d97706" class="text-base mr-1"><InfoFilled /></el-icon>
+                <span>医技检查申请已派发至检验/影像中心，正在等待 LIS/PACS 回传检查报告{{ record.exam_items ? `（申请项目：${record.exam_items}）` : '' }}。</span>
               </div>
               <div v-else class="erb-empty-box">
                 <el-icon color="#10b981" class="text-base mr-1"><CircleCheckFilled /></el-icon>
@@ -378,10 +382,11 @@
                 </div>
               </div>
               <div class="dhb-right">
-                <div class="dhb-stamp-badge">
+                <div v-if="record.diagnosis && record.status !== 'WAITING_EXAM' && record.status !== 'PROCESSING_EXAM'" class="dhb-stamp-badge">
                   <el-icon class="mr-1 text-emerald-600"><CircleCheckFilled /></el-icon>
                   <span>确诊生效</span>
                 </div>
+                <el-tag v-else size="small" type="warning" effect="light">待检查后终审确诊</el-tag>
               </div>
             </div>
 
@@ -400,7 +405,8 @@
               <span class="soap-dim-badge p-badge">P</span>
               <span class="soap-title-text">处方用药、临床处置与综合医嘱 (Plan)</span>
             </div>
-            <el-tag size="small" type="warning" effect="light">已签发执行</el-tag>
+            <el-tag v-if="parsePlanItems(record.treatment_plan).length > 0" size="small" type="warning" effect="light">已签发执行</el-tag>
+            <el-tag v-else size="small" type="info" effect="light">待终审开具</el-tag>
           </div>
 
           <div class="soap-card-content">
@@ -411,7 +417,7 @@
                 <span class="rx-title">处方用药与临床方案明细</span>
               </div>
 
-              <div class="rx-list">
+              <div v-if="parsePlanItems(record.treatment_plan).length > 0" class="rx-list">
                 <div
                   v-for="item in parsePlanItems(record.treatment_plan)"
                   :key="item.id"
@@ -428,6 +434,9 @@
                   </div>
                 </div>
               </div>
+              <div v-else class="text-xs text-slate-500 p-3">
+                当前尚未签发最终处方与临床处置医嘱（请待检查报告回传后在终审确诊阶段下达）。
+              </div>
             </div>
 
             <!-- 责任医师数字签名与存证固化 -->
@@ -436,7 +445,7 @@
                 <div class="dsb-doctor">
                   <span class="text-xs text-gray-500">经治执业医师：</span>
                   <strong class="text-slate-800">{{ record.doctor_name }}</strong>
-                  <span class="dsb-ca-tag">CA 电子认证已签署</span>
+                  <span v-if="record.status === 'COMPLETED' || record.fabric_tx_id" class="dsb-ca-tag">CA 电子认证已签署</span>
                 </div>
                 <div class="dsb-time text-xs text-gray-400 mt-1">
                   签发归档时间：{{ formatTime(record.created_at) }}
@@ -471,15 +480,23 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { WarningFilled, CircleCheckFilled, InfoFilled, View, Download, OfficeBuilding } from '@element-plus/icons-vue'
 import InfectionSafetyAlert from '@/components/InfectionSafetyAlert.vue'
 import HashCapsule from '@/components/common/HashCapsule.vue'
 import ChainVerifyBadge from '@/components/common/ChainVerifyBadge.vue'
 import MedicalRecordUploadDialog from './MedicalRecordUploadDialog.vue'
 import { formatEncounterType, formatTime } from '@/utils/recordFormatters'
+import {
+  evaluateTemperature,
+  evaluateBloodPressure,
+  evaluateHeartRate,
+  evaluateSpo2,
+  type VitalBadge,
+} from '@/utils/vitalSignsEvaluator'
 import type { MedicalRecordRow, MedicalFileItem, ParsedVitals, PlanItem } from '@/types/clinical'
 
-defineProps<{
+const props = defineProps<{
   record: MedicalRecordRow | null
   variant: 'cross' | 'local'
   userId?: number
@@ -539,6 +556,19 @@ function parseVitals(vitalStr?: string): ParsedVitals {
 
   return res
 }
+
+function toShortVitalBadge(badge: VitalBadge): { level: string; shortLabel: string } {
+  if (badge.level === 'unknown') return { level: 'unknown', shortLabel: '未录入' }
+  if (badge.level === 'normal') return { level: 'normal', shortLabel: '正常' }
+  if (badge.level === 'critical') return { level: 'critical', shortLabel: '危急' }
+  return { level: 'elevated', shortLabel: '异常' }
+}
+
+const parsedVitals = computed(() => parseVitals(props.record?.vital_signs))
+const tempVitalBadge = computed(() => toShortVitalBadge(evaluateTemperature(parsedVitals.value.temperature)))
+const bpVitalBadge = computed(() => toShortVitalBadge(evaluateBloodPressure(parsedVitals.value.blood_pressure)))
+const hrVitalBadge = computed(() => toShortVitalBadge(evaluateHeartRate(parsedVitals.value.heart_rate)))
+const spo2VitalBadge = computed(() => toShortVitalBadge(evaluateSpo2(parsedVitals.value.spo2)))
 
 function parsePlanItems(planStr?: string): PlanItem[] {
   if (!planStr) return []

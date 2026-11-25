@@ -3,14 +3,14 @@
     <div class="page-header">
       <div>
         <h2 class="page-title">医疗数据防篡改动态对比核验工作台</h2>
-        <p class="page-sub">依据规划书 3.1.2 节：从 IPFS 拉取密文并在内存流式解密，重算明文及多维综合哈希，自动比对 Fabric 账本原始指纹，实现动态闭环验真</p>
+        <p class="page-sub">从 IPFS 拉取密文并在内存流式解密，重算明文及多维综合哈希，实时比对 Fabric 账本原始指纹，实现动态闭环验真</p>
       </div>
     </div>
 
     <!-- 选择核验记录与演练操作栏 -->
     <el-card shadow="hover" class="box-card mb-4">
       <div class="verify-bar">
-        <el-select v-model="selectedRecordId" placeholder="请选择需要核验的病历档案" style="width: 380px;">
+        <el-select v-model="selectedRecordId" filterable placeholder="搜索或选择需要核验的病历档案" style="width: min(380px, 100%);">
           <el-option
             v-for="r in records"
             :key="r.id"
@@ -18,12 +18,18 @@
             :value="r.id"
           />
         </el-select>
-        <el-button type="primary" :loading="verifying" @click="triggerVerify">立即发起链上动态核验</el-button>
-        <el-button type="info" plain :disabled="!selectedRecord" @click="showRawAssetModal = true">
+        <el-button type="primary" :loading="verifying" :disabled="!selectedRecordId" @click="triggerVerify">立即发起链上动态核验</el-button>
+        <el-button
+          type="info"
+          plain
+          :disabled="!verifyResult"
+          :title="verifyResult ? '查看链上原始资产载荷' : '请先发起链上动态核验获取真实账本原值'"
+          @click="showRawAssetModal = true"
+        >
           查看区块链原始存证 (Raw Asset)
         </el-button>
-        <el-button type="danger" :loading="tampering" @click="simulateTamper">
-          模拟底层数据库恶意篡改 (越权攻击对抗演练)
+        <el-button type="danger" plain :loading="tampering" :disabled="!selectedRecordId" @click="simulateTamper">
+          模拟数据库篡改 (演练)
         </el-button>
         <el-button v-if="hasTampered" type="success" :loading="restoring" @click="restoreTamper">
           恢复原始基准数据 (撤销篡改)
@@ -114,18 +120,18 @@
 
     <!-- 医疗数据可信流转 14 节点全生命周期时间线 -->
     <el-card shadow="hover" class="box-card">
-      <TrustedFlowTimeline :record="selectedRecord" :tampered="hasTampered" />
+      <TrustedFlowTimeline :record="selectedRecord" :tampered="hasTampered" :verified="Boolean(verifyResult)" />
     </el-card>
 
     <!-- 区块链原始存证弹窗 (Raw Asset Modal) -->
     <el-dialog
       v-model="showRawAssetModal"
       title="Hyperledger Fabric 账本状态数据库原始存证 (Raw Asset Payload)"
-      width="780px"
+      width="min(780px, 94vw)"
     >
       <div class="raw-asset-container">
         <div class="ra-banner">
-          <span>● 通道: <strong>medchannel</strong> | 智能合约: <strong>medical</strong> | 接口: <strong>QueryMedicalAsset</strong></span>
+          <span>● 通道: <strong>medicalchannel</strong> | 智能合约: <strong>medical_contract</strong> | 接口: <strong>QueryMedicalAsset</strong></span>
           <el-button size="small" type="primary" plain @click="copyRawJSON">复制原始 JSON</el-button>
         </div>
         <pre class="ra-json-code"><code>{{ formattedRawAsset }}</code></pre>
@@ -138,9 +144,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { CircleCheck, CircleClose } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { copyTextToClipboard } from '@/utils/hashFormatters'
 import HashCapsule from '@/components/common/HashCapsule.vue'
 import TrustedFlowTimeline from '../../components/TrustedFlowTimeline.vue'
 import {
@@ -161,6 +168,12 @@ const showRawAssetModal = ref(false)
 
 const selectedRecord = computed(() => {
   return records.value.find(r => r.id === selectedRecordId.value) || null
+})
+
+// 切换待核验病历时立即清空上一条病历的核验结果与篡改标记，防止结果串档误恢复
+watch(selectedRecordId, () => {
+  verifyResult.value = null
+  hasTampered.value = Boolean(selectedRecord.value?.is_tampered)
 })
 
 const stageItems = computed(() => {
@@ -228,12 +241,13 @@ const formattedRawAsset = computed(() => {
   return JSON.stringify(raw, null, 2)
 })
 
-function copyRawJSON() {
-  navigator.clipboard.writeText(formattedRawAsset.value).then(() => {
+async function copyRawJSON() {
+  const ok = await copyTextToClipboard(formattedRawAsset.value)
+  if (ok) {
     ElMessage.success('区块链原始存证 JSON 已复制到剪贴板！')
-  }).catch(() => {
+  } else {
     ElMessage.warning('复制失败，请手动划选')
-  })
+  }
 }
 
 onMounted(async () => {
@@ -272,6 +286,19 @@ async function triggerVerify() {
 async function simulateTamper() {
   if (!selectedRecordId.value) {
     ElMessage.warning('请先选择需要篡改演示的病历')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `该操作会向所选病历（${selectedRecord.value?.record_no || selectedRecordId.value}）的底层数据库记录注入模拟篡改数据用于安全对抗演练，演练后需点击「恢复原始基准数据」还原。确定继续吗？`,
+      '高危安全演练二次确认',
+      {
+        confirmButtonText: '确认执行模拟篡改',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    )
+  } catch {
     return
   }
   tampering.value = true

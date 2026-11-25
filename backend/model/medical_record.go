@@ -83,8 +83,8 @@ type MedicalFile struct {
 	FileSize     uint64    `json:"file_size"`
 	IPFSCID      string    `gorm:"column:ipfs_cid;size:128;index" json:"ipfs_cid"`
 	FileHash     string    `gorm:"size:64" json:"file_hash"`
-	EncryptedDEK string    `gorm:"size:255;default:''" json:"encrypted_dek"`
-	IVNonce      string    `gorm:"size:64;default:''" json:"iv_nonce"`
+	EncryptedDEK string    `gorm:"size:255;default:''" json:"-"`
+	IVNonce      string    `gorm:"size:64;default:''" json:"-"`
 	CreatedAt    time.Time `json:"created_at"`
 }
 

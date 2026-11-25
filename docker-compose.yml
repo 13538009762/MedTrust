@@ -30,6 +30,9 @@ services:
     image: redis:7.0
     container_name: medtrust-redis
     restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-medtrust_redis_2026_change_me}"]
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:-medtrust_redis_2026_change_me}
     ports:
       - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
@@ -81,9 +84,11 @@ services:
       APP_ENV: ${APP_ENV:-demo}
       DB_DSN: "root:${MYSQL_ROOT_PASSWORD}@tcp(mysql:3306)/${MYSQL_DATABASE}?charset=utf8mb4&parseTime=True&loc=Local"
       REDIS_ADDR: "redis:6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-medtrust_redis_2026_change_me}
       JWT_SECRET: ${JWT_SECRET}
       AES_MASTER_KEY: ${AES_MASTER_KEY}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-127.0.0.1,::1,172.16.0.0/12}
       BLOCKCHAIN_MODE: ${BLOCKCHAIN_MODE:-mock}
       FABRIC_PEER_ENDPOINT: ${FABRIC_PEER_ENDPOINT:-peer0.org1.example.com:7051}
       AI_API_KEY: ${AI_API_KEY:-}
@@ -93,6 +98,7 @@ services:
       - "127.0.0.1:8080:8080"
     volumes:
       - ./backend/data:/app/data
+      - ./backend/fabric_crypto:/app/fabric_crypto:ro
     depends_on:
       mysql:
         condition: service_healthy

@@ -20,8 +20,9 @@ type User struct {
 	Avatar           string     `gorm:"type:longtext" json:"avatar"`
 	MedicalKey       string     `gorm:"size:64;default:''" json:"-"`
 	MedicalKeyHash   string     `gorm:"size:128;default:''" json:"-"`
-	MustChangePwd    bool       `gorm:"default:false" json:"must_change_pwd"`
-	FailedLoginCount int        `gorm:"default:0" json:"-"`
+	MustChangePwd       bool       `gorm:"default:false" json:"must_change_pwd"`
+	PasswordChangedAtNs int64      `gorm:"default:0" json:"-"`
+	FailedLoginCount    int        `gorm:"default:0" json:"-"`
 	LockedUntil      *time.Time `json:"locked_until,omitempty"`
 	Status           string     `gorm:"size:20;default:'NORMAL'" json:"status"` // NORMAL, RESTRICTED, DISABLED
 	CreatedAt        time.Time  `json:"created_at"`

@@ -2,7 +2,7 @@
   <!-- PDF 电子病历规范预览弹窗 (WP-16: 从两视图几乎完全相同的 PDF 预览弹窗合并抽取) -->
   <el-dialog
     :model-value="visible"
-    width="1040px"
+    width="min(1040px, 94vw)"
     top="2vh"
     :close-on-click-modal="false"
     class="pdf-preview-dialog"
@@ -106,7 +106,11 @@
           <div class="meta-right">
             <div>就诊时间：{{ formatTime(record.created_at) }}</div>
             <div>责任医师：<strong>{{ record.doctor_name }}</strong></div>
-            <div>归档状态：<el-tag type="success" size="small">已上链存证</el-tag></div>
+            <div>归档状态：
+              <el-tag v-if="record.is_tampered" type="danger" size="small">篡改告警</el-tag>
+              <el-tag v-else-if="record.fabric_tx_id" type="success" size="small">已上链存证</el-tag>
+              <el-tag v-else type="info" size="small">待同步上链</el-tag>
+            </div>
           </div>
         </div>
 
@@ -114,11 +118,11 @@
         <table class="emr-patient-table">
           <tr>
             <th width="90">患者姓名</th>
-            <td width="150"><strong>{{ record.patient_name }}</strong></td>
+            <td width="150"><strong>{{ record.patient_name || '—' }}</strong></td>
             <th width="90">身份证号</th>
             <td width="220"><span class="mono">{{ maskIDCard(record.patient_id_card) }}</span></td>
             <th width="80">联系电话</th>
-            <td><span class="mono">{{ record.patient_phone || '138****0000' }}</span></td>
+            <td><span class="mono">{{ record.patient_phone || '未登记' }}</span></td>
           </tr>
         </table>
 
@@ -235,7 +239,17 @@ defineEmits<{
 }>()
 
 function printPdfSheet() {
-  window.print()
+  document.body.classList.add('printing-emr')
+  const cleanup = () => {
+    document.body.classList.remove('printing-emr')
+    window.removeEventListener('afterprint', cleanup)
+  }
+  window.addEventListener('afterprint', cleanup)
+  try {
+    window.print()
+  } finally {
+    setTimeout(cleanup, 1000)
+  }
 }
 </script>
 

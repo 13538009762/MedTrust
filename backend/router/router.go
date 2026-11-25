@@ -55,14 +55,14 @@ func SetupRouter() *gin.Engine {
 			authGroup.POST("/medical-records/upload", middleware.RequireRoles("doctor"), controller.DefaultMedicalController.Upload)
 			authGroup.POST("/encounters/initial", middleware.RequireRoles("doctor"), controller.DefaultMedicalController.CreateEncounterInitial)
 			authGroup.POST("/encounters/:id/complete", middleware.RequireRoles("doctor"), controller.DefaultMedicalController.CompleteEncounterFinal)
-			authGroup.GET("/medical-records", controller.DefaultMedicalController.List)
+			authGroup.GET("/medical-records", middleware.RequireRoles("doctor", "patient", "supervisor"), controller.DefaultMedicalController.List)
 			authGroup.GET("/medical-records/:id", controller.DefaultMedicalController.GetByID)
 			authGroup.GET("/medical-records/:id/download", controller.DefaultMedicalController.Download)
 			authGroup.GET("/patients", middleware.RequireRoles("doctor", "supervisor"), controller.DefaultMedicalController.ListPatients)
 
 			// 医护职业安全防护与高危传染病预警分析
-			authGroup.GET("/patients/:id/infection-risks", middleware.RequireRoles("doctor", "supervisor", "patient"), controller.DefaultMedicalController.GetPatientInfectionRisks)
-			authGroup.GET("/medical-records/:id/infection-risks", controller.DefaultMedicalController.GetRecordInfectionRisks)
+			authGroup.GET("/patients/:id/infection-risks", middleware.RequireRoles("doctor", "patient"), controller.DefaultMedicalController.GetPatientInfectionRisks)
+			authGroup.GET("/medical-records/:id/infection-risks", middleware.RequireRoles("doctor", "patient"), controller.DefaultMedicalController.GetRecordInfectionRisks)
 			authGroup.POST("/infection-risks/evaluate-text", middleware.RequireRoles("doctor"), controller.DefaultMedicalController.EvaluateInfectionText)
 			authGroup.POST("/ai/diagnostic-assist", middleware.RequireRoles("doctor"), controller.DefaultMedicalController.DiagnosticAssist)
 

@@ -1,12 +1,14 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"medtrust-backend/config"
 	"medtrust-backend/model"
 	"medtrust-backend/pkg/blockchain"
 	"medtrust-backend/repository"
@@ -346,8 +348,12 @@ func (ctrl *SupervisorController) VerifyRecord(c *gin.Context) {
 	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "防篡改核验完成", Data: res})
 }
 
-// SimulateTamper 真实触发数据库篡改演练 (答辩核心演示亮点)
+// SimulateTamper 真实触发数据库篡改演练 (答辩核心演示亮点，生产环境强制禁用)
 func (ctrl *SupervisorController) SimulateTamper(c *gin.Context) {
+	if config.AppConfig.IsProduction() {
+		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "安全拦截：生产环境已禁用数据库篡改演练接口"})
+		return
+	}
 	// WP-02: 纵深防御——即使路由中间件被绕过，控制器层仍强制 supervisor-only
 	if c.GetString("role") != "supervisor" {
 		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "权限拦截：篡改演练仅限监管人员 (supervisor) 角色执行"})
@@ -366,8 +372,12 @@ func (ctrl *SupervisorController) SimulateTamper(c *gin.Context) {
 	})
 }
 
-// RestoreTamperedRecord 一键恢复真实病历数据
+// RestoreTamperedRecord 一键恢复真实病历数据（生产环境强制禁用）
 func (ctrl *SupervisorController) RestoreTamperedRecord(c *gin.Context) {
+	if config.AppConfig.IsProduction() {
+		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "安全拦截：生产环境已禁用篡改演练恢复接口"})
+		return
+	}
 	// WP-02: 纵深防御——恢复操作同样仅限 supervisor
 	if c.GetString("role") != "supervisor" {
 		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "权限拦截：数据恢复仅限监管人员 (supervisor) 角色执行"})
@@ -401,6 +411,10 @@ func (ctrl *SupervisorController) LiftDoctorRestriction(c *gin.Context) {
 	}
 
 	if err := service.DefaultEmergencyService.LiftDoctorRestriction(supervisorID, req.DoctorID, req.Comment, c.ClientIP()); err != nil {
+		if errors.Is(err, service.ErrInvalidRestrictionTarget) {
+			c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: err.Error()})
 		return
 	}

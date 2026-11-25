@@ -3,7 +3,13 @@
   <div class="tab-pane-box">
     <div class="pane-tip-row flex-between mb-3">
       <span>由医疗专业智能引擎对跨院已授权病程记录进行四段式客观提炼（严格遵循 Doctor-in-the-Loop 辅助诊疗与临床决策合规准则）：</span>
-      <el-button type="primary" size="small" :icon="DocumentCopy" @click="$emit('adopt-soap', result.soap_summary)">
+      <el-button
+        type="primary"
+        size="small"
+        :icon="DocumentCopy"
+        :disabled="!result.soap_summary"
+        @click="$emit('adopt-soap', result.soap_summary)"
+      >
         引用 SOAP 摘要至草稿
       </el-button>
     </div>
@@ -25,7 +31,7 @@
           <span class="soap-title">跨院客观检查与生命体征 (Objective)</span>
         </div>
         <div class="soap-box-body">
-          {{ result.soap_summary?.objective || '化验基本正常' }}
+          {{ result.soap_summary?.objective || '暂无跨院客观检查与生命体征记录' }}
         </div>
       </div>
 

@@ -7,6 +7,7 @@ from tools import (
     PermissionError,
     extract_jwt_claims,
     is_tool_allowed_for_role,
+    verify_session_with_gateway,
     MEDTRUST_JWT_SECRET,
     GO_BACKEND_URL,
 )
@@ -155,6 +156,14 @@ class MedTrustAgent:
             "summarize_patient_soap": "tool_summarize_soap",  # WP-06: SOAP 临床聚合仅 doctor，与 supervisor 的核验工具严格隔离
         }
         try:
+            ok, status_code, err_msg = verify_session_with_gateway(tools.token)
+            if not ok:
+                return {
+                    "reply": f"【鉴权失败 ({status_code})】{err_msg}，已拒绝调用外部大模型。",
+                    "tool_called": None,
+                    "tool_status": "AUTH_REJECTED",
+                    "tool_trace": tools.trace_logs,
+                }
             system_prompt = (
                 "你是 MedTrust 跨医院医疗数据可信共享系统的专有受控 AI 助手。\n"
                 "【严格领域服务边界】：你仅被授权处理与「MedTrust 医疗数据共享平台」直接相关的内部业务，包含且仅包含："

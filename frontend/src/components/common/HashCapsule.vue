@@ -3,6 +3,7 @@
     <el-tooltip
       v-if="hasValue"
       :content="String(value)"
+      :disabled="!truncate"
       placement="top"
       :show-after="200"
     >
@@ -15,9 +16,10 @@
       type="button"
       class="mt-hash-copy-btn"
       :title="`复制${label}`"
+      :aria-label="`复制${label}`"
       @click.stop="handleCopy"
     >
-      <el-icon :size="12">
+      <el-icon :size="13">
         <Check v-if="copied" />
         <CopyDocument v-else />
       </el-icon>
@@ -26,7 +28,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, onBeforeUnmount } from 'vue'
 import { CopyDocument, Check } from '@element-plus/icons-vue'
 import { formatHashMiddle, copyTextToClipboard } from '@/utils/hashFormatters'
 
@@ -51,6 +53,14 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const copied = ref(false)
+let copyResetTimer: ReturnType<typeof setTimeout> | null = null
+
+onBeforeUnmount(() => {
+  if (copyResetTimer) {
+    clearTimeout(copyResetTimer)
+    copyResetTimer = null
+  }
+})
 
 const hasValue = computed(() => {
   if (props.value === null || props.value === undefined) return false
@@ -71,8 +81,10 @@ async function handleCopy() {
   const ok = await copyTextToClipboard(String(props.value), props.label)
   if (ok) {
     copied.value = true
-    window.setTimeout(() => {
+    if (copyResetTimer) clearTimeout(copyResetTimer)
+    copyResetTimer = setTimeout(() => {
       copied.value = false
+      copyResetTimer = null
     }, 1500)
   }
 }
@@ -116,11 +128,13 @@ async function handleCopy() {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 2px;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 4px;
   border: none;
   background: transparent;
-  color: var(--mt-text-secondary, #64748b);
-  border-radius: 3px;
+  color: var(--mt-text-secondary, #475569);
+  border-radius: 4px;
   cursor: pointer;
   flex-shrink: 0;
   transition: color 0.15s ease, background-color 0.15s ease;

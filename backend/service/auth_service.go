@@ -22,11 +22,20 @@ type AuthService struct{}
 
 var DefaultAuthService = &AuthService{}
 
-// HashMedicalKey 使用患者专属编号作为盐值对调阅密钥执行 SHA-256 哈希
+// HashMedicalKey 使用患者专属编号作为盐值对调阅密钥执行 SHA-256 哈希（保留以兼容历史存量校验）
 func HashMedicalKey(key, userNo string) string {
 	h := sha256.New()
 	h.Write([]byte("MedTrust:Salt:" + userNo + ":" + strings.TrimSpace(key)))
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// HashMedicalKeyBcrypt 使用慢哈希 bcrypt 对调阅密钥加盐摘要（抗脱库离线遍历，VerifyMedicalKey 原生支持）
+func HashMedicalKeyBcrypt(key string) (string, error) {
+	b, err := bcrypt.GenerateFromPassword([]byte(strings.TrimSpace(key)), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
 
 // VerifyMedicalKey 恒定时间校验调阅密钥，优先校验哈希（支持 bcrypt 与 SHA-256 加盐哈希），兼顾旧版平滑过渡
@@ -63,7 +72,10 @@ func MigrateLegacyMedicalKeys() error {
 	for _, u := range users {
 		cleanKey := strings.TrimSpace(u.MedicalKey)
 		if len(cleanKey) > 0 && len(cleanKey) < 32 {
-			newHash := HashMedicalKey(cleanKey, u.UserNo)
+			newHash, hErr := HashMedicalKeyBcrypt(cleanKey)
+			if hErr != nil {
+				newHash = HashMedicalKey(cleanKey, u.UserNo)
+			}
 			_ = repository.DefaultUserRepository.UpdateMedicalKeyMigration(u.ID, newHash)
 		}
 	}
@@ -415,6 +427,9 @@ func (s *AuthService) UpdateProfileWithContext(userID uint64, realName, phone, i
 		u.Title = title
 	}
 	if avatar != "" {
+		if err := security.ValidateAvatarDataURI(avatar); err != nil {
+			return nil, err
+		}
 		updates["avatar"] = avatar
 		u.Avatar = avatar
 	}
@@ -457,6 +472,9 @@ func (s *AuthService) UpdateAvatar(userID uint64, avatarData, clientIP, userAgen
 	}
 	if userAgent == "" {
 		userAgent = "Unknown"
+	}
+	if err := security.ValidateAvatarDataURI(avatarData); err != nil {
+		return nil, err
 	}
 
 	u, err := repository.DefaultUserRepository.FindByID(userID)
@@ -549,13 +567,17 @@ func (s *AuthService) ChangePasswordWithContext(userID uint64, oldPassword, newP
 		return err
 	}
 
+	now := time.Now()
+	nowNs := now.UnixNano()
 	if err := repository.DefaultUserRepository.UpdateUserFields(userID, map[string]interface{}{
-		"password_hash":   string(newHash),
-		"must_change_pwd": false,
-		"updated_at":      time.Now(),
+		"password_hash":          string(newHash),
+		"must_change_pwd":        false,
+		"password_changed_at_ns": nowNs,
+		"updated_at":             now,
 	}); err != nil {
 		return err
 	}
+	repository.CachePasswordChangedAtNs(userID, nowNs, 24*time.Hour)
 
 	DefaultAuditService.LogDetailed(AuditEntry{
 		UserID:        u.ID,
@@ -617,7 +639,10 @@ func (s *AuthService) UpdateMedicalKeyWithContext(userID uint64, oldKey, newKey,
 		}
 	}
 
-	newHash := HashMedicalKey(newKey, u.UserNo)
+	newHash, hErr := HashMedicalKeyBcrypt(newKey)
+	if hErr != nil {
+		return fmt.Errorf("调阅密钥加密存储失败: %w", hErr)
+	}
 
 	if err := repository.DefaultUserRepository.UpdateUserFields(userID, map[string]interface{}{
 		"medical_key_hash": newHash,

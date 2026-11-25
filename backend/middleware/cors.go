@@ -16,12 +16,12 @@ func CORSMiddleware() gin.HandlerFunc {
 		// 构造当前允许的 Origin 白名单集合
 		allowedMap := make(map[string]bool)
 
-		// 1. 读取配置中的白名单列表
+		// 1. 读取配置中的白名单列表（严格忽略通配符 *，严禁与 Allow-Credentials: true 组合反射任意 Origin）
 		cfgOrigins := strings.TrimSpace(config.AppConfig.Security.CORSAllowedOrigins)
 		if cfgOrigins != "" {
 			for _, o := range strings.Split(cfgOrigins, ",") {
 				o = strings.TrimSpace(o)
-				if o != "" {
+				if o != "" && o != "*" {
 					allowedMap[o] = true
 				}
 			}
@@ -48,7 +48,7 @@ func CORSMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		isAllowed := allowedMap["*"] || allowedMap[origin]
+		isAllowed := allowedMap[origin]
 
 		if isAllowed {
 			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)

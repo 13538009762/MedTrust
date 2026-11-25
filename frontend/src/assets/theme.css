@@ -21,9 +21,9 @@ body, #app, .medtrust-layout-wrapper, .medtrust-sidebar, .medtrust-content-card,
   --el-color-primary-light-9: #f0f9ff;
   --el-color-primary-dark-2: #0369a1;
 
-  /* 辅助功能色：严格遵循医疗语义规范 */
-  --el-color-success: #10b981; /* 临床检验合格、存证上链成功 (Emerald) */
-  --el-color-warning: #f59e0b; /* 异常提示、待审核、待检验 (Amber) */
+  /* 辅助功能色：严格遵循医疗语义规范（与 tokens.css 对齐） */
+  --el-color-success: #059669; /* 临床检验合格、存证上链成功 (Emerald-600) */
+  --el-color-warning: #d97706; /* 异常提示、待审核、待检验 (Amber-600) */
   --el-color-danger: #dc2626;  /* 临床危急值、Break-Glass急救破窗 (Red-600) */
   --el-color-info: #64748b;    /* 辅助元数据、审计编号 (Slate-500) */
 
@@ -295,8 +295,8 @@ body {
 .accent-card-emerald { border-left: 4px solid #10b981 !important; }
 .accent-card-red { border-left: 4px solid #dc2626 !important; }
 
-/* 按钮微立体质感 */
-.el-button--primary:not(.is-link):not(.is-plain):not(.login-btn):not(.btn-trigger-ai-inline):not(.ai-diagnose-capsule-btn):not(.btn-cross-ai-diagnose):not(.btn-primary-gradient):not(.btn-ai-gradient):not([class*="gradient"]) {
+/* 按钮微立体质感（保留禁用态视觉反馈，避免禁用按钮看起来可点击） */
+.el-button--primary:not(.is-disabled):not(.is-link):not(.is-plain):not(.login-btn):not(.btn-trigger-ai-inline):not(.ai-diagnose-capsule-btn):not(.btn-cross-ai-diagnose):not(.btn-primary-gradient):not(.btn-ai-gradient):not([class*="gradient"]) {
   background-color: #0284c7 !important;
   border-color: #0284c7 !important;
   color: #ffffff !important;
@@ -305,7 +305,7 @@ body {
   box-shadow: 0 1px 2px 0 rgba(2, 132, 199, 0.2);
 }
 
-.el-button--primary:not(.is-link):not(.is-plain):not(.login-btn):not(.btn-trigger-ai-inline):not(.ai-diagnose-capsule-btn):not(.btn-cross-ai-diagnose):not(.btn-primary-gradient):not(.btn-ai-gradient):not([class*="gradient"]):hover {
+.el-button--primary:not(.is-disabled):not(.is-link):not(.is-plain):not(.login-btn):not(.btn-trigger-ai-inline):not(.ai-diagnose-capsule-btn):not(.btn-cross-ai-diagnose):not(.btn-primary-gradient):not(.btn-ai-gradient):not([class*="gradient"]):hover {
   background-color: #0369a1 !important;
   border-color: #0369a1 !important;
   color: #ffffff !important;

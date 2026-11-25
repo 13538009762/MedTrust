@@ -51,7 +51,9 @@ export function useDoctorRecordList() {
         (r.record_no && r.record_no.toLowerCase().includes(kw)) ||
         (r.patient_name && r.patient_name.toLowerCase().includes(kw)) ||
         (r.chief_complaint && r.chief_complaint.toLowerCase().includes(kw)) ||
-        (r.diagnosis && r.diagnosis.toLowerCase().includes(kw))
+        (r.initial_diagnosis && r.initial_diagnosis.toLowerCase().includes(kw)) ||
+        (r.diagnosis && r.diagnosis.toLowerCase().includes(kw)) ||
+        (r.exam_items && String(r.exam_items).toLowerCase().includes(kw))
       )
     }
     return list
@@ -66,17 +68,14 @@ export function useDoctorRecordList() {
     currentPage.value = 1
   })
 
-  // ── 默认患者名映射 ──
-  const defaultPatientNames = ['陈晨', '李四', '王秀英', '赵建平', '钱小芳', '孙明浩', '周桂珍', '张三']
-
   function formatPatientName(rec?: MedicalRecordRow): string {
-    if (!rec) return '陈晨'
+    if (!rec) return '未登记患者'
     const name = rec.patient_name || rec.patientName
     if (name && name !== '患者' && !name.startsWith('患者#')) {
       return name
     }
-    const id = Number(rec.patient_id || rec.patientId || rec.id || 0)
-    return defaultPatientNames[id % defaultPatientNames.length] || '陈晨'
+    const id = rec.patient_id || rec.patientId
+    return id ? `患者 #${id}` : '未登记患者'
   }
 
   function formatRecordStatus(st?: string): string {
@@ -106,7 +105,7 @@ export function useDoctorRecordList() {
             r.patient_name = formatPatientName(r)
           }
           if (!r.doctor_name) {
-            r.doctor_name = '李建国医生'
+            r.doctor_name = '经治医师'
           }
           if (r.status === '已接诊' || (!r.need_exam && r.diagnosis)) {
             r.status = 'COMPLETED'

@@ -137,7 +137,7 @@ export function useEncounterWorkflow(callbacks: EncounterWorkflowCallbacks) {
   watch(() => initForm.value.department_name, (dept) => {
     if (dept && dept.includes('急诊')) {
       initForm.value.encounter_type = 'EMERGENCY'
-    } else if (dept) {
+    } else if (dept && initForm.value.encounter_type === 'EMERGENCY') {
       initForm.value.encounter_type = 'OUTPATIENT'
     }
   })
@@ -174,41 +174,45 @@ export function useEncounterWorkflow(callbacks: EncounterWorkflowCallbacks) {
     } catch {}
   }
 
+  function resetClinicalFields() {
+    initForm.value.duration = ''
+    initForm.value.chief_complaint = ''
+    initForm.value.present_illness = ''
+    initForm.value.initial_diagnosis = ''
+    initForm.value.diagnostic_basis = ''
+    initForm.value.exam_reason = ''
+    directForm.value = {
+      diagnosis: '',
+      etiology: '',
+      treatment_plan: '',
+      soap_content: '',
+    }
+    selectedExamList.value = []
+    vitals.value = {
+      temperature: '',
+      blood_pressure: '',
+      heart_rate: '',
+      spo2: '',
+    }
+  }
+
   async function onPatientSelect(pid?: number | null) {
     if (!pid) {
       initForm.value.patient_id = undefined
       selectedPatientInfo.value = null
       selectedPatientInfectionAlert.value = null
+      resetClinicalFields()
       resetPatientTimeline()
       return
+    }
+    const switchedPatient = initForm.value.patient_id !== undefined && initForm.value.patient_id !== pid
+    if (switchedPatient) {
+      resetClinicalFields()
     }
     // 同步绑定患者 ID，确保无论通过顶部搜索下拉还是快捷候选切换都能立即进入接诊工作台
     initForm.value.patient_id = pid
     selectedPatientInfo.value = patientList.value.find(p => p.id === pid) || null
     void fetchPatientTimeline(pid)
-
-    // 选定患者后，自动装配该科室规范接诊模板，方便医生快速核验与调整
-    if (!initForm.value.chief_complaint) {
-      initForm.value.duration = '持续 2 天'
-      initForm.value.chief_complaint = '胸骨后发作性压榨样闷痛2天，劳累后加剧'
-      initForm.value.present_illness = '患者2天前爬楼劳累后突感心前区及胸骨后压榨样闷痛，每次持续3-5分钟，伴心慌出冷汗，休息后可轻微缓解。'
-      initForm.value.initial_diagnosis = '原发性高血压病1级待查；冠脉缺血待排'
-      initForm.value.diagnostic_basis = '中年患者，活动诱发胸闷心悸，既往有轻度血压偏高史，需心电图及血常规排查。'
-      initForm.value.exam_reason = '排查急性心肌缺血病变及炎性反应'
-    }
-    if (!directForm.value.diagnosis) {
-      directForm.value.diagnosis = '原发性高血压病1级（低危组）'
-      directForm.value.etiology = '活动劳累及情绪应激导致交感神经过度兴奋，外周阻力血管收缩，收缩压升高。'
-      directForm.value.treatment_plan = '【综合处置】\n1. 静坐休息15分钟后再次复测双侧上臂血压，持续脉氧监测\n\n【临床医嘱】\n1. 饮食指导：严格低盐低脂清淡饮食（每日食盐量控制在 5g 以内）\n2. 每日早晚各监测一次血压并详细做健康日志记录\n3. 避免连续熬夜加班、情绪激动与重度体力劳累，适度慢走运动\n4. 2周后心血管内科专科门诊复查\n\n【处方用药】\n1. 硝苯地平控释片 (拜新同) 30mg 口服 每日一次 清晨餐后整片吞服\n2. 阿托伐他汀钙片 (立普妥) 20mg 口服 每晚睡前一次'
-    }
-    if (selectedExamList.value.length === 0) {
-      selectedExamList.value = ['12导联心电图 (ECG)', '常规全血细胞分析 (血常规)']
-    }
-    quickFillVitals()
-
-    if (encounterMode.value === 'DIRECT') {
-      generateDirectSOAP()
-    }
 
     // 1. 若当前患者对象已有预带的传染病风险
     if (selectedPatientInfo.value?.infection_alert) {
@@ -243,6 +247,7 @@ export function useEncounterWorkflow(callbacks: EncounterWorkflowCallbacks) {
     initForm.value.patient_id = undefined
     selectedPatientInfo.value = null
     selectedPatientInfectionAlert.value = null
+    resetClinicalFields()
     resetPatientTimeline()
   }
 
@@ -364,6 +369,11 @@ ${finalForm.value.treatment_plan || rec.treatment_plan || '遵临床常规医嘱
     startNewBlankEncounter()
   }
 
+  function formatLocalDateTime(date: Date): string {
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+  }
+
   function startNewBlankEncounter() {
     encounterMode.value = 'DIRECT'
     const defaultDept = auth.user?.department_name || '心血管内科'
@@ -373,7 +383,7 @@ ${finalForm.value.treatment_plan || rec.treatment_plan || '遵临床常规医嘱
       patient_id: undefined,
       encounter_type: isEmergency ? 'EMERGENCY' : 'OUTPATIENT',
       department_name: defaultDept,
-      onset_time: new Date().toISOString().substring(0, 19).replace('T', ' '),
+      onset_time: formatLocalDateTime(new Date()),
       duration: '',
       chief_complaint: '',
       present_illness: '',
@@ -515,17 +525,15 @@ ${finalForm.value.treatment_plan || rec.treatment_plan || '遵临床常规医嘱
             <p style="color: #059669; font-weight: bold; margin-bottom: 8px;">初诊记录建立成功，已生成医技检查单并派发！</p>
             <p style="margin-bottom: 6px;"><strong>检查单派发去向说明：</strong></p>
             <ul style="padding-left: 20px; margin: 6px 0; color: #334155; font-size: 13px;">
-              <li><strong>血常规 / 心肌酶谱 / 肝肾生化：</strong>已派发至 <strong>【临床检验科 (LIS任务池)】</strong>，由检验科技师 (<strong>tech_lab</strong>) 处理</li>
-              <li><strong>12导联心电图 / 胸部CT / 头颅MRI：</strong>已派发至 <strong>【放射影像与心电中心 (PACS任务池)】</strong>，由影像医师 (<strong>tech_pacs</strong>) 处理</li>
+              <li><strong>血常规 / 心肌酶谱 / 肝肾生化：</strong>已派发至 <strong>【临床检验科 (LIS 任务池)】</strong>，由检验科主管技师受理</li>
+              <li><strong>12导联心电图 / 胸部CT / 头颅MRI：</strong>已派发至 <strong>【放射影像与心电中心 (PACS 任务池)】</strong>，由放射影像医师受理</li>
             </ul>
-            <p style="margin-top: 10px; font-size: 13px; color: #0284c7; font-weight: 600;">操作指引（两种演示方式均可）：</p>
-            <p style="font-size: 13px; color: #475569; margin: 4px 0;"><strong>方式一（快捷协同）：</strong>直接点击左侧菜单的 <strong>「医技检查中心」</strong>，即可立即接单并出具回传报告！</p>
-            <p style="font-size: 13px; color: #475569; margin: 4px 0;"><strong>方式二（多角色切换）：</strong>退出当前登录，切换为检验科账号 <strong>tech_lab</strong> (密码 <strong>123456</strong>) 或影像科账号 <strong>tech_pacs</strong> (密码 <strong>123456</strong>) 登录系统出报告！</p>
+            <p style="margin-top: 10px; font-size: 13px; color: #475569;">医技科室完成检查并回传报告后，您可以在就诊列表中点击「终审确诊」完成病历归档与链上存证。</p>
           </div>`,
             '检查申请已成功派发至医技科室',
             {
               dangerouslyUseHTMLString: true,
-              confirmButtonText: '收到，立即前往医技中心',
+              confirmButtonText: '知道了，返回就诊列表',
               type: 'success'
             }
           )
@@ -556,11 +564,10 @@ ${finalForm.value.treatment_plan || rec.treatment_plan || '遵临床常规医嘱
         }
       } catch {}
     }
-    const defaultPlan = row.treatment_plan || '【综合处置】\n1. 门诊心电图与心肌酶谱动态复查评估\n\n【临床医嘱】\n1. 限制钠盐摄入 (每日<5g)，保证充足规律睡眠\n2. 每日晨起及睡前规范监测自测血压\n3. 2周后心内科门诊复查血压及心电图\n\n【处方用药】\n1. 苯磺酸氨氯地平片 (络活喜) 5mg 口服 每日一次\n2. 酒石酸美托洛尔片 (倍他乐克) 25mg 口服 每日两次 饭前半小时'
     finalForm.value = {
-      diagnosis: row.diagnosis || '原发性高血压病1级，心肌轻度供血不足',
-      etiology: row.etiology || '劳累导致交感神经过度激活，外周阻力血管收缩，心肌负荷增加。',
-      treatment_plan: defaultPlan,
+      diagnosis: row.diagnosis || row.initial_diagnosis || '',
+      etiology: row.etiology || '',
+      treatment_plan: row.treatment_plan || '',
       soap_content: ''
     }
     generateSOAPRecord()

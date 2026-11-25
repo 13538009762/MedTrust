@@ -445,7 +445,7 @@ type CompleteEncounterFinalParams struct {
 func (s *MedicalService) CompleteEncounterFinal(p CompleteEncounterFinalParams) (*model.MedicalRecord, error) {
 	var rec model.MedicalRecord
 	if rPtr, err := repository.DefaultMedicalRepository.FindRecordByID(p.RecordID); err != nil || rPtr == nil {
-		return nil, fmt.Errorf("就诊记录不存在: %w", err)
+		return nil, fmt.Errorf("%w: %v", ErrRecordNotFound, err)
 	} else {
 		rec = *rPtr
 	}
@@ -455,6 +455,30 @@ func (s *MedicalService) CompleteEncounterFinal(p CompleteEncounterFinalParams) 
 		return nil, fmt.Errorf("医生信息不存在: %w", err)
 	} else {
 		doc = *dPtr
+	}
+
+	if doc.Status == "DISABLED" || (doc.Status == "RESTRICTED" && rec.HospitalID != doc.HospitalID) {
+		return nil, ErrEncounterDoctorDisabled
+	}
+	if doc.HospitalID > 0 {
+		if hosp, err := repository.DefaultHospitalRepository.FindByID(doc.HospitalID); err == nil && hosp != nil && hosp.Status == 0 {
+			return nil, ErrEncounterDoctorDisabled
+		}
+	}
+	if rec.DoctorID != p.DoctorID {
+		DefaultAuditService.LogDetailed(AuditEntry{
+			UserID:        p.DoctorID,
+			OperationType: "COMPLETE_ENCOUNTER_IDOR",
+			TargetType:    "RECORD",
+			TargetID:      rec.RecordNo,
+			HospitalID:    doc.HospitalID,
+			Result:        "INTERCEPTED",
+			RiskLevel:     "HIGH",
+			RiskScore:     90,
+			Source:        "API",
+			Reason:        fmt.Sprintf("医生(ID=%d)尝试越权覆盖经治医生(ID=%d)开立的就诊记录", p.DoctorID, rec.DoctorID),
+		})
+		return nil, ErrEncounterForbidden
 	}
 
 	rec.Diagnosis = p.Diagnosis
@@ -599,5 +623,8 @@ func (s *MedicalService) CompleteEncounterFinal(p CompleteEncounterFinalParams) 
 	rec.Files = []model.MedicalFile{fileRecord}
 
 	s.VerifyRecord(&rec)
+	rec.HasAccess = true
+	rec.PatientIDCard = maskIDCardService(rec.PatientIDCard)
+	rec.PatientPhone = maskPhoneService(rec.PatientPhone)
 	return &rec, nil
 }

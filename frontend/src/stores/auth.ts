@@ -5,6 +5,21 @@ import type { User } from '../types'
 
 export type { User }
 
+const authClearedListeners = new Set<() => void>()
+
+export function onAuthCleared(cb: () => void): () => void {
+  authClearedListeners.add(cb)
+  return () => authClearedListeners.delete(cb)
+}
+
+function notifyAuthCleared() {
+  authClearedListeners.forEach((cb) => {
+    try {
+      cb()
+    } catch {}
+  })
+}
+
 // 清理历史遗留的全局 localStorage 登录信息，杜绝跨标签页账号冲突
 try {
   localStorage.removeItem('medtrust_token')
@@ -39,8 +54,10 @@ export const useAuthStore = defineStore('auth', () => {
     if (newUser) {
       sessionStorage.setItem('medtrust_user', JSON.stringify(newUser))
     } else {
+      token.value = ''
       sessionStorage.removeItem('medtrust_user')
       sessionStorage.removeItem('medtrust_token')
+      notifyAuthCleared()
     }
   }
 
@@ -58,6 +75,7 @@ export const useAuthStore = defineStore('auth', () => {
       localStorage.removeItem('medtrust_token')
       localStorage.removeItem('medtrust_user')
     } catch {}
+    notifyAuthCleared()
   }
 
   async function logout() {

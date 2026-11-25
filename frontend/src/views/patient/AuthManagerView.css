@@ -621,14 +621,14 @@
   color: #059669;
 }
 @media print {
-  body * {
+  body.printing-emr * {
     visibility: hidden;
   }
-  #emr-print-container,
-  #emr-print-container * {
+  body.printing-emr #emr-print-container,
+  body.printing-emr #emr-print-container * {
     visibility: visible;
   }
-  #emr-print-container {
+  body.printing-emr #emr-print-container {
     position: absolute;
     left: 0;
     top: 0;

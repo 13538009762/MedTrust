@@ -8,6 +8,7 @@ import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import App from './App.vue'
 import router from './router'
 import './styles/tokens.css'
+import './styles/utilities.css'
 import './assets/theme.css'
 import './styles/clinical-workstation.css'
 

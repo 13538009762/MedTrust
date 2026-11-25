@@ -45,8 +45,10 @@ func SecurityHeadersMiddleware() gin.HandlerFunc {
 			"report-uri /api/v1/csp-report",
 		}, "; ")
 
-		// 决策点 D4：先默认使用 Content-Security-Policy-Report-Only 观察，支持通过环境变量 CSP_ENFORCE=true 切为强阻断
-		enforceCSP := strings.ToLower(os.Getenv("CSP_ENFORCE")) == "true"
+		// 生产模式默认启用强阻断 Content-Security-Policy（除非显式设置 CSP_ENFORCE=false）；
+		// 演示/开发模式默认 Content-Security-Policy-Report-Only，支持通过 CSP_ENFORCE=true 切为强阻断
+		cspEnv := strings.ToLower(strings.TrimSpace(os.Getenv("CSP_ENFORCE")))
+		enforceCSP := cspEnv == "true" || (config.AppConfig.IsProduction() && cspEnv != "false")
 		if enforceCSP {
 			c.Writer.Header().Set("Content-Security-Policy", cspPolicy)
 		} else {

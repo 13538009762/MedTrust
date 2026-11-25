@@ -97,6 +97,8 @@ func (ctrl *AccessController) UnlockByKey(c *gin.Context) {
 // respondKeyUnlockError 依据领域错误类型映射 HTTP 状态码
 func respondKeyUnlockError(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, service.ErrEncounterDoctorDisabled), errors.Is(err, service.ErrDoctorNotFound):
+		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: err.Error()})
 	case errors.Is(err, service.ErrKeyVerifyFailed):
 		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: err.Error()})
 	case errors.Is(err, service.ErrKeyUnlockLimit):

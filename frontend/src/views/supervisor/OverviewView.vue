@@ -100,14 +100,19 @@
         <el-card shadow="hover" class="metric-card">
           <div class="metric-title">Fabric 账本交易总数</div>
           <div class="metric-num text-purple">{{ stats.total_tx }}</div>
-          <div class="metric-foot">当前区块高度 #{{ stats.block_height }}</div>
+          <div class="metric-foot">当前区块高度 {{ stats.block_height ? `#${stats.block_height}` : '待同步' }}</div>
         </el-card>
       </el-col>
       <el-col :span="6">
-        <el-card shadow="hover" class="metric-card">
+        <el-card
+          shadow="hover"
+          class="metric-card cursor-pointer"
+          title="点击前往紧急访问事件审核台"
+          @click="router.push('/supervisor/emergency')"
+        >
           <div class="metric-title">紧急访问 (Break-Glass)</div>
           <div class="metric-num text-danger">{{ stats.total_emergencies }}</div>
-          <div class="metric-foot">待监管人员审核: <strong>{{ stats.pending_audits }}</strong></div>
+          <div class="metric-foot">待监管人员审核: <strong>{{ stats.pending_audits }}</strong> →</div>
         </el-card>
       </el-col>
       <el-col :span="6">
@@ -235,17 +240,17 @@
             </div>
             <div class="comp-rate-bar-box mt-3">
               <div class="comp-rate-row">
-                <span>防篡改核验覆盖率 (Verification Coverage Rate)：</span>
-                <strong class="mono">{{ ((funnelStats.handled / (funnelStats.total || 1)) * 100).toFixed(1) }}%</strong>
+                <span>风控初筛通过率（通过 / 申请总数）：</span>
+                <strong class="mono">{{ funnelStats.total ? ((funnelStats.handled / funnelStats.total) * 100).toFixed(1) : '0.0' }}%</strong>
               </div>
-              <el-progress :percentage="Math.min(100, Math.round((funnelStats.handled / (funnelStats.total || 1)) * 100))" :show-text="false" status="success" :stroke-width="10" />
+              <el-progress :percentage="funnelStats.total ? Math.min(100, Math.round((funnelStats.handled / funnelStats.total) * 100)) : 0" :show-text="false" status="success" :stroke-width="10" />
             </div>
             <div class="comp-rate-bar-box mt-3">
               <div class="comp-rate-row">
-                <span>高危违规主动拦截率 (Active Interception Rate)：</span>
-                <strong class="mono">{{ ((funnelStats.approved / (funnelStats.handled || 1)) * 100).toFixed(1) }}%</strong>
+                <span>患者知情核准率（核准 / 初筛通过）：</span>
+                <strong class="mono">{{ funnelStats.handled ? ((funnelStats.approved / funnelStats.handled) * 100).toFixed(1) : '0.0' }}%</strong>
               </div>
-              <el-progress :percentage="Math.min(100, Math.round((funnelStats.approved / (funnelStats.handled || 1)) * 100))" :show-text="false" color="#8b5cf6" :stroke-width="10" />
+              <el-progress :percentage="funnelStats.handled ? Math.min(100, Math.round((funnelStats.approved / funnelStats.handled) * 100)) : 0" :show-text="false" color="#8b5cf6" :stroke-width="10" />
             </div>
             <div class="comp-summary-note mt-3">
               <el-icon class="mr-1 text-emerald-600"><CircleCheckFilled /></el-icon>
@@ -321,9 +326,12 @@
           </template>
         </el-table-column>
         <el-table-column label="Fabric 存证状态" width="125">
-          <template #default>
-            <el-tag size="small" type="success" effect="plain">
+          <template #default="{ row }">
+            <el-tag v-if="row.fabric_tx_id" size="small" type="success" effect="plain">
               账本已固化
+            </el-tag>
+            <el-tag v-else size="small" type="info" effect="plain">
+              待同步上链
             </el-tag>
           </template>
         </el-table-column>
@@ -398,8 +406,11 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
 import { Refresh } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
+
+const router = useRouter()
 import {
   getBlockchainStatusApi,
   listAuditLogsApi,
@@ -460,11 +471,11 @@ async function fetchBlockchainStatus() {
 const stats = ref<any>({
   total_records: 0,
   total_tx: 0,
-  block_height: 100,
+  block_height: 0,
   total_emergencies: 0,
   pending_audits: 0,
   total_logs: 0,
-  verification_pass_rate: 100,
+  verification_pass_rate: 0,
   verified_count: 0,
   tampered_count: 0,
   total_intercepted: 0,
@@ -514,20 +525,20 @@ const filteredEvents = computed(() => {
   return securityEvents.value
 })
 
-async function fetchSecurityEvents() {
-  loadingEvents.value = true
+async function fetchSecurityEvents(silent = false) {
+  if (!silent) loadingEvents.value = true
   try {
     const res: any = await listAuditLogsApi()
     if (res.code === 200 && Array.isArray(res.data)) {
       securityEvents.value = res.data
-    } else {
+    } else if (!silent) {
       securityEvents.value = []
     }
   } catch (err) {
     console.warn('fetchSecurityEvents error', err)
-    securityEvents.value = []
+    if (!silent) securityEvents.value = []
   } finally {
-    loadingEvents.value = false
+    if (!silent) loadingEvents.value = false
   }
 }
 
@@ -564,8 +575,8 @@ function formatOpType(op?: string) {
 const blockchainTransactions = ref<any[]>([])
 const loadingTx = ref(false)
 
-async function fetchBlockchainTransactions() {
-  loadingTx.value = true
+async function fetchBlockchainTransactions(silent = false) {
+  if (!silent) loadingTx.value = true
   try {
     const res: any = await listBlockchainTransactionsApi(1, 30)
     if (res.code === 200 && res.data) {
@@ -573,9 +584,9 @@ async function fetchBlockchainTransactions() {
     }
   } catch (err) {
     console.warn('fetchBlockchainTransactions fallback error', err)
-    blockchainTransactions.value = []
+    if (!silent) blockchainTransactions.value = []
   } finally {
-    loadingTx.value = false
+    if (!silent) loadingTx.value = false
   }
 }
 
@@ -606,10 +617,12 @@ onMounted(async () => {
   fetchBlockchainStatus()
   fetchSecurityEvents()
   fetchBlockchainTransactions()
+  // 静默后台轮询且在标签页不可见时暂停，避免每 10 秒闪现表格 Loading 遮罩打断阅读
   pollTimer = setInterval(() => {
-    fetchSecurityEvents()
+    if (document.hidden) return
+    fetchSecurityEvents(true)
     fetchBlockchainStatus()
-    fetchBlockchainTransactions()
+    fetchBlockchainTransactions(true)
   }, 10000)
 
   try {
@@ -752,7 +765,7 @@ function renderCharts(data: any) {
           type: 'pie',
           radius: ['42%', '68%'],
           center: ['50%', '45%'],
-          avoidLabelOverlap: false,
+          avoidLabelOverlap: true,
           itemStyle: { borderRadius: 8, borderColor: '#fff', borderWidth: 2 },
           data: hospData,
         },
@@ -901,8 +914,8 @@ function renderSankeyChart(flowList: any[]) {
       links: flows,
       top: '12%',
       bottom: '12%',
-      left: '6%',
-      right: '6%',
+      left: '4%',
+      right: '16%',
       nodeWidth: 16,
       nodeGap: 16,
       itemStyle: { borderWidth: 1, borderColor: '#cbd5e1' },
@@ -1226,4 +1239,15 @@ function renderFunnelChart(funnelData: any) {
   line-height: 1.5;
 }
 .text-amber { color: #f59e0b; }
+
+@keyframes pulse-green {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(1.25);
+  }
+}
 </style>

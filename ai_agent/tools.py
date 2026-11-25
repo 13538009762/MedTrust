@@ -7,7 +7,7 @@ import re
 import time
 import requests
 from pathlib import Path
-from typing import Dict, Any, Optional, Set
+from typing import Dict, Any, Optional, Set, Tuple
 
 GO_BACKEND_URL = os.getenv("GO_BACKEND_URL", "http://127.0.0.1:8080/api/v1")
 
@@ -123,6 +123,34 @@ def extract_jwt_claims(token: str) -> Dict[str, Any]:
         raise
     except Exception as exc:
         raise PermissionError(f"JWT 解析失败: {exc}") from exc
+
+
+def verify_session_with_gateway(token: str) -> Tuple[bool, int, str]:
+    """向 Go 统一安全网关实时核验会话有效性（拦截已登出黑名单、改密撤销与封禁账号）。
+
+    返回 (is_valid, http_status, message)。网关返回 401/403 或不可达时一律 fail-closed。"""
+    if not token:
+        return False, 401, "未提供身份令牌"
+    try:
+        resp = requests.get(
+            f"{GO_BACKEND_URL.rstrip('/')}/auth/profile",
+            headers={"Authorization": f"Bearer {token}", "X-Source": "AI_AGENT"},
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            return True, 200, ""
+        msg = "身份会话已失效或账号权限受限"
+        try:
+            body = resp.json()
+            if isinstance(body, dict) and body.get("message"):
+                msg = str(body["message"])
+        except Exception:
+            pass
+        if resp.status_code in (401, 403):
+            return False, resp.status_code, msg
+        return False, 401, msg
+    except requests.RequestException:
+        return False, 503, "Go 安全网关暂不可达，已阻断 AI 会话与外部模型调用"
 
 def is_tool_allowed_for_role(tool_name: str, role: str) -> bool:
     """检查工具是否在指定角色的白名单内"""

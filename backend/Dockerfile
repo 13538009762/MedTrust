@@ -19,8 +19,8 @@ ENV TZ=Asia/Shanghai
 
 COPY --from=builder /app/medtrust_backend .
 COPY config/config.yaml ./config/config.yaml
-COPY fabric_crypto ./fabric_crypto
-RUN mkdir -p ./data/ipfs_storage ./data/fabric_ledger
+# 严禁将联盟链私钥打包进容器镜像层；生产/容器部署请通过只读卷或 Secret 挂载至 /app/fabric_crypto
+RUN mkdir -p ./data/ipfs_storage ./data/fabric_ledger ./fabric_crypto
 
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup && chown -R appuser:appgroup /app
 USER appuser

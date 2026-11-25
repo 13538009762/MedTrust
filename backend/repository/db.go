@@ -112,8 +112,10 @@ func InitDB() (*gorm.DB, error) {
 		log.Printf("[DB] AutoMigrate warning: %v", err)
 	}
 
-	// 自动注入幂等标准测试种子数据
-	SeedInitialData(DB)
+	// 非生产环境下自动注入幂等标准测试种子数据
+	if !config.AppConfig.IsProduction() {
+		SeedInitialData(DB)
+	}
 
 	return DB, nil
 }

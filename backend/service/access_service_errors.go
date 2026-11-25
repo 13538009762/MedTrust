@@ -40,6 +40,14 @@ var (
 	ErrDoctorNotFound = errors.New("指定的医生不存在或非执业医生")
 	// ErrAuthDaysExceeded 授权有效期超过统一上限
 	ErrAuthDaysExceeded = fmt.Errorf("授权有效天数超过上限（最多 %d 天），请缩短授权窗口", MaxAuthDays)
+	// ErrEncounterForbidden 终诊归档越权拦截（非开立该次初诊的经治医生本人）
+	ErrEncounterForbidden = errors.New("越权拦截：仅开立该次初诊的经治医生本人可签署终审确诊归档")
+	// ErrEncounterDoctorDisabled 执业医生账号或所属医疗机构停用/受限
+	ErrEncounterDoctorDisabled = errors.New("权限拦截：当前执业账号或所属医疗机构处于停用或受限状态，禁止签署病历")
+	// ErrEncounterAlreadyCompleted 就诊病历已完成终审归档并锚定上链
+	ErrEncounterAlreadyCompleted = errors.New("状态冲突：该就诊病历已完成终审归档并锚定上链，严禁重复覆写")
+	// ErrInvalidRestrictionTarget 解除医生限制操作目标非法（非 RESTRICTED 执业医生）
+	ErrInvalidRestrictionTarget = errors.New("权限拦截：仅允许解除处于受限 (RESTRICTED) 状态的执业医生限制，禁止解封停用 (DISABLED) 或非医生账号")
 )
 
 // ClampAuthDays 将请求的授权天数规范化到 [1, MaxAuthDays]。

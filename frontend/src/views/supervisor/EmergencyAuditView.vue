@@ -5,7 +5,8 @@
         <h2 class="page-title">紧急访问 (Break-Glass) 监管审核台</h2>
         <p class="page-sub">监管人员为唯一的医疗合规审判者。审查急救原因、患者知情异议反馈，执行合规结案或阶梯式违规惩戒与复权治理</p>
       </div>
-      <div class="header-actions">
+      <div class="header-actions flex items-center gap-2">
+        <el-button plain :loading="loading" @click="loadEvents">刷新工单</el-button>
         <el-button type="warning" plain @click="openGeneralLiftModal">
           受限医生复权管理
         </el-button>
@@ -13,8 +14,21 @@
     </div>
 
     <el-card shadow="hover" class="box-card">
-      <el-table :data="events" v-loading="loading" stripe :row-class-name="tableRowClassName" style="width: 100%">
+      <div class="mb-3 flex items-center justify-between flex-wrap gap-2">
+        <el-radio-group v-model="statusFilter" size="small">
+          <el-radio-button value="ALL">全部事件 ({{ events.length }})</el-radio-button>
+          <el-radio-button value="PENDING">待审核 ({{ pendingAuditCount }})</el-radio-button>
+          <el-radio-button value="OBJECTED">患者异议 ({{ objectedCount }})</el-radio-button>
+          <el-radio-button value="CLOSED">已结案 ({{ closedCount }})</el-radio-button>
+        </el-radio-group>
+      </div>
+      <el-table :data="filteredEvents" v-loading="loading" stripe :row-class-name="tableRowClassName" style="width: 100%" empty-text="当前筛选条件下暂无紧急访问工单">
         <el-table-column prop="event_no" label="事件流水单号" width="160" />
+        <el-table-column prop="created_at" label="发生时间" width="155">
+          <template #default="{ row }">
+            <span class="mono text-xs">{{ row.created_at ? String(row.created_at).replace('T', ' ').slice(0, 16) : '-' }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="doctor_name" label="调阅医生" width="120" />
         <el-table-column prop="source_hospital_name" label="调阅方医院" width="150" />
         <el-table-column prop="patient_name" label="涉及患者" width="100" />
@@ -77,7 +91,7 @@
     </el-card>
 
     <!-- 监管裁决对话框 -->
-    <el-dialog v-model="dialogVisible" title="紧急调阅合规审查与裁决" width="580px">
+    <el-dialog v-model="dialogVisible" title="紧急调阅合规审查与裁决" width="min(580px, 92vw)">
       <div v-if="currentEvent" class="audit-info-box">
         <p><strong>事件单号：</strong><span class="mono font-bold">{{ currentEvent.event_no }}</span></p>
         <p><strong>调阅医生：</strong>{{ currentEvent.doctor_name }} ({{ currentEvent.source_hospital_name }})</p>
@@ -93,7 +107,7 @@
           </el-tag>
         </p>
         <p><strong>患者反馈结论：</strong>
-          <el-tag size="small" :type="currentEvent.patient_feedback === 'OBJECTED' ? 'danger' : 'success'">
+          <el-tag size="small" :type="currentEvent.patient_feedback === 'OBJECTED' ? 'danger' : (currentEvent.patient_feedback === 'CONFIRMED' ? 'success' : 'info')">
             {{ currentEvent.patient_feedback === 'OBJECTED' ? '已提出异议申诉' : (currentEvent.patient_feedback === 'CONFIRMED' ? '已确认无异议 (正常抢救)' : '等待患者核验') }}
           </el-tag>
         </p>
@@ -145,11 +159,11 @@
     </el-dialog>
 
     <!-- 一键解除医生权限限制（复权审批）弹窗 -->
-    <el-dialog v-model="liftDialogVisible" title="解除医生权限限制（复权审批）" width="540px">
+    <el-dialog v-model="liftDialogVisible" title="解除医生权限限制（复权审批）" width="min(540px, 92vw)">
       <el-alert
         title="复权机制说明"
         type="info"
-        description="当受限医生整改期满或申诉复核通过后，监管部门可解除其访问控制限制，将其账号状态由 RESTRICTED 恢复为 NORMAL 正常，并在区块链上记存复权审计日志。"
+        description="当受限医生整改期满或申诉复核通过后，监管部门可解除其访问控制限制，将其账号状态由受限恢复为正常，并在区块链上记存复权审计日志。"
         show-icon
         :closable="false"
         class="mb-3"
@@ -159,14 +173,15 @@
           <el-select
             v-if="!selectedFromRow"
             v-model="liftForm.doctor_id"
-            placeholder="请选择需要解除限制的医生"
+            :placeholder="restrictedDoctorList.length ? '请选择需要解除限制的受限医生' : '当前暂无受限或停用医生'"
             style="width: 100%;"
             filterable
+            no-data-text="当前暂无受限医生"
           >
             <el-option
-              v-for="doc in doctorList"
+              v-for="doc in restrictedDoctorList"
               :key="doc.id"
-              :label="`${doc.real_name || doc.username} (${doc.hospital_name || '医院'} · 状态: ${doc.status})`"
+              :label="`${doc.real_name || doc.username} (${doc.hospital_name || '医院'} · ${formatDoctorStatus(doc.status)})`"
               :value="doc.id"
             />
           </el-select>
@@ -192,8 +207,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ref, computed, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { DocumentChecked } from '@element-plus/icons-vue'
 import {
   listEmergencyEventsApi,
@@ -202,8 +217,31 @@ import {
   liftDoctorRestrictionApi
 } from '../../api'
 
-const events = ref([])
+const events = ref<any[]>([])
+const statusFilter = ref<'ALL' | 'PENDING' | 'OBJECTED' | 'CLOSED'>('ALL')
 const loading = ref(false)
+
+const pendingAuditCount = computed(() =>
+  events.value.filter(e => !e.audit_status || e.audit_status === 'PENDING' || e.audit_status === 'UNDER_INVESTIGATION').length
+)
+const objectedCount = computed(() =>
+  events.value.filter(e => e.patient_feedback === 'OBJECTED').length
+)
+const closedCount = computed(() =>
+  events.value.filter(e => e.audit_status === 'CLOSED_APPROVED' || e.audit_status === 'CLOSED_VIOLATION').length
+)
+const filteredEvents = computed(() => {
+  if (statusFilter.value === 'PENDING') {
+    return events.value.filter(e => !e.audit_status || e.audit_status === 'PENDING' || e.audit_status === 'UNDER_INVESTIGATION')
+  }
+  if (statusFilter.value === 'OBJECTED') {
+    return events.value.filter(e => e.patient_feedback === 'OBJECTED')
+  }
+  if (statusFilter.value === 'CLOSED') {
+    return events.value.filter(e => e.audit_status === 'CLOSED_APPROVED' || e.audit_status === 'CLOSED_VIOLATION')
+  }
+  return events.value
+})
 const dialogVisible = ref(false)
 const currentEvent = ref<any>(null)
 const submitting = ref(false)
@@ -211,7 +249,7 @@ const submitting = ref(false)
 const form = ref({
   audit_status: 'CLOSED_APPROVED',
   punishment: 'RESTRICTED',
-  audit_comment: '经监管人员独立调查调阅明细，本次抢救记录符合突发抢救规范，准予结案。',
+  audit_comment: '',
 })
 
 onMounted(() => {
@@ -231,8 +269,8 @@ async function loadEvents() {
 }
 
 function getCleanDoctorDesc(desc?: string): string {
-  if (!desc) return '急重症突发昏迷急救，启动 Break-Glass 紧急访问通道调阅'
-  return desc.split(/\|\s*\[(?:患者反馈|患者异议|患者陈述)[:：]?/)[0].trim()
+  if (!desc) return '（医生未填写补充说明）'
+  return desc.split(/\|\s*\[(?:患者反馈|患者异议|患者陈述)[:：]?/)[0].trim() || '（医生未填写补充说明）'
 }
 
 function getExtractedPatientObjection(ev?: any): string {
@@ -246,34 +284,66 @@ function getExtractedPatientObjection(ev?: any): string {
       return parts[1].replace(/\]\s*$/, '').trim()
     }
   }
-  return '当时我意识完全清醒，并未发生急重抢救，涉嫌违规调阅个人病历。'
+  return '（患者未提交文字说明）'
 }
 
 function openAuditModal(row: any) {
   currentEvent.value = row
-  if (row.patient_feedback === 'OBJECTED') {
-    form.value.audit_status = 'CLOSED_VIOLATION'
-    form.value.audit_comment = '经核查患者投诉，医生未能提供客观抢救单据，判定属于滥用 Break-Glass 机制，处罚限制跨院权限。'
+  // 每次打开审查弹窗均强制重置表单，严禁上一条工单的违规判定与评语残留导致误惩
+  form.value = {
+    audit_status: row.patient_feedback === 'OBJECTED' ? 'UNDER_INVESTIGATION' : 'CLOSED_APPROVED',
+    punishment: 'RESTRICTED',
+    audit_comment: '',
   }
   dialogVisible.value = true
 }
 
 async function submitAudit() {
   if (!currentEvent.value) return
+  if (!form.value.audit_comment.trim()) {
+    ElMessage.warning('请填写监管处置意见，该结论将固化上链留档')
+    return
+  }
+
+  if (form.value.audit_status === 'CLOSED_VIOLATION') {
+    const punishText = form.value.punishment === 'DISABLED' ? '停用封禁医生账号 (DISABLED)' : '限制跨院与急救破窗权限 (RESTRICTED)'
+    try {
+      await ElMessageBox.confirm(
+        `确认对事件 ${currentEvent.value.event_no} 作出「违规处罚」裁决，并对医生 ${currentEvent.value.doctor_name || ''} 执行【${punishText}】吗？该裁决将永久写入区块链存证。`,
+        '高危惩戒裁决二次确认',
+        {
+          confirmButtonText: '确认处罚并上链',
+          cancelButtonText: '取消核对',
+          type: 'warning',
+        }
+      )
+    } catch {
+      return
+    }
+  }
+
   submitting.value = true
   try {
     const res: any = await auditEmergencyEventApi(currentEvent.value.event_no, {
       audit_status: form.value.audit_status,
-      audit_comment: form.value.audit_comment,
+      audit_comment: form.value.audit_comment.trim(),
       punishment: form.value.audit_status === 'CLOSED_VIOLATION' ? form.value.punishment : 'NORMAL',
     })
     if (res.code === 200) {
-      ElMessage.success('审核判定已成功提交并在 Fabric 链上固化，账号惩戒措施即刻生效！')
+      ElMessage.success(
+        form.value.audit_status === 'CLOSED_VIOLATION'
+          ? '违规处罚裁决已提交并在 Fabric 链上固化，惩戒措施即刻生效！'
+          : '监管审核结论已成功提交并在 Fabric 链上固化！'
+      )
       dialogVisible.value = false
       loadEvents()
+    } else {
+      ElMessage.error(res?.message || '审核提交失败')
     }
   } catch (err: any) {
-    ElMessage.error(err?.message || '审核提交失败')
+    if (!err?.__toastShown) {
+      ElMessage.error(err?.message || '审核提交失败')
+    }
   } finally {
     submitting.value = false
   }
@@ -309,15 +379,20 @@ function openLiftModal(row: any) {
   liftDialogVisible.value = true
 }
 
+const restrictedDoctorList = computed(() =>
+  doctorList.value.filter(d => d.status === 'RESTRICTED' || d.status === 'DISABLED')
+)
+
+function formatDoctorStatus(st?: string): string {
+  if (st === 'RESTRICTED') return '跨院受限'
+  if (st === 'DISABLED') return '已停用'
+  return '正常'
+}
+
 async function openGeneralLiftModal() {
   selectedFromRow.value = false
   await loadDoctorList()
-  const restricted = doctorList.value.find(d => d.status === 'RESTRICTED')
-  if (restricted) {
-    liftForm.value.doctor_id = restricted.id
-  } else if (doctorList.value.length > 0) {
-    liftForm.value.doctor_id = doctorList.value[0].id
-  }
+  liftForm.value.doctor_id = restrictedDoctorList.value[0]?.id
   liftForm.value.comment = '经监管复核，医生已完成合规培训，解除权限限制。'
   liftDialogVisible.value = true
 }

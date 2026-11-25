@@ -1,6 +1,6 @@
 // WP-16: 跨院检索数据获取与报告结构化解析缓存 (从 CrossQueryView 迁入, 接口调用与文案保持原样)
 import { ref, watch, onMounted, onBeforeUnmount, type Ref } from 'vue'
-import { ElNotification } from 'element-plus'
+import { ElMessage, ElNotification } from 'element-plus'
 import { listRecordsApi } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { parseMedicalExamResult, type ParsedMedicalReport } from '../utils/medicalReportParser'
@@ -217,9 +217,12 @@ export function useCrossRecordQuery(
         }
         results.value = filtered
       }
-    } catch (err) {
+    } catch (err: any) {
       loadingAfterGatePending = false
       console.error(err)
+      if (!err?.__toastShown) {
+        ElMessage.error(err?.message || '跨机构病历检索失败，请稍后重试')
+      }
     } finally {
       loadingAfterGatePending = false
       if (!isUnmounted && seq === searchSeq) {

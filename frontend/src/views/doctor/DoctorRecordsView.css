@@ -691,13 +691,13 @@
   border: none !important;
   color: #ffffff !important;
   font-weight: 700 !important;
-  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.28);
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.28);
   transition: all 0.25s ease;
 }
 
 .ai-diagnose-capsule-btn:hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.4);
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.4);
 }
 
 .ai-spark-icon {
@@ -745,7 +745,7 @@
   height: 38px;
   padding: 0 16px;
   border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.28);
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.28);
   cursor: pointer;
   transition: all 0.2s ease;
 }
@@ -753,7 +753,7 @@
 .btn-trigger-ai-inline:hover {
   background: var(--mt-primary, #0284c7) !important;
   color: #ffffff !important;
-  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.4);
+  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.4);
   transform: translateY(-1px);
 }
 
@@ -789,7 +789,7 @@
   flex-direction: column;
   gap: 14px;
   position: sticky;
-  top: 40px;
+  top: 64px;
   align-self: flex-start;
   max-height: calc(100vh - 164px);
   overflow-y: auto;

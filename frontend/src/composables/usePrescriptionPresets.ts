@@ -96,7 +96,10 @@ export function usePrescriptionPresets(
 
   // ── 常规高血压门诊处方示例 ──
   function fillQuickDirectPreset() {
-    ElMessage.success('已载入心血管内科高血压/冠心病规范处方与体征示例！')
+    const cardioPreset = prescriptionPresets.find((p) => p.key === 'cardio_htn') || prescriptionPresets[0]
+    if (cardioPreset) {
+      applyPrescriptionPreset(cardioPreset, 'DIRECT')
+    }
   }
 
   return {

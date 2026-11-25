@@ -17,45 +17,54 @@
         :default-openeds="['/doctor/query']"
         class="medtrust-menu"
       >
-        <!-- 医生菜单 -->
+        <!-- 医生 / 医技菜单 -->
         <template v-if="auth.user?.role === 'doctor'">
-          <div class="menu-category" v-if="!isCollapse">医生临床工作台</div>
-          <el-menu-item index="/doctor/records">
-            <el-icon><FolderAdd /></el-icon>
-            <span>就诊记录与初诊录入</span>
-          </el-menu-item>
-          <el-menu-item index="/doctor/patient-search">
-            <el-icon><FirstAidKit /></el-icon>
-            <span>患者检索与急救调阅</span>
-          </el-menu-item>
-          <el-menu-item index="/doctor/lab-center">
-            <el-icon><Tickets /></el-icon>
-            <span>医技检查中心</span>
-          </el-menu-item>
+          <template v-if="isLabTechnician">
+            <div class="menu-category" v-if="!isCollapse">医技检查工作台</div>
+            <el-menu-item index="/doctor/lab-center">
+              <el-icon><Tickets /></el-icon>
+              <span>医技检查中心</span>
+            </el-menu-item>
+          </template>
+          <template v-else>
+            <div class="menu-category" v-if="!isCollapse">医生临床工作台</div>
+            <el-menu-item index="/doctor/records">
+              <el-icon><FolderAdd /></el-icon>
+              <span>就诊记录与初诊录入</span>
+            </el-menu-item>
+            <el-menu-item index="/doctor/patient-search">
+              <el-icon><FirstAidKit /></el-icon>
+              <span>患者检索与急救调阅</span>
+            </el-menu-item>
+            <el-menu-item index="/doctor/lab-center">
+              <el-icon><Tickets /></el-icon>
+              <span>医技检查中心</span>
+            </el-menu-item>
 
-          <!-- 病历查询折叠子目录 -->
-          <el-sub-menu index="/doctor/query">
-            <template #title>
-              <el-icon><Search /></el-icon>
-              <span>病历查询</span>
-            </template>
-            <el-menu-item index="/doctor/query/authorized">
-              <el-icon><CircleCheckFilled /></el-icon>
-              <span>外院已有查阅权限的</span>
-            </el-menu-item>
-            <el-menu-item index="/doctor/query/local">
-              <el-icon><OfficeBuilding /></el-icon>
-              <span>本院的</span>
-            </el-menu-item>
-            <el-menu-item index="/doctor/query/pending">
-              <el-icon><Lock /></el-icon>
-              <span>外院需要调取的</span>
-            </el-menu-item>
-            <el-menu-item index="/doctor/query/all">
-              <el-icon><Compass /></el-icon>
-              <span>全网联合检索</span>
-            </el-menu-item>
-          </el-sub-menu>
+            <!-- 病历查询折叠子目录 -->
+            <el-sub-menu index="/doctor/query">
+              <template #title>
+                <el-icon><Search /></el-icon>
+                <span>跨院病历查询</span>
+              </template>
+              <el-menu-item index="/doctor/query/authorized">
+                <el-icon><CircleCheckFilled /></el-icon>
+                <span>已获授权外院病历</span>
+              </el-menu-item>
+              <el-menu-item index="/doctor/query/local">
+                <el-icon><OfficeBuilding /></el-icon>
+                <span>本院病历</span>
+              </el-menu-item>
+              <el-menu-item index="/doctor/query/pending">
+                <el-icon><Lock /></el-icon>
+                <span>待申请外院病历</span>
+              </el-menu-item>
+              <el-menu-item index="/doctor/query/all">
+                <el-icon><Compass /></el-icon>
+                <span>全网联合检索</span>
+              </el-menu-item>
+            </el-sub-menu>
+          </template>
         </template>
 
         <!-- 患者菜单 -->
@@ -138,9 +147,9 @@
           <el-tooltip :content="chainTooltip" placement="bottom">
             <div
               class="header-chain-badge"
-              :class="chainBadgeClass"
+              :class="[chainBadgeClass, { 'is-clickable': canOpenChainOverview }]"
               @click="onChainBadgeClick"
-              title="查看底层联盟链运行状态"
+              :title="canOpenChainOverview ? '点击查看底层联盟链运行状态' : '底层联盟链运行状态'"
             >
               <span class="mini-pulse-dot" :class="chainDotClass"></span>
               <span class="chain-badge-text">{{ chainBadgeText }}</span>
@@ -148,20 +157,20 @@
             </div>
           </el-tooltip>
 
-          <el-tooltip content="IPFS 分布式密文存储节点已连接，AES-256-GCM 密文块去中心化寻址正常" placement="bottom">
-            <div class="header-ipfs-badge">
-              <span class="mini-pulse-dot dot-green"></span>
-              <span class="ipfs-badge-text">IPFS 密文节点 (在线)</span>
-              <span class="ipfs-badge-short">IPFS (在线)</span>
+          <el-tooltip :content="ipfsTooltip" placement="bottom">
+            <div class="header-ipfs-badge" :class="{ 'ipfs-offline': !ipfsOnline }">
+              <span class="mini-pulse-dot" :class="ipfsOnline ? 'dot-green' : 'dot-amber'"></span>
+              <span class="ipfs-badge-text">{{ ipfsOnline ? 'IPFS 密文节点 (就绪)' : 'IPFS 存储状态待确认' }}</span>
+              <span class="ipfs-badge-short">{{ ipfsOnline ? 'IPFS (就绪)' : 'IPFS (待确认)' }}</span>
             </div>
           </el-tooltip>
 
           <!-- 实时消息通知信道状态微件 (实时通道) -->
-          <el-tooltip :content="isChannelOnline ? '实时双向业务通知与联盟链存证通道已就绪 (在线)' : '实时通道正在连接中...'" placement="bottom">
+          <el-tooltip :content="isChannelOnline ? '实时双向业务通知通道已连接 (SSE 在线)' : '实时通知通道连接中或已断开，系统将自动退避重连'" placement="bottom">
             <div class="header-sse-badge" :class="isChannelOnline ? 'sse-online' : 'sse-offline'">
               <span class="sse-pulse-dot" :class="isChannelOnline ? 'dot-green' : 'dot-amber'"></span>
-              <span class="sse-badge-text">{{ isChannelOnline ? '实时通道已就绪' : '连接中' }}</span>
-              <span class="sse-badge-short">{{ isChannelOnline ? '实时通道' : '连接中' }}</span>
+              <span class="sse-badge-text">{{ isChannelOnline ? '实时通道已就绪' : '实时通道重连中' }}</span>
+              <span class="sse-badge-short">{{ isChannelOnline ? '实时通道' : '重连中' }}</span>
             </div>
           </el-tooltip>
 
@@ -203,11 +212,13 @@
       </el-header>
 
       <el-main class="medtrust-main">
-        <router-view v-slot="{ Component }">
-          <transition name="fade-slide" mode="out-in">
-            <component :is="Component" :key="$route.path" />
-          </transition>
-        </router-view>
+        <div class="medtrust-main-inner">
+          <router-view v-slot="{ Component }">
+            <transition name="fade-slide" mode="out-in">
+              <component :is="Component" :key="$route.path" />
+            </transition>
+          </router-view>
+        </div>
       </el-main>
 
       <!-- 全局受控 AI 助手悬浮窗 -->
@@ -243,14 +254,15 @@ interface BlockchainStatus {
   message: string
 }
 
+const chainStatusLoaded = ref(false)
 const chainStatus = ref<BlockchainStatus>({
   mode: 'fabric',
-  connected: true,
+  connected: false,
   network: 'medicalchannel',
   chaincode: 'medical_contract',
   peer: 'peer0.org1.example.com',
   latest_block: 0,
-  message: 'Fabric Gateway Connected',
+  message: '正在检测联盟链状态...',
 })
 
 const displayChannelName = computed(() => {
@@ -259,8 +271,21 @@ const displayChannelName = computed(() => {
   return net
 })
 
-const isChannelOnline = computed(() => {
-  return isSSEConnected.value || chainStatus.value.connected || chainStatus.value.mode === 'fabric' || chainStatus.value.mode === 'mock'
+const isChannelOnline = computed(() => isSSEConnected.value)
+
+const ipfsOnline = computed(() => {
+  return chainStatusLoaded.value && (chainStatus.value.connected || chainStatus.value.mode === 'mock')
+})
+
+const ipfsTooltip = computed(() => {
+  if (!chainStatusLoaded.value) return '正在检测密文存储网关状态...'
+  return ipfsOnline.value
+    ? '密文存储网关可用，病历附件经 AES-256-GCM 加密后写入 IPFS 寻址'
+    : '后端存储网关当前未连接，密文上传/读取可能受影响'
+})
+
+const canOpenChainOverview = computed(() => {
+  return auth.user?.role === 'supervisor' || auth.user?.role === 'admin'
 })
 
 async function fetchChainStatus() {
@@ -270,7 +295,9 @@ async function fetchChainStatus() {
     if (st && st.mode) {
       chainStatus.value = st
     }
+    chainStatusLoaded.value = true
   } catch {
+    chainStatusLoaded.value = true
     chainStatus.value = {
       mode: 'fabric',
       connected: false,
@@ -401,14 +428,18 @@ function getRoleName(role?: string) {
   return '用户'
 }
 
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
+
+const isLabTechnician = computed(() => {
+  return auth.user?.role === 'doctor' && Boolean(auth.user?.username?.startsWith('tech_'))
+})
 
 const userAffiliationDisplay = computed(() => {
   const u = auth.user
   if (!u) return ''
   if (u.role === 'doctor') {
-    const hosp = u.hospital_name || (u.hospital_id === 1 ? '广州第一附属医院' : (u.hospital_id === 2 ? '深圳中心医院' : (u.hospital_id === 3 ? '珠海人民医院' : '医疗机构')))
-    const dept = u.department_name || (u.department_id === 1 || u.department_id === 3 ? '心内科' : (u.department_id === 2 || u.department_id === 4 ? '急诊科' : '临床科室'))
+    const hosp = u.hospital_name || (u.hospital_id === 1 ? '第一人民医院' : (u.hospital_id === 2 ? '省立中心医院' : (u.hospital_id === 3 ? '协和医学中心' : '医疗机构')))
+    const dept = u.department_name || (u.department_id === 1 || u.department_id === 3 ? '心血管内科' : (u.department_id === 2 || u.department_id === 4 ? '急诊科' : '临床科室'))
     return `${hosp} · ${dept}`
   }
   if (u.role === 'patient') {
@@ -424,10 +455,19 @@ const userAffiliationDisplay = computed(() => {
 })
 
 async function onLogout() {
+  try {
+    await ElMessageBox.confirm('确定要退出当前登录账号吗？', '退出系统确认', {
+      confirmButtonText: '确认退出',
+      cancelButtonText: '取消',
+      type: 'info',
+    })
+  } catch {
+    return
+  }
   disconnectSSE()
   try {
     await auth.logout()
-    ElMessage.success('已安全退出系统，Token 已作废并加入黑名单')
+    ElMessage.success('已安全退出登录')
   } catch (err) {
     console.warn('Logout error:', err)
   } finally {
@@ -613,10 +653,13 @@ async function onLogout() {
   border-radius: 6px;
   font-size: 12px;
   font-weight: 600;
-  cursor: pointer;
+  cursor: default;
   transition: all 0.2s ease;
   user-select: none;
   white-space: nowrap;
+}
+.header-chain-badge.is-clickable {
+  cursor: pointer;
 }
 .badge-fabric-ok {
   background: var(--mt-success-soft, #ecfdf5);
@@ -715,6 +758,11 @@ async function onLogout() {
   transition: all 0.2s ease;
   user-select: none;
 }
+.header-ipfs-badge.ipfs-offline {
+  background: #fffbeb;
+  color: #b45309;
+  border-color: #fde68a;
+}
 .header-ipfs-badge:hover {
   background: #e0f2fe;
 }
@@ -783,9 +831,15 @@ async function onLogout() {
 }
 .medtrust-main {
   flex: 1;
-  padding: 24px 24px 100px 24px;
+  padding: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   background: #f8fafc;
+}
+.medtrust-main-inner {
+  padding: 24px 24px 100px 24px;
+  min-height: 100%;
+  overflow-x: clip;
 }
 
 /* GPU 硬件加速丝滑路由切换动效 */
@@ -805,9 +859,7 @@ async function onLogout() {
 }
 
 @media (max-width: 1480px) {
-  .header-user-status-tag {
-    display: none !important;
-  }
+  /* 优先保留关键的“监管受限”状态告警徽标，仅折叠区块号等次要技术指标 */
   .chain-block-num {
     display: none !important;
   }
@@ -821,6 +873,9 @@ async function onLogout() {
     display: inline-block !important;
   }
   .user-affiliation {
+    display: none !important;
+  }
+  .header-ipfs-badge {
     display: none !important;
   }
   .header-right {

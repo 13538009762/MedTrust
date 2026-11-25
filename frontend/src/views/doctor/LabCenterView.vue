@@ -35,7 +35,7 @@
             <el-tag type="info" size="small" effect="plain" class="ml-2">流程解耦·医技协同</el-tag>
           </div>
           <div class="header-actions">
-            <el-button :icon="Refresh" circle @click="fetchOrders" />
+            <el-button :icon="Refresh" circle title="刷新检查单列表" aria-label="刷新检查单列表" @click="fetchOrders" />
           </div>
         </div>
       </template>
@@ -80,7 +80,7 @@
       <!-- 检查单列表 -->
       <el-table
         v-loading="loading"
-        :data="filteredOrders"
+        :data="pagedOrders"
         style="width: 100%;"
         class="order-table"
         stripe
@@ -193,13 +193,26 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <div v-if="filteredOrders.length > 0" class="mt-4 flex justify-between items-center flex-wrap gap-2">
+        <span class="text-xs text-slate-500">共 {{ filteredOrders.length }} 份医技检查申请单</span>
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :page-sizes="[10, 20, 50]"
+          layout="total, sizes, prev, pager, next"
+          :total="filteredOrders.length"
+          background
+          small
+        />
+      </div>
     </el-card>
 
     <!-- 录入检查报告弹窗 -->
     <el-dialog
       v-model="processDialogVisible"
       title="医技辅助检查执行与报告出具"
-      width="780px"
+      width="min(780px, 94vw)"
       top="4vh"
       :close-on-click-modal="false"
     >
@@ -309,10 +322,12 @@
             </el-col>
             <el-col :span="12">
               <el-form-item label="上传影像切片/检验报告扫描件 (支持图片/PDF在线查阅)">
-                <input type="file" accept="image/*,.pdf" @change="onFileChange" class="file-input" />
-                <div v-if="filePreviewUrl" class="file-preview-wrap mt-2">
-                  <img :src="filePreviewUrl" class="upload-img-thumb" alt="预览" />
-                  <span class="text-xs text-green-600 ml-2">已选择图片: {{ selectedFile?.name }}</span>
+                <input ref="fileInputRef" type="file" accept="image/*,.pdf" @change="onFileChange" class="file-input" />
+                <div v-if="selectedFile" class="file-preview-wrap mt-2 flex items-center gap-2 flex-wrap">
+                  <img v-if="filePreviewUrl" :src="filePreviewUrl" class="upload-img-thumb" alt="影像预览" />
+                  <el-tag v-else size="small" type="primary" effect="plain">PDF 文档</el-tag>
+                  <span class="text-xs text-green-600">已选择附件: {{ selectedFile.name }}</span>
+                  <el-button link type="danger" size="small" @click="clearSelectedFile">清除</el-button>
                 </div>
               </el-form-item>
             </el-col>
@@ -376,7 +391,7 @@
         <el-button
           type="primary"
           :loading="submitting"
-          :disabled="!reportForm.exam_result || !reportForm.exam_conclusion"
+          :disabled="!reportForm.exam_result.trim() || !reportForm.exam_conclusion.trim() || !reportForm.technician_name.trim()"
           @click="submitReport"
         >
           提交报告并回传至医生接诊档案
@@ -388,7 +403,7 @@
     <el-dialog
       v-model="viewDialogVisible"
       title="医技辅助检查回传报告单"
-      width="680px"
+      width="min(680px, 94vw)"
     >
       <div v-if="viewOrder" class="view-report-body">
         <div class="report-sheet">
@@ -429,9 +444,9 @@
                   v-if="viewOrder.file_id"
                   size="small"
                   type="primary"
-                  @click="openImagePreviewFromFile(viewOrder.file_id, viewOrder.report_file_name || viewOrder.exam_item)"
+                  @click="openAttachmentPreview(viewOrder)"
                 >
-                  在线查阅影像图片
+                  {{ isImageExt(viewOrder.report_file_type || viewOrder.report_file_name) ? '在线查阅影像图片' : '在线查阅 PDF 报告' }}
                 </el-button>
                 <el-button
                   v-if="viewOrder.file_id"
@@ -449,6 +464,7 @@
               <img
                 :src="viewFileUrl"
                 class="report-inline-img"
+                alt="医学检查影像缩略图"
                 @click="openImagePreviewFromFile(viewOrder.file_id, viewOrder.report_file_name || viewOrder.exam_item)"
                 title="点击放大查阅影像"
               />
@@ -468,7 +484,7 @@
     <el-dialog
       v-model="imagePreviewVisible"
       :title="previewImageTitle || '医学检验与影像检查报告大图'"
-      width="850px"
+      width="min(850px, 94vw)"
       top="4vh"
     >
       <div class="text-center p-3">
@@ -485,9 +501,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { Tickets, Refresh, Search, Download, Timer, CircleCheckFilled } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { listExamOrdersApi, completeExamOrderApi } from '../../api'
 import { buildMedicalFileViewUrl, buildMedicalFileDownloadUrl } from '@/utils/secureFileUrl'
 import { useAuthStore } from '../../stores/auth'
@@ -496,7 +512,7 @@ const windowWidth = ref(window.innerWidth)
 function handleResize() {
   windowWidth.value = window.innerWidth
 }
-const isWideScreen = computed(() => windowWidth.value >= 1400)
+const isWideScreen = computed(() => windowWidth.value >= 1024)
 
 const auth = useAuthStore()
 
@@ -504,10 +520,13 @@ const loading = ref(false)
 const orders = ref<any[]>([])
 const activeTab = ref('ALL')
 const searchKeyword = ref('')
+const currentPage = ref(1)
+const pageSize = ref(10)
 
 const processDialogVisible = ref(false)
 const currentOrder = ref<any>(null)
 const submitting = ref(false)
+const fileInputRef = ref<HTMLInputElement | null>(null)
 const selectedFile = ref<File | null>(null)
 const filePreviewUrl = ref('')
 
@@ -571,22 +590,28 @@ const filteredOrders = computed(() => {
   return list
 })
 
-const defaultPatientNames = ['陈晨', '李四', '王秀英', '赵建平', '钱小芳', '孙明浩', '周桂珍', '张三']
+const pagedOrders = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredOrders.value.slice(start, start + pageSize.value)
+})
+
+watch([activeTab, searchKeyword], () => {
+  currentPage.value = 1
+})
+
 function formatPatientName(rec?: any): string {
-  if (!rec) return '陈晨'
+  if (!rec) return '未登记患者'
   const name = rec.patient_name || rec.patientName
   if (name && name !== '患者' && !name.startsWith('患者#')) {
     return name
   }
-  const id = Number(rec.patient_id || rec.patientId || rec.id || 0)
-  return defaultPatientNames[id % defaultPatientNames.length] || '陈晨'
+  const id = rec.patient_id || rec.patientId
+  return id ? `患者 #${id}` : '未登记患者'
 }
 
 function formatDoctorDisplay(docName?: string): string {
-  if (!docName) return '李建国 (主任医师)'
-  let cleanName = docName.replace(/(医生|医师)$/, '')
-  if (!cleanName) cleanName = '李建国'
-  return `${cleanName} (主任医师)`
+  if (!docName) return '经治医师'
+  return docName
 }
 
 async function fetchOrders() {
@@ -637,10 +662,26 @@ function formatTime(t?: string) {
   return t.substring(0, 16).replace('T', ' ')
 }
 
+function revokePreviewUrl() {
+  if (filePreviewUrl.value && filePreviewUrl.value.startsWith('blob:')) {
+    URL.revokeObjectURL(filePreviewUrl.value)
+  }
+  filePreviewUrl.value = ''
+}
+
+function clearSelectedFile() {
+  revokePreviewUrl()
+  selectedFile.value = null
+  if (fileInputRef.value) {
+    fileInputRef.value.value = ''
+  }
+}
+
 function openProcessDialog(row: any) {
   currentOrder.value = row
   const currentHospital = auth.user?.hospital_name || formatHospName(auth.user?.hospital_id)
-  const defaultTechName = auth.user?.real_name ? `${auth.user.real_name}（${currentHospital}·检验科）` : '刘主管（省立中心医院·检验科）'
+  const currentDept = auth.user?.department_name || '医技科室'
+  const defaultTechName = auth.user?.real_name ? `${auth.user.real_name}（${currentHospital}·${currentDept}）` : `${currentHospital}·${currentDept}`
   const defaultFileTitle = row.report_file_name || `【${row.exam_item}】检查单据扫描件/原始影像`
   reportForm.value = {
     exam_result: row.exam_result || '',
@@ -648,8 +689,7 @@ function openProcessDialog(row: any) {
     technician_name: row.technician_name || defaultTechName,
     file_title: defaultFileTitle
   }
-  selectedFile.value = null
-  filePreviewUrl.value = ''
+  clearSelectedFile()
   processDialogVisible.value = true
 }
 
@@ -657,26 +697,24 @@ async function openViewDialog(row: any) {
   viewOrder.value = row
   viewDialogVisible.value = true
   viewFileUrl.value = ''
-  if (row?.file_id) {
+  if (row?.file_id && isImageExt(row.report_file_type || row.report_file_name)) {
     viewFileUrl.value = await buildMedicalFileViewUrl(row.file_id)
   }
 }
 
 function onFileChange(e: any) {
   const f = e.target.files?.[0]
+  revokePreviewUrl()
   if (f) {
     selectedFile.value = f
     if (f.type.startsWith('image/')) {
       filePreviewUrl.value = URL.createObjectURL(f)
-    } else {
-      filePreviewUrl.value = ''
     }
     if (!reportForm.value.file_title && currentOrder.value) {
       reportForm.value.file_title = `【${currentOrder.value.exam_item}】检查单据扫描件`
     }
   } else {
     selectedFile.value = null
-    filePreviewUrl.value = ''
   }
 }
 
@@ -823,7 +861,7 @@ function getQuickTemplates(item: string): QuickTemplate[] {
         title: `${item} - 测量指标显著异常 / 阳性发现`,
         tag: '明显异常/阳性',
         btnType: 'danger',
-        result: `【${item}】\n关键理化指标显著超出参考阈值，见特征性病理改变改变与阳性指征，机体靶器官功能受累明显。`,
+        result: `【${item}】\n关键理化指标显著超出参考阈值，见特征性病理改变与阳性指征，机体靶器官功能受累明显。`,
         conclusion: '关键指标显著异常，高度提示病理损害，需专科重点排查并跟进处置。'
       }
     ]
@@ -840,6 +878,17 @@ function openImagePreview(url: string, title?: string) {
   previewImageUrl.value = url
   previewImageTitle.value = title || '医学检查图像'
   imagePreviewVisible.value = true
+}
+
+async function openAttachmentPreview(order: any) {
+  if (!order?.file_id) return
+  if (isImageExt(order.report_file_type || order.report_file_name)) {
+    await openImagePreviewFromFile(order.file_id, order.report_file_name || order.exam_item)
+    return
+  }
+  // PDF 或其他非图片文档使用新标签页通过一次性鉴权票据在线查阅，避免 <img> 裂图
+  const url = await buildMedicalFileViewUrl(order.file_id)
+  window.open(url, '_blank', 'noopener,noreferrer')
 }
 
 // 一次性票据不可复用：每次打开大图都重新申领
@@ -874,10 +923,27 @@ function downloadFile(url: string, name?: string) {
 
 async function submitReport() {
   if (!currentOrder.value) return
+  if (!reportForm.value.technician_name.trim() || !reportForm.value.exam_result.trim() || !reportForm.value.exam_conclusion.trim()) {
+    ElMessage.warning('请完整填写报告出具人、检查指标描述与报告诊断结论')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确认向接诊医生回传患者「${currentOrder.value.patient_name || ''}」的【${currentOrder.value.exam_item}】检查报告吗？提交后将正式归档并通知经治医师。`,
+      '确认出具并回传医技报告',
+      {
+        confirmButtonText: '确认提交回传',
+        cancelButtonText: '再核对一下',
+        type: 'info',
+      }
+    )
+  } catch {
+    return
+  }
   submitting.value = true
   try {
     const formData = new FormData()
-    formData.append('technician_name', reportForm.value.technician_name)
+    formData.append('technician_name', reportForm.value.technician_name.trim())
     formData.append('exam_result', reportForm.value.exam_result)
     formData.append('exam_conclusion', reportForm.value.exam_conclusion)
     if (selectedFile.value) {
@@ -888,13 +954,16 @@ async function submitReport() {
     const res: any = await completeExamOrderApi(currentOrder.value.id, formData)
     if (res.code === 200) {
       ElMessage.success('报告出具成功！已自动回传至接诊医生工作台')
+      clearSelectedFile()
       processDialogVisible.value = false
       fetchOrders()
     } else {
       ElMessage.error(res.message || '提交失败')
     }
   } catch (err: any) {
-    ElMessage.error('提交报告异常: ' + (err.message || '网络错误'))
+    if (!err?.__toastShown) {
+      ElMessage.error('提交报告异常: ' + (err.message || '网络错误'))
+    }
   } finally {
     submitting.value = false
   }
@@ -908,6 +977,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
+  revokePreviewUrl()
 })
 </script>
 

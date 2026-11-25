@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"medtrust-backend/model"
@@ -18,45 +17,73 @@ type KeyUnlockService struct{}
 
 var DefaultKeyUnlockService = &KeyUnlockService{}
 
-// --- 防暴锁定（内存级限流） ---
+// --- 防暴锁定（Redis + 本地 TTL 内存双写，消除 sync.Map 内存泄漏并增加患者全局上限） ---
 
-type keyUnlockFailState struct {
-	count       int
-	lockedUntil time.Time
+const (
+	keyUnlockDoctorLimit  = 5
+	keyUnlockPatientLimit = 10
+	keyUnlockLockDuration = 15 * time.Minute
+)
+
+func keyUnlockDoctorScope(doctorID, patientID uint64) string {
+	return fmt.Sprintf("doc:%d:pat:%d", doctorID, patientID)
 }
 
-var keyUnlockLimiter sync.Map
+func keyUnlockPatientScope(patientID uint64) string {
+	return fmt.Sprintf("pat:%d", patientID)
+}
 
-// IsKeyUnlockLocked 检查 (doctorID, patientID) 是否处于防暴锁定，返回剩余分钟数
+// IsKeyUnlockLocked 检查 (doctorID, patientID) 或 patientID 全局通道是否处于防暴锁定，返回剩余分钟数
 func IsKeyUnlockLocked(doctorID, patientID uint64) (bool, int) {
-	k := fmt.Sprintf("key_unlock:%d:%d", doctorID, patientID)
-	if v, ok := keyUnlockLimiter.Load(k); ok {
-		st := v.(keyUnlockFailState)
-		if st.lockedUntil.After(time.Now()) {
-			rem := int(st.lockedUntil.Sub(time.Now()).Minutes()) + 1
-			return true, rem
-		}
+	if locked, rem := repository.GetKeyUnlockLockRemaining(keyUnlockDoctorScope(doctorID, patientID)); locked {
+		return true, rem
+	}
+	if locked, rem := repository.GetKeyUnlockLockRemaining(keyUnlockPatientScope(patientID)); locked {
+		return true, rem
 	}
 	return false, 0
 }
 
-// RecordKeyUnlockResult 记录一次核验结果；失败累计 5 次后锁定 15 分钟，返回累计失败次数
+// RecordKeyUnlockResult 记录一次核验结果；单医生失败累计 5 次或跨医生对同一患者累计 10 次后锁定 15 分钟
 func RecordKeyUnlockResult(doctorID, patientID uint64, success bool) int {
-	k := fmt.Sprintf("key_unlock:%d:%d", doctorID, patientID)
+	docScope := keyUnlockDoctorScope(doctorID, patientID)
+	patScope := keyUnlockPatientScope(patientID)
 	if success {
-		keyUnlockLimiter.Delete(k)
+		repository.ClearKeyUnlockFailure(docScope)
 		return 0
 	}
-	st := keyUnlockFailState{count: 1}
-	if v, ok := keyUnlockLimiter.Load(k); ok {
-		prev := v.(keyUnlockFailState)
-		st.count = prev.count + 1
+	docCnt := repository.IncrementKeyUnlockFailure(docScope, keyUnlockLockDuration)
+	if docCnt >= keyUnlockDoctorLimit {
+		repository.SetKeyUnlockLock(docScope, keyUnlockLockDuration)
 	}
-	if st.count >= 5 {
-		st.lockedUntil = time.Now().Add(15 * time.Minute)
+	patCnt := repository.IncrementKeyUnlockFailure(patScope, keyUnlockLockDuration)
+	if patCnt >= keyUnlockPatientLimit {
+		repository.SetKeyUnlockLock(patScope, keyUnlockLockDuration)
+		return keyUnlockDoctorLimit // 触发统一 429 锁定上限响应
 	}
-	keyUnlockLimiter.Store(k, st)
-	return st.count
+	return docCnt
+}
+
+// validateKeyUnlockDoctorEligibility 校验发起密钥解锁的医生账号与医疗机构是否正常执业（防 RESTRICTED/DISABLED/停用医院绕过）
+func validateKeyUnlockDoctorEligibility(doctorID uint64, targetRecordHospitalID uint64) (*model.User, error) {
+	docPtr, err := repository.DefaultUserRepository.FindByID(doctorID)
+	if err != nil || docPtr == nil {
+		return nil, ErrDoctorNotFound
+	}
+	if docPtr.Role != "doctor" || docPtr.Status == "DISABLED" || docPtr.Status == "RESTRICTED" {
+		return nil, ErrEncounterDoctorDisabled
+	}
+	if docPtr.HospitalID > 0 {
+		if hosp, hErr := repository.DefaultHospitalRepository.FindByID(docPtr.HospitalID); hErr == nil && hosp != nil && hosp.Status == 0 {
+			return nil, ErrEncounterDoctorDisabled
+		}
+	}
+	if targetRecordHospitalID > 0 && targetRecordHospitalID != docPtr.HospitalID {
+		if hosp, hErr := repository.DefaultHospitalRepository.FindByID(targetRecordHospitalID); hErr == nil && hosp != nil && hosp.Status == 0 {
+			return nil, ErrEncounterDoctorDisabled
+		}
+	}
+	return docPtr, nil
 }
 
 // UnlockPatientByKeyInput 患者全档密钥解锁入参
@@ -69,6 +96,12 @@ type UnlockPatientByKeyInput struct {
 // UnlockPatientByKey 医生输入患者专属密钥，核验通过后即时解锁该患者全套病历并固化上链。
 // 返回建立的授权凭证；密钥错误时返回 ErrKeyVerifyFailed / ErrKeyUnlockLimit / ErrKeyUnlockLocked。
 func (s *KeyUnlockService) UnlockPatientByKey(ctx context.Context, doctorID uint64, input UnlockPatientByKeyInput) (*model.Authorization, *model.User, error) {
+	docPtr, eligErr := validateKeyUnlockDoctorEligibility(doctorID, 0)
+	if eligErr != nil {
+		return nil, nil, eligErr
+	}
+	doctor := *docPtr
+
 	if locked, rem := IsKeyUnlockLocked(doctorID, input.PatientID); locked {
 		_ = rem // 锁定剩余分钟数由控制器组装文案
 		return nil, nil, ErrKeyUnlockLocked
@@ -80,16 +113,11 @@ func (s *KeyUnlockService) UnlockPatientByKey(ctx context.Context, doctorID uint
 	}
 	patient := *patientPtr
 
-	var doctor model.User
-	if d, err := repository.DefaultUserRepository.FindByID(doctorID); err == nil && d != nil {
-		doctor = *d
-	}
-
 	inputKey := strings.TrimSpace(input.MedicalKey)
 	if !VerifyMedicalKey(inputKey, patient.UserNo, patient.MedicalKeyHash, patient.MedicalKey) {
 		failCnt := RecordKeyUnlockResult(doctorID, patient.ID, false)
 		DefaultAuditService.Log(doctorID, "KEY_UNLOCK_FAILED", "PATIENT", patient.UserNo, doctor.HospitalID, "INTERCEPTED", "HIGH", clientIPFromContext(ctx))
-		if failCnt >= 5 {
+		if failCnt >= keyUnlockDoctorLimit {
 			return nil, nil, ErrKeyUnlockLimit
 		}
 		return nil, nil, ErrKeyVerifyFailed
@@ -132,6 +160,12 @@ func (s *KeyUnlockService) UnlockByKey(ctx context.Context, doctorID uint64, inp
 	}
 	rec := *recPtr
 
+	docPtr, eligErr := validateKeyUnlockDoctorEligibility(doctorID, rec.HospitalID)
+	if eligErr != nil {
+		return nil, eligErr
+	}
+	doctor := *docPtr
+
 	if locked, _ := IsKeyUnlockLocked(doctorID, rec.PatientID); locked {
 		return nil, ErrKeyUnlockLocked
 	}
@@ -142,16 +176,11 @@ func (s *KeyUnlockService) UnlockByKey(ctx context.Context, doctorID uint64, inp
 	}
 	patient := *patientPtr
 
-	var doctor model.User
-	if d, err := repository.DefaultUserRepository.FindByID(doctorID); err == nil && d != nil {
-		doctor = *d
-	}
-
 	inputKey := strings.TrimSpace(input.MedicalKey)
 	if !VerifyMedicalKey(inputKey, patient.UserNo, patient.MedicalKeyHash, patient.MedicalKey) {
 		failCnt := RecordKeyUnlockResult(doctorID, patient.ID, false)
 		DefaultAuditService.Log(doctorID, "KEY_UNLOCK_FAILED", "RECORD", rec.RecordNo, doctor.HospitalID, "INTERCEPTED", "HIGH", clientIPFromContext(ctx))
-		if failCnt >= 5 {
+		if failCnt >= keyUnlockDoctorLimit {
 			return nil, ErrKeyUnlockLimit
 		}
 		return nil, ErrKeyVerifyFailed

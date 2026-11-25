@@ -21,7 +21,6 @@
           :alert="record.infection_alert!"
           mode="badge"
         />
-        <el-button plain size="small" @click="$emit('back')">返回列表</el-button>
       </div>
     </div>
 
@@ -31,8 +30,8 @@
       </div>
 
       <div class="ws-body-grid">
-        <!-- 左侧栏：初诊接诊回顾与医技检查报告回传 (420px) -->
-        <div class="ws-col-left" style="width: 420px;">
+        <!-- 左侧栏：初诊接诊回顾与医技检查报告回传 -->
+        <div class="ws-col-left">
           <!-- 初诊与接诊回顾卡片 -->
           <div class="ws-card">
             <div class="ws-card-title">

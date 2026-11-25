@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -148,8 +149,15 @@ func (ctrl *MedicalController) List(c *gin.Context) {
 		pageSize = v
 	}
 
-	// 患者角色限制只能查自己的
+	// 管理员严禁访问患者病历列表（管理权限与临床数据隔离）；患者仅限查询本人
 	role := c.GetString("role")
+	if role == "admin" {
+		c.JSON(http.StatusForbidden, model.Response{
+			Code:    403,
+			Message: "权限拦截 (403 Forbidden): 系统管理权限与临床数据分离，管理员严禁查阅患者病历列表",
+		})
+		return
+	}
 	if role == "patient" {
 		patientID = currentUserID
 	}
@@ -158,6 +166,26 @@ func (ctrl *MedicalController) List(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: err.Error()})
 		return
+	}
+
+	if currentUserID > 0 {
+		targetStr := "ALL"
+		if patientID > 0 {
+			targetStr = fmt.Sprintf("PAT_%d", patientID)
+		}
+		service.DefaultAuditService.LogDetailed(service.AuditEntry{
+			UserID:        currentUserID,
+			OperationType: "LIST_RECORDS",
+			TargetType:    "RECORD",
+			TargetID:      targetStr,
+			HospitalID:    c.GetUint64("hospital_id"),
+			Result:        "ALLOWED",
+			RiskLevel:     "LOW",
+			Source:        "WEB",
+			IPAddress:     c.ClientIP(),
+			UserAgent:     c.Request.UserAgent(),
+			Reason:        fmt.Sprintf("分页查询病历列表(返回 %d 条)", len(list)),
+		})
 	}
 
 	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "查询成功", Data: list})
@@ -228,7 +256,10 @@ func (ctrl *MedicalController) GetByID(c *gin.Context) {
 		rec.DiagnosticBasis = "【监管审计脱敏屏蔽】"
 		rec.ExamReason = "【监管审计脱敏屏蔽】"
 		rec.ExamResult = "【监管审计脱敏屏蔽】"
+		rec.ExamItems = "【监管审计脱敏屏蔽】"
 		rec.VitalSigns = "【监管脱敏屏蔽】"
+		rec.InfectionAlert = nil
+		rec.Files = nil
 	}
 
 	c.JSON(http.StatusOK, model.Response{Code: 200, Message: "查询成功", Data: rec})
@@ -557,8 +588,40 @@ func (ctrl *MedicalController) CompleteExamOrder(c *gin.Context) {
 
 // CompleteEncounterFinal 医生下达最终确诊并执行可信存证上链
 func (ctrl *MedicalController) CompleteEncounterFinal(c *gin.Context) {
-	recordID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	recordID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || recordID == 0 {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "无效的就诊记录ID"})
+		return
+	}
 	doctorID := c.GetUint64("user_id")
+
+	existing, err := repository.DefaultMedicalRepository.FindRecordByID(recordID)
+	if err != nil || existing == nil {
+		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: service.ErrRecordNotFound.Error()})
+		return
+	}
+	if existing.DoctorID != doctorID {
+		service.DefaultAuditService.LogDetailed(service.AuditEntry{
+			UserID:        doctorID,
+			OperationType: "COMPLETE_ENCOUNTER_IDOR",
+			TargetType:    "RECORD",
+			TargetID:      existing.RecordNo,
+			HospitalID:    c.GetUint64("hospital_id"),
+			Result:        "INTERCEPTED",
+			RiskLevel:     "HIGH",
+			RiskScore:     90,
+			Source:        "WEB",
+			IPAddress:     c.ClientIP(),
+			UserAgent:     c.Request.UserAgent(),
+			Reason:        fmt.Sprintf("HTTP 终诊越权拦截：当前医生(ID=%d)非记录经治医生(ID=%d)", doctorID, existing.DoctorID),
+		})
+		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: service.ErrEncounterForbidden.Error()})
+		return
+	}
+	if existing.Status == "COMPLETED" && existing.FabricTxID != "" {
+		c.JSON(http.StatusConflict, model.Response{Code: 409, Message: service.ErrEncounterAlreadyCompleted.Error()})
+		return
+	}
 
 	var p service.CompleteEncounterFinalParams
 	if err := c.ShouldBindJSON(&p); err != nil {
@@ -570,7 +633,16 @@ func (ctrl *MedicalController) CompleteEncounterFinal(c *gin.Context) {
 
 	record, err := service.DefaultMedicalService.CompleteEncounterFinal(p)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: err.Error()})
+		switch {
+		case errors.Is(err, service.ErrRecordNotFound):
+			c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: err.Error()})
+		case errors.Is(err, service.ErrEncounterForbidden), errors.Is(err, service.ErrEncounterDoctorDisabled):
+			c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: err.Error()})
+		case errors.Is(err, service.ErrEncounterAlreadyCompleted):
+			c.JSON(http.StatusConflict, model.Response{Code: 409, Message: err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: err.Error()})
+		}
 		return
 	}
 
@@ -822,31 +894,30 @@ func (ctrl *MedicalController) GetPatientInfectionRisks(c *gin.Context) {
 	currentUserID := c.GetUint64("user_id")
 	role := c.GetString("role")
 
-	// 身份校验：仅允许 doctor、supervisor 角色，或患者本人访问；若为 admin 或其他越权患者，返回 403 Forbidden
-	if role == "admin" {
-		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "系统管理员无权访问患者高危传染病及医护安全威胁数据"})
+	// 身份校验：仅允许 doctor 或患者本人访问；admin、supervisor 与非本人患者一律返回 403 Forbidden（治理/管理权限与临床病原学数据隔离）
+	if role == "admin" || role == "supervisor" {
+		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "治理/管理权限与临床病原学数据分离，禁止访问患者高危传染病临床明细"})
 		return
 	}
 	if role == "patient" && currentUserID != patientID {
 		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "权限拦截：禁止查看其他患者的高危传染病信息"})
 		return
 	}
-	if role != "doctor" && role != "supervisor" && role != "patient" {
+	if role != "doctor" && role != "patient" {
 		c.JSON(http.StatusForbidden, model.Response{Code: 403, Message: "权限不足，禁止访问"})
 		return
 	}
 
-	// 若调用者为医生，必须校验其对该患者是否拥有至少一份合法授权或本院经治病历，防止未授权外院医生越权探测传染病隐私
+	// 若调用者为医生，必须按其实际已授权病历集合 (authSet) 计算风险，严禁穿透暴露患者外院 PRIVATE 锁定的私密病名与单号
 	if role == "doctor" {
 		recs, _ := service.DefaultMedicalService.GetRecords(patientID, 0, 0, 0, currentUserID, false, "", "", 0, 0)
-		hasAnyAccess := false
+		authSet := make(map[uint64]bool)
 		for _, r := range recs {
 			if r.HasAccess {
-				hasAnyAccess = true
-				break
+				authSet[r.ID] = true
 			}
 		}
-		if !hasAnyAccess {
+		if len(authSet) == 0 {
 			// WP-07: 分级脱敏响应——预授权急诊分诊医生不再被 403 硬阻断，改为返回脱敏职业暴露防护等级，
 			// 既保护医护人员免遭针刺伤职业暴露，又保守患者具体病原学诊断隐私 (不泄露 HIV/梅毒等病名)
 			fullAlert, err := service.GetInfectionService().AnalyzePatientRisks(patientID)
@@ -873,19 +944,27 @@ func (ctrl *MedicalController) GetPatientInfectionRisks(c *gin.Context) {
 				Source:        "INFECTION_RISK",
 			})
 			c.JSON(http.StatusOK, model.Response{Code: 200, Message: "success", Data: model.InfectionRiskAlert{
-				HasRisk:        fullAlert.HasRisk,
-				RiskLevel:      "DEIDENTIFIED",
-				Summary:        bannerText,
-				Diseases:       nil,
-				Precautions:    nil,
-				ProtectionGear: nil,
-				EmergencySteps: nil,
-				DetectedFrom:   nil,
+				HasRisk:         fullAlert.HasRisk,
+				RiskLevel:       "DEIDENTIFIED",
+				Summary:         bannerText,
+				Diseases:        nil,
+				Precautions:     nil,
+				ProtectionGear:  nil,
+				EmergencySteps:  nil,
+				DetectedFrom:    nil,
 				PrecautionLevel: precautionLevel,
 				BannerText:      bannerText,
 			}})
 			return
 		}
+
+		scopedAlert, err := service.GetInfectionService().AnalyzePatientRisksWithScope(patientID, authSet)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "排查患者传染病风险失败: " + err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, model.Response{Code: 200, Message: "success", Data: scopedAlert})
+		return
 	}
 
 	alert, err := service.GetInfectionService().AnalyzePatientRisks(patientID)
@@ -905,15 +984,22 @@ func (ctrl *MedicalController) GetRecordInfectionRisks(c *gin.Context) {
 		return
 	}
 
+	currentUserID := c.GetUint64("user_id")
+	role := c.GetString("role")
+	if role == "admin" || role == "supervisor" {
+		c.JSON(http.StatusForbidden, model.Response{
+			Code:    403,
+			Message: "治理/管理权限与临床病原学数据分离，禁止访问病历高危传染病临床明细",
+		})
+		return
+	}
+
 	recPtr, err := repository.DefaultMedicalRepository.FindRecordByID(recordID)
 	if err != nil || recPtr == nil {
 		c.JSON(http.StatusNotFound, model.Response{Code: 404, Message: "病历不存在"})
 		return
 	}
 	rec := *recPtr
-
-	currentUserID := c.GetUint64("user_id")
-	role := c.GetString("role")
 
 	decision, err := service.DefaultAccessEngine.Evaluate(service.AccessRequest{
 		UserID:      currentUserID,
@@ -937,6 +1023,22 @@ func (ctrl *MedicalController) GetRecordInfectionRisks(c *gin.Context) {
 
 	if role == "doctor" {
 		service.DefaultAccessEngine.RecordSuccessfulAccess(currentUserID, rec.PatientID)
+		authSet := map[uint64]bool{recordID: true}
+		if rec.PatientID > 0 {
+			recs, _ := service.DefaultMedicalService.GetRecords(rec.PatientID, 0, 0, 0, currentUserID, false, "", "", 0, 0)
+			for _, r := range recs {
+				if r.HasAccess {
+					authSet[r.ID] = true
+				}
+			}
+			alert, err := service.GetInfectionService().AnalyzePatientRisksWithScope(rec.PatientID, authSet)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "排查病历传染病风险失败: " + err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, model.Response{Code: 200, Message: "success", Data: alert})
+			return
+		}
 	}
 
 	alert, err := service.GetInfectionService().AnalyzeRecordRisks(recordID)

@@ -66,25 +66,6 @@
             >
               跨院病历 SOAP 汇总与线索
             </el-button>
-            <el-button
-              v-if="isFromEncounter || hasEncounterDraft"
-              size="small"
-              type="primary"
-              :icon="ArrowLeft"
-              style="font-weight: 600;"
-              @click="$emit('return-encounter')"
-            >
-              返回继续录入病历 (已自动暂存)
-            </el-button>
-            <el-button
-              v-else
-              size="small"
-              type="primary"
-              plain
-              @click="$emit('back-records')"
-            >
-              返回门诊就诊工作台
-            </el-button>
           </div>
         </div>
       </template>

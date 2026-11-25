@@ -46,7 +46,10 @@ export function getRiskRulesTooltip(item: any): string {
   if (item?.risk_detail) {
     return `风控加权明细: ${item.risk_detail}`
   }
-  const score = item?.risk_score || 48
+  if (item?.risk_score === undefined || item?.risk_score === null) {
+    return '暂未生成风控加权明细'
+  }
+  const score = Number(item.risk_score)
   if (score >= 60) {
     return '触发加权规则：跨机构跨省调阅 (+35)、非工作就诊时段 (+20)、高频访问预警 (+15)'
   } else if (score >= 30) {

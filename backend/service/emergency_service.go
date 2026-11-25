@@ -234,6 +234,23 @@ func (s *EmergencyService) LiftDoctorRestriction(supervisorID, doctorID uint64, 
 		doc = *docPtr
 	}
 
+	if doc.Role != "doctor" || doc.Status != "RESTRICTED" {
+		DefaultAuditService.LogDetailed(AuditEntry{
+			UserID:        supervisorID,
+			OperationType: "UNRESTRICT_DOCTOR_BLOCKED",
+			TargetType:    "USER",
+			TargetID:      fmt.Sprintf("%d", doctorID),
+			HospitalID:    doc.HospitalID,
+			Result:        "INTERCEPTED",
+			RiskLevel:     "HIGH",
+			RiskScore:     70,
+			Source:        "WEB",
+			IPAddress:     ip,
+			Reason:        fmt.Sprintf("拦截越权解除限制：目标账号角色=%s，当前状态=%s（仅允许解除 RESTRICTED 执业医生）", doc.Role, doc.Status),
+		})
+		return ErrInvalidRestrictionTarget
+	}
+
 	if err := repository.DefaultUserRepository.UpdateStatus(doctorID, "NORMAL"); err != nil {
 		return err
 	}

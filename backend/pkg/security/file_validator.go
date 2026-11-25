@@ -1,6 +1,7 @@
 package security
 
 import (
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"path/filepath"
@@ -82,6 +83,11 @@ func ValidateMedicalFile(fileName string, data []byte) error {
 	return nil
 }
 
+// isSafeRasterImageMIME 仅放行安全栅格图片格式，严禁 image/svg+xml、text/html 等可嵌脚本类型
+func isSafeRasterImageMIME(mime string) bool {
+	return mime == "image/png" || mime == "image/jpeg" || mime == "image/gif" || mime == "image/webp"
+}
+
 // ValidateImageFile 头像图片专属校验
 func ValidateImageFile(fileName string, data []byte) error {
 	if len(data) == 0 {
@@ -101,9 +107,55 @@ func ValidateImageFile(fileName string, data []byte) error {
 		sniffLen = len(data)
 	}
 	mime := http.DetectContentType(data[:sniffLen])
-	if !strings.HasPrefix(mime, "image/") {
-		return errors.New("文件实际内容并非有效图片数据")
+	if !isSafeRasterImageMIME(mime) {
+		return errors.New("文件实际内容并非安全的 PNG/JPEG/GIF/WEBP 图片数据")
 	}
 
+	return nil
+}
+
+// MaxAvatarDataURILength 限制头像 Data URI 字符串最大长度（约 2MB），防数据库膨胀与 DoS
+const MaxAvatarDataURILength = 2 * 1024 * 1024
+
+// ValidateAvatarDataURI 校验自定义头像 Data URI 长度、头部白名单与解码后的 Magic Bytes（防 SVG XSS / javascript: URI）
+func ValidateAvatarDataURI(avatar string) error {
+	trimmed := strings.TrimSpace(avatar)
+	if trimmed == "" {
+		return nil // 允许清空头像
+	}
+	if len(trimmed) > MaxAvatarDataURILength {
+		return errors.New("头像数据过大，请上传不超过 1.5MB 的图片")
+	}
+	lower := strings.ToLower(trimmed)
+	allowedPrefixes := []string{
+		"data:image/png;base64,",
+		"data:image/jpeg;base64,",
+		"data:image/jpg;base64,",
+		"data:image/gif;base64,",
+		"data:image/webp;base64,",
+	}
+	matchedPrefix := ""
+	for _, p := range allowedPrefixes {
+		if strings.HasPrefix(lower, p) {
+			matchedPrefix = p
+			break
+		}
+	}
+	if matchedPrefix == "" {
+		return errors.New("头像仅支持安全 base64 Data URI（PNG/JPEG/GIF/WEBP），禁止 SVG 或脚本链接")
+	}
+	b64Part := strings.TrimSpace(trimmed[len(matchedPrefix):])
+	decoded, err := base64.StdEncoding.DecodeString(b64Part)
+	if err != nil || len(decoded) == 0 {
+		return errors.New("头像 base64 编码无效")
+	}
+	sniffLen := 512
+	if len(decoded) < sniffLen {
+		sniffLen = len(decoded)
+	}
+	mime := http.DetectContentType(decoded[:sniffLen])
+	if !isSafeRasterImageMIME(mime) {
+		return errors.New("头像解码内容并非有效的 PNG/JPEG/GIF/WEBP 图片")
+	}
 	return nil
 }

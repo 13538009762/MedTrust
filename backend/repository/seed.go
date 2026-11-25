@@ -8,12 +8,17 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
+	"medtrust-backend/config"
 	"medtrust-backend/model"
 )
 
-// SeedInitialData 启动时自动幂等写入指令书标准测试数据
+// SeedInitialData 启动时自动幂等写入指令书标准测试数据（生产环境自动禁用）
 func SeedInitialData(db *gorm.DB) {
 	if db == nil {
+		return
+	}
+	if config.AppConfig.IsProduction() {
+		log.Printf("[DB-Seed] 生产环境已禁用默认弱口令测试种子注入与锁定状态重置")
 		return
 	}
 

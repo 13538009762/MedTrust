@@ -11,8 +11,8 @@
   /* 2. 文字层级（WCAG AA 对比度保障） */
   --mt-text-primary: #0f172a;
   --mt-text-regular: #334155;
-  --mt-text-secondary: #64748b;
-  --mt-text-muted: #94a3b8;
+  --mt-text-secondary: #475569;
+  --mt-text-muted: #64748b;
 
   /* 3. 医疗临床主色（彻底废除紫粉渐变） */
   --mt-primary: #0284c7;

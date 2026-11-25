@@ -7,7 +7,7 @@
           <el-icon><User /></el-icon>
         </div>
         <div>
-          <h1 class="page-title">个人中心 (My Profile)</h1>
+          <h1 class="page-title">个人中心</h1>
           <p class="page-sub">查看并维护您的个人身份档案、医疗执业资质以及跨院防重名唯一标识</p>
         </div>
       </div>
@@ -22,7 +22,15 @@
       <!-- 1. 顶部身份横幅 -->
       <div class="profile-hero-section">
         <!-- 头像区 -->
-        <div class="avatar-col" @click="openAvatarDialog" title="点击更换个人自定义头像">
+        <div
+          class="avatar-col"
+          role="button"
+          tabindex="0"
+          aria-label="更换个人自定义头像"
+          @click="openAvatarDialog"
+          @keydown.enter.space.prevent="openAvatarDialog"
+          title="点击更换个人自定义头像"
+        >
           <div class="user-avatar-circle" :style="{ background: auth.user?.avatar ? '#ffffff' : avatarGradient }">
             <img v-if="auth.user?.avatar" :src="auth.user.avatar" class="user-avatar-img" alt="用户头像" />
             <span v-else class="user-avatar-text">{{ userInitials }}</span>
@@ -43,9 +51,14 @@
             <el-tag size="default" :type="getRoleTagType(auth.user?.role)" effect="dark" class="role-badge">
               {{ getRoleName(auth.user?.role) }}
             </el-tag>
-            <el-tag size="small" :type="auth.user?.status === 'NORMAL' ? 'success' : 'danger'" effect="light" class="status-tag">
+            <el-tag
+              size="small"
+              :type="auth.user?.status === 'NORMAL' ? 'success' : (auth.user?.status === 'RESTRICTED' ? 'danger' : 'info')"
+              effect="light"
+              class="status-tag"
+            >
               <span class="status-dot" :class="{ 'dot-danger': auth.user?.status !== 'NORMAL' }"></span>
-              {{ auth.user?.status === 'NORMAL' ? '正常在网' : '受到监管惩戒' }}
+              {{ auth.user?.status === 'NORMAL' ? '正常在网' : (auth.user?.status === 'RESTRICTED' ? '跨院受限' : '账号已停用') }}
             </el-tag>
           </div>
 
@@ -64,11 +77,11 @@
             </span>
           </div>
 
-          <!-- 资质与科室标签栏 -->
+          <!-- 资质与科室标签栏（患者显示身份，医护/监管/管理显示专业科室） -->
           <div class="dept-bar">
-            <span class="dept-label">资质/专业科室:</span>
+            <span class="dept-label">{{ auth.user?.role === 'patient' ? '档案身份:' : '资质/专业科室:' }}</span>
             <div class="dept-pill">
-              <span class="dept-name">{{ auth.user?.department_name || (auth.user?.role === 'patient' ? '全民健康服务' : '行政管理科室') }}</span>
+              <span class="dept-name">{{ auth.user?.role === 'patient' ? '个人电子健康档案持有者' : (auth.user?.department_name || '综合业务管理') }}</span>
               <el-tag size="small" type="info" effect="plain" class="title-tag">
                 {{ auth.user?.title || (auth.user?.role === 'patient' ? '实名电子就诊人' : '医疗业务人员') }}
               </el-tag>
@@ -81,7 +94,7 @@
           <el-button type="primary" :icon="Edit" class="btn-action-primary" @click="openEditDialog">
             编辑个人信息
           </el-button>
-          <el-button type="success" :icon="Key" class="btn-action-primary" @click="openMedicalKeyDialog">
+          <el-button v-if="auth.user?.role === 'patient'" type="success" :icon="Key" class="btn-action-primary" @click="openMedicalKeyDialog">
             修改病历调阅密钥
           </el-button>
           <el-button type="warning" plain :icon="Lock" class="btn-action-secondary" @click="openPassDialog">
@@ -100,18 +113,18 @@
             <span class="block-title">医疗机构与专业资质</span>
           </div>
           <div class="block-card-body">
-            <div class="field-item">
+            <div v-if="auth.user?.role !== 'patient'" class="field-item">
               <span class="field-label">所属医疗机构</span>
               <div class="field-val font-bold">
                 {{ auth.user?.hospital_name || '跨医疗机构统一联合网络' }}
               </div>
             </div>
 
-            <div class="field-item">
-              <span class="field-label">临床就诊科室</span>
+            <div v-if="auth.user?.role !== 'patient'" class="field-item">
+              <span class="field-label">所属科室 / 部门</span>
               <div class="field-val">
                 <el-tag size="small" type="primary" effect="plain">
-                  {{ auth.user?.department_name || (auth.user?.role === 'patient' ? '门急诊全科' : '综合业务管理中心') }}
+                  {{ auth.user?.department_name || '综合业务管理中心' }}
                 </el-tag>
               </div>
             </div>
@@ -126,16 +139,16 @@
             </div>
 
             <div class="field-item">
-              <span class="field-label">临床职称 / 身份</span>
+              <span class="field-label">{{ auth.user?.role === 'patient' ? '建档身份' : '临床职称 / 身份' }}</span>
               <div class="field-val font-bold">
                 {{ auth.user?.title || (auth.user?.role === 'patient' ? '实名制就诊人 (持身份证建档)' : '系统工作人员') }}
               </div>
             </div>
 
-            <div class="field-item">
+            <div v-if="auth.user?.role === 'doctor' && auth.user?.hospital_id" class="field-item">
               <span class="field-label">联盟链节点 MSP</span>
               <div class="field-val font-mono text-muted text-xs">
-                MedTrust-Hosp{{ auth.user?.hospital_id || 1 }}MSP::Peer0
+                Org{{ auth.user.hospital_id }}MSP
               </div>
             </div>
           </div>
@@ -183,13 +196,14 @@
               </div>
             </div>
 
-            <div class="field-item">
+            <div v-if="auth.user?.role === 'patient'" class="field-item">
               <span class="field-label">跨院病历调阅专属密钥</span>
               <div class="field-val contact-val">
                 <span class="font-mono font-bold" :style="{ color: showKeyPlain ? '#059669' : '#64748b' }">
-                  {{ showKeyPlain ? (auth.user?.medical_key || '123456') : '••••••' }}
+                  {{ showKeyPlain ? (auth.user?.medical_key || '已加密保护（未保存明文）') : '••••••' }}
                 </span>
                 <el-button
+                  v-if="auth.user?.medical_key"
                   link
                   type="primary"
                   size="small"
@@ -217,17 +231,17 @@
               </div>
             </div>
 
-            <div class="field-item">
-              <span class="field-label">破窗知情推送</span>
+            <div v-if="auth.user?.role === 'patient'" class="field-item">
+              <span class="field-label">急救破窗知情推送</span>
               <div class="field-val text-muted text-xs">
-                当发生 Break-Glass 紧急访问时实时推送知情通知
+                发生紧急抢救调阅时系统将实时向您推送知情通知
               </div>
             </div>
 
             <div class="field-item">
-              <span class="field-label">首次系统建档时间</span>
+              <span class="field-label">系统建档时间</span>
               <div class="field-val text-muted font-mono text-xs">
-                2026-09-01 00:00:00 (电子病历存证生效)
+                {{ formattedCreatedAt }}
               </div>
             </div>
           </div>
@@ -337,11 +351,11 @@
           />
         </el-form-item>
 
-        <el-form-item label="设置新密码 (≥6位)" required>
+        <el-form-item label="设置新密码 (≥8位，须含英文字母与数字)" required>
           <el-input 
             v-model="passForm.new_password" 
             type="password" 
-            placeholder="请输入新的登录密码" 
+            placeholder="请输入至少 8 位且含字母与数字的新密码" 
             show-password 
             :prefix-icon="Lock"
           />
@@ -384,11 +398,11 @@
       />
 
       <el-form :model="medicalKeyForm" label-position="top">
-        <el-form-item label="原调阅密钥 (初始默认密码为 123456)">
+        <el-form-item label="原调阅密钥（首次设置可留空）">
           <el-input 
             v-model="medicalKeyForm.old_key" 
             type="password" 
-            placeholder="若首次修改可留空或输入 123456" 
+            placeholder="请输入当前正在使用的原调阅密钥" 
             show-password 
             :prefix-icon="Key"
           />
@@ -624,7 +638,7 @@
             <el-button
               type="primary"
               :loading="savingAvatar"
-              :disabled="avatarActiveTab === 'upload' && !previewAvatarUrl && selectedPresetIdx === -1"
+              :disabled="!previewAvatarUrl && selectedPresetIdx === -1"
               @click="handleSaveAvatar"
             >
               保 存 并 应 用 头 像
@@ -645,10 +659,18 @@ import {
 import { ElMessage } from 'element-plus'
 import { updateAvatarApi, updateProfileApi, updatePasswordApi, updateMedicalKeyApi } from '../api'
 import { getRoleTagType, getRoleName, presetAvatars } from '@/utils/userProfileUtils'
+import { validatePasswordStrength, isErrorToastShown, extractApiErrorMessage } from '@/utils/passwordPolicy'
+import { copyTextToClipboard } from '@/utils/hashFormatters'
 import { useAuthStore } from '../stores/auth'
 
 const auth = useAuthStore()
 const loading = ref(false)
+
+const formattedCreatedAt = computed(() => {
+  const raw = (auth.user as { created_at?: string } | null)?.created_at
+  if (!raw) return '已实名建档生效'
+  return raw.replace('T', ' ').substring(0, 19)
+})
 
 // 头像纯色与首字母计算
 const userInitials = computed(() => {
@@ -823,20 +845,12 @@ async function handleSaveAvatar() {
       ElMessage.success('自定义头像更换成功，全系统已同步生效！')
       avatarDialogVisible.value = false
     } else {
-      // 降级兜底同步
-      if (auth.user) {
-        auth.setUser({ ...auth.user, avatar: finalAvatarData })
-      }
-      ElMessage.success('头像已成功应用生效！')
-      avatarDialogVisible.value = false
+      ElMessage.error(res?.message || '保存头像失败，请缩小图片体积后重试')
     }
-  } catch (err: any) {
-    console.warn('[Avatar Update] fallback to local store:', err)
-    if (auth.user) {
-      auth.setUser({ ...auth.user, avatar: finalAvatarData })
+  } catch (err: unknown) {
+    if (!isErrorToastShown(err)) {
+      ElMessage.error(extractApiErrorMessage(err, '保存头像失败，请检查图片大小或网络后重试'))
     }
-    ElMessage.success('头像已在当前会话中同步更新生效！')
-    avatarDialogVisible.value = false
   } finally {
     savingAvatar.value = false
   }
@@ -846,36 +860,38 @@ async function handleRestoreDefaultAvatar() {
   savingAvatar.value = true
   try {
     const res: any = await updateAvatarApi('')
-    if (res.code === 200 && res.data) {
-      auth.setUser(res.data)
-    } else if (auth.user) {
-      auth.setUser({ ...auth.user, avatar: '' })
+    if (res.code === 200) {
+      if (res.data) {
+        auth.setUser(res.data)
+      } else if (auth.user) {
+        auth.setUser({ ...auth.user, avatar: '' })
+      }
+      previewAvatarUrl.value = ''
+      selectedPresetIdx.value = -1
+      ElMessage.success('已恢复为系统默认头像')
+      avatarDialogVisible.value = false
+    } else {
+      ElMessage.error(res?.message || '恢复默认头像失败，请稍后重试')
     }
-    previewAvatarUrl.value = ''
-    selectedPresetIdx.value = -1
-    ElMessage.success('已恢复为系统原生区块链数字印记头像')
-    avatarDialogVisible.value = false
-  } catch {
-    if (auth.user) {
-      auth.setUser({ ...auth.user, avatar: '' })
+  } catch (err: unknown) {
+    if (!isErrorToastShown(err)) {
+      ElMessage.error(extractApiErrorMessage(err, '恢复默认头像失败，请稍后重试'))
     }
-    previewAvatarUrl.value = ''
-    selectedPresetIdx.value = -1
-    ElMessage.success('已恢复为系统原生区块链数字印记头像')
-    avatarDialogVisible.value = false
   } finally {
     savingAvatar.value = false
   }
 }
 
 
-function copyText(text?: string, label = '内容') {
+async function copyText(text?: string, label = '内容') {
   if (!text) return
-  navigator.clipboard.writeText(text).then(() => {
-    ElMessage.success(`已复制${label}到剪贴板: ${text}`)
-  }).catch(() => {
-    ElMessage.info(`内容为: ${text}`)
-  })
+  // 使用带 HTTP 降级的共享复制工具，且不在 Toast 中暴露完整身份证号/手机号（防止公共诊室肩窥泄露）
+  const ok = await copyTextToClipboard(text)
+  if (ok) {
+    ElMessage.success(`已复制${label}到剪贴板`)
+  } else {
+    ElMessage.warning(`浏览器暂不支持自动复制，请手动复制${label}`)
+  }
 }
 
 // ── 编辑个人资料 ─────────────────────────────
@@ -948,8 +964,9 @@ async function handleSavePassword() {
     ElMessage.warning('请输入当前原密码')
     return
   }
-  if (!passForm.value.new_password || passForm.value.new_password.length < 6) {
-    ElMessage.warning('新密码长度不能少于 6 位')
+  const pwdError = validatePasswordStrength(passForm.value.new_password)
+  if (pwdError) {
+    ElMessage.warning(pwdError)
     return
   }
   if (passForm.value.new_password !== passForm.value.confirm_password) {
@@ -966,9 +983,13 @@ async function handleSavePassword() {
     if (res.code === 200) {
       ElMessage.success('登录密码已成功更新，请牢记新密码！')
       passVisible.value = false
+    } else {
+      ElMessage.error(res?.message || '修改密码失败')
     }
-  } catch (err: any) {
-    ElMessage.error(err?.message || '修改密码失败')
+  } catch (err: unknown) {
+    if (!isErrorToastShown(err)) {
+      ElMessage.error(extractApiErrorMessage(err, '修改密码失败'))
+    }
   } finally {
     savingPass.value = false
   }
@@ -1016,12 +1037,16 @@ async function handleSaveMedicalKey() {
     if (res.code === 200) {
       ElMessage.success(res.message || '病历调阅专属密钥已成功更新！')
       if (auth.user) {
-        auth.user.medical_key = medicalKeyForm.value.new_key
+        auth.setUser({ ...auth.user, medical_key: medicalKeyForm.value.new_key })
       }
       medicalKeyVisible.value = false
+    } else {
+      ElMessage.error(res?.message || '更新调阅密钥失败')
     }
-  } catch (err: any) {
-    ElMessage.error(err?.message || err?.response?.data?.message || '更新调阅密钥失败')
+  } catch (err: unknown) {
+    if (!isErrorToastShown(err)) {
+      ElMessage.error(extractApiErrorMessage(err, '更新调阅密钥失败'))
+    }
   } finally {
     savingMedicalKey.value = false
   }

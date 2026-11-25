@@ -184,7 +184,7 @@ func (ctrl *SystemController) ResetUserPassword(c *gin.Context) {
 		return
 	}
 
-	if err := repository.DefaultUserRepository.UpdatePassword(u.ID, string(hash)); err != nil {
+	if err := repository.DefaultUserRepository.UpdatePasswordWithPolicy(u.ID, string(hash), isRandomTemp); err != nil {
 		c.JSON(http.StatusInternalServerError, model.Response{Code: 500, Message: "重置密码失败: " + err.Error()})
 		return
 	}
@@ -230,6 +230,20 @@ func (ctrl *SystemController) CreateUser(c *gin.Context) {
 		return
 	}
 
+	dto.Role = strings.ToLower(strings.TrimSpace(dto.Role))
+	if dto.Role != "doctor" && dto.Role != "patient" && dto.Role != "supervisor" && dto.Role != "admin" {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "角色值无效，仅支持 doctor, patient, supervisor, admin"})
+		return
+	}
+
+	status := strings.ToUpper(strings.TrimSpace(dto.Status))
+	if status == "" {
+		status = "NORMAL"
+	} else if status != "NORMAL" && status != "RESTRICTED" && status != "DISABLED" {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "状态值无效，仅支持 NORMAL, RESTRICTED, DISABLED"})
+		return
+	}
+
 	pwd := strings.TrimSpace(dto.Password)
 	isRandomTemp := false
 	if pwd == "" {
@@ -263,11 +277,6 @@ func (ctrl *SystemController) CreateUser(c *gin.Context) {
 			prefix = "ADM"
 		}
 		userNo = fmt.Sprintf("%s_%s%s", prefix, time.Now().Format("200601"), hex.EncodeToString(randBytes))
-	}
-
-	status := dto.Status
-	if status == "" {
-		status = "NORMAL"
 	}
 
 	u := model.User{

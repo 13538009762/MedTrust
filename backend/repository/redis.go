@@ -227,3 +227,130 @@ func ConsumeSSETicket(ticket string) (string, bool) {
 
 	return "", false
 }
+
+const (
+	UserPwdChangedPrefix  = "user:pwd_changed_ns:"
+	KeyUnlockCounterPref  = "key_unlock:fail:"
+	KeyUnlockLockPrefix   = "key_unlock:lock:"
+)
+
+// CachePasswordChangedAtNs 缓存用户最近一次改密/重置密码的纳秒时间戳（Redis + 本地内存双写）
+func CachePasswordChangedAtNs(userID uint64, tsNs int64, ttl time.Duration) {
+	if userID == 0 {
+		return
+	}
+	if ttl <= 0 {
+		ttl = 24 * time.Hour
+	}
+	key := fmt.Sprintf("%s%d", UserPwdChangedPrefix, userID)
+	DefaultCache.Set(key, tsNs, ttl)
+	if redisAvailable && RDB != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+		_ = RDB.Set(ctx, key, fmt.Sprintf("%d", tsNs), ttl).Err()
+	}
+}
+
+// GetPasswordChangedAtNs 读取用户最近改密时间戳（缓存命中返回 (tsNs, true)）
+func GetPasswordChangedAtNs(userID uint64) (int64, bool) {
+	if userID == 0 {
+		return 0, false
+	}
+	key := fmt.Sprintf("%s%d", UserPwdChangedPrefix, userID)
+	if val, ok := DefaultCache.Get(key); ok {
+		if ts, ok := val.(int64); ok {
+			return ts, true
+		}
+	}
+	if redisAvailable && RDB != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		defer cancel()
+		val, err := RDB.Get(ctx, key).Int64()
+		if err == nil {
+			DefaultCache.Set(key, val, 5*time.Minute)
+			return val, true
+		}
+	}
+	return 0, false
+}
+
+// IncrementKeyUnlockFailure 递增密钥解锁失败计数（自动 TTL 过期，支持 Redis 多实例与本地内存容灾）
+func IncrementKeyUnlockFailure(scopeKey string, ttl time.Duration) int {
+	if ttl <= 0 {
+		ttl = 15 * time.Minute
+	}
+	key := KeyUnlockCounterPref + scopeKey
+	if redisAvailable && RDB != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+		cnt, err := RDB.Incr(ctx, key).Result()
+		if err == nil {
+			if cnt == 1 {
+				_ = RDB.Expire(ctx, key, ttl).Err()
+			}
+			DefaultCache.Set(key, int(cnt), ttl)
+			return int(cnt)
+		}
+	}
+	cur := 0
+	if val, ok := DefaultCache.Get(key); ok {
+		if n, ok := val.(int); ok {
+			cur = n
+		}
+	}
+	cur++
+	DefaultCache.Set(key, cur, ttl)
+	return cur
+}
+
+// SetKeyUnlockLock 写入密钥解锁锁定窗口（带自动 TTL 淘汰）
+func SetKeyUnlockLock(scopeKey string, ttl time.Duration) {
+	if ttl <= 0 {
+		ttl = 15 * time.Minute
+	}
+	key := KeyUnlockLockPrefix + scopeKey
+	until := time.Now().Add(ttl)
+	DefaultCache.Set(key, until, ttl)
+	if redisAvailable && RDB != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+		_ = RDB.Set(ctx, key, until.Unix(), ttl).Err()
+	}
+}
+
+// GetKeyUnlockLockRemaining 检查某维度是否处于密钥防爆破锁定窗口，返回 (locked, remainingMinutes)
+func GetKeyUnlockLockRemaining(scopeKey string) (bool, int) {
+	key := KeyUnlockLockPrefix + scopeKey
+	now := time.Now()
+	if val, ok := DefaultCache.Get(key); ok {
+		if until, ok := val.(time.Time); ok && until.After(now) {
+			return true, int(until.Sub(now).Minutes()) + 1
+		}
+	}
+	if redisAvailable && RDB != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		defer cancel()
+		ts, err := RDB.Get(ctx, key).Int64()
+		if err == nil {
+			until := time.Unix(ts, 0)
+			if until.After(now) {
+				DefaultCache.Set(key, until, until.Sub(now))
+				return true, int(until.Sub(now).Minutes()) + 1
+			}
+		}
+	}
+	return false, 0
+}
+
+// ClearKeyUnlockFailure 清除单维度密钥解锁失败计数与锁定状态
+func ClearKeyUnlockFailure(scopeKey string) {
+	cntKey := KeyUnlockCounterPref + scopeKey
+	lockKey := KeyUnlockLockPrefix + scopeKey
+	DefaultCache.Delete(cntKey)
+	DefaultCache.Delete(lockKey)
+	if redisAvailable && RDB != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+		_ = RDB.Del(ctx, cntKey, lockKey).Err()
+	}
+}

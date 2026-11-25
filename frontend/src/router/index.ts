@@ -32,8 +32,8 @@ const router = createRouter({
         { path: 'admin/users', name: 'admin-users', meta: { roles: ['admin'] }, component: () => import('../views/admin/UserManagementView.vue') },
         { path: 'admin/hospitals', name: 'admin-hospitals', meta: { roles: ['admin'] }, component: () => import('../views/admin/HospitalManagementView.vue') },
 
-        // 监管审计看板
-        { path: 'supervisor/overview', name: 'supervisor-overview', meta: { roles: ['supervisor'] }, component: () => import('../views/supervisor/OverviewView.vue') },
+        // 监管审计看板（存证监控大屏后端同步授权 admin 查阅）
+        { path: 'supervisor/overview', name: 'supervisor-overview', meta: { roles: ['supervisor', 'admin'] }, component: () => import('../views/supervisor/OverviewView.vue') },
         { path: 'supervisor/emergency', name: 'supervisor-emergency', meta: { roles: ['supervisor'] }, component: () => import('../views/supervisor/EmergencyAuditView.vue') },
         { path: 'supervisor/audits', name: 'supervisor-audits', meta: { roles: ['supervisor'] }, component: () => import('../views/supervisor/AuditLogView.vue') },
         { path: 'supervisor/verify', name: 'supervisor-verify', meta: { roles: ['supervisor'] }, component: () => import('../views/supervisor/VerifyView.vue') },
@@ -41,6 +41,14 @@ const router = createRouter({
         // 个人中心 (通用)
         { path: 'personal', name: 'personal', component: () => import('../views/PersonalView.vue') },
       ],
+    },
+    // 404 兜底路由：访问无效路径自动回到当前角色首页或登录页
+    {
+      path: '/:pathMatch(.*)*',
+      redirect: () => {
+        const auth = useAuthStore()
+        return auth.token ? homePathForRole(auth.user?.role, auth.user?.username) : '/login'
+      },
     },
   ],
 })

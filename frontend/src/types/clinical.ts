@@ -19,11 +19,20 @@ export interface PatientOption {
   [key: string]: any
 }
 
-import type { InfectionRiskAlert } from '../utils/infectionGuard'
+import type { InfectionRiskAlert, InfectionDisease } from '../utils/infectionGuard'
 
 /** 跨机构传染病职业暴露预警 (getPatientInfectionRisksApi 返回)
- *  与 utils/infectionGuard.InfectionRiskAlert 结构对齐，保证可直接传给 InfectionSafetyAlert */
-export type InfectionAlert = InfectionRiskAlert
+ *  兼容服务端 DEIDENTIFIED 脱敏模式下的 null 明细数组，保证可直接传给 InfectionSafetyAlert */
+export type InfectionAlert = Omit<
+  InfectionRiskAlert,
+  'diseases' | 'precautions' | 'protection_gear' | 'emergency_steps' | 'detected_from'
+> & {
+  diseases?: InfectionDisease[] | null
+  precautions?: string[] | null
+  protection_gear?: string[] | null
+  emergency_steps?: string[] | null
+  detected_from?: string[] | null
+}
 
 // ==================== 就诊病历记录 ====================
 

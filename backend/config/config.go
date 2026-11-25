@@ -48,6 +48,7 @@ type Config struct {
 	Security struct {
 		AESMasterKey       string `yaml:"aes_master_key"`
 		CORSAllowedOrigins string `yaml:"cors_allowed_origins"`
+		TrustedProxies     string `yaml:"trusted_proxies"`
 	} `yaml:"security"`
 
 	Risk struct {
@@ -169,13 +170,16 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	// 3. 生产环境数据库敏感配置校验
+	// 3. 生产环境数据库与 Redis 敏感配置校验
 	if isProd {
 		dsn := strings.TrimSpace(c.Database.DSN)
 		if dsn == "" {
 			errs = append(errs, "生产环境必须通过 DB_DSN 显式配置数据库连接串")
 		} else if lower := strings.ToLower(dsn); strings.Contains(lower, "root:123456") || strings.Contains(lower, ":@tcp") {
 			errs = append(errs, "生产环境数据库 DSN 严禁使用默认 root 口令或空口令")
+		}
+		if strings.TrimSpace(c.Redis.Addr) != "" && strings.TrimSpace(c.Redis.Password) == "" {
+			errs = append(errs, "生产环境启用 Redis 时必须通过 REDIS_PASSWORD 配置非空鉴权口令")
 		}
 	}
 
@@ -272,6 +276,9 @@ func LoadConfig(path string) (*Config, error) {
 	if v := os.Getenv("CORS_ALLOWED_ORIGINS"); v != "" {
 		AppConfig.Security.CORSAllowedOrigins = v
 	}
+	if v := os.Getenv("TRUSTED_PROXIES"); v != "" {
+		AppConfig.Security.TrustedProxies = v
+	}
 	if v := os.Getenv("AI_API_KEY"); v != "" {
 		AppConfig.AI.APIKey = v
 		AppConfig.AI.Enabled = true
@@ -284,6 +291,9 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if v := os.Getenv("REDIS_ADDR"); v != "" {
 		AppConfig.Redis.Addr = v
+	}
+	if v := os.Getenv("REDIS_PASSWORD"); v != "" {
+		AppConfig.Redis.Password = v
 	}
 	if v := os.Getenv("FABRIC_PEER_ENDPOINT"); v != "" {
 		AppConfig.Blockchain.Fabric.PeerEndpoint = v

@@ -37,7 +37,7 @@
       </div>
     </template>
 
-    <div class="pec-grid">
+    <div v-if="displayedExamRecords.length > 0" class="pec-grid">
       <div
         v-for="exam in displayedExamRecords"
         :key="'exam-' + exam.id"
@@ -198,6 +198,11 @@
         </div>
       </div>
     </div>
+    <el-empty
+      v-else
+      description="当前筛选条件下暂无阳性/异常检查报告，可关闭上方「仅看阳性/异常」开关查看全部报告"
+      :image-size="60"
+    />
   </el-card>
 </template>
 

@@ -209,9 +209,14 @@ func (ctrl *AuthController) UploadAvatar(c *gin.Context) {
 		return
 	}
 
+	if err := security.ValidateImageFile(file.Filename, buf); err != nil {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: err.Error()})
+		return
+	}
+
 	contentType := http.DetectContentType(buf)
-	if !strings.HasPrefix(contentType, "image/") {
-		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "上传的文件不是有效的图片格式"})
+	if contentType != "image/png" && contentType != "image/jpeg" && contentType != "image/gif" && contentType != "image/webp" {
+		c.JSON(http.StatusBadRequest, model.Response{Code: 400, Message: "头像仅支持 PNG, JPEG, GIF, WEBP 图片格式"})
 		return
 	}
 

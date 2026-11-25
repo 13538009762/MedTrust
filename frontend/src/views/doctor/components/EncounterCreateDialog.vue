@@ -17,8 +17,7 @@
         </div>
       </div>
       <div class="ws-header-right">
-        <InfectionSafetyAlert v-if="selPid && ia?.has_risk" :alert="ia!" mode="badge" />
-        <el-button plain size="small" @click="$emit('cancel')">取消退出</el-button>
+        <InfectionSafetyAlert ref="localInfectionAlertRef" v-if="selPid && ia?.has_risk" :alert="ia!" mode="badge" />
       </div>
     </div>
 
@@ -89,8 +88,8 @@
                 <div class="ppt-meta">
                   <div class="ppt-name-row">
                     <span class="ppt-name">{{ pi.real_name || pi.username }}</span>
-                    <el-tag size="small" :type="pi.gender === 'FEMALE' ? 'danger' : 'primary'" effect="plain">
-                      {{ pi.gender === 'FEMALE' ? '女' : '男' }} / {{ pi.age || 45 }}岁
+                    <el-tag size="small" :type="pi.gender === 'FEMALE' || pi.gender === '女' ? 'danger' : 'primary'" effect="plain">
+                      {{ pi.gender === 'FEMALE' || pi.gender === '女' ? '女' : (pi.gender ? '男' : '性别未登记') }} / {{ pi.age ? `${pi.age}岁` : '年龄未登记' }}
                     </el-tag>
                   </div>
                   <div class="ppt-no mono">卡号: {{ pi.user_no }}</div>
@@ -121,7 +120,7 @@
               <div v-if="ia?.has_risk" class="patient-infection-alert-box">
                 <div class="pia-head">
                   <div class="pia-title"><el-icon class="pia-icon"><WarningFilled /></el-icon><span>医护安全防护专项预警</span></div>
-                  <el-button type="danger" link size="small" class="pia-guide-link" @click="$emit('openInfectionGuide')">防护规程 ></el-button>
+                  <el-button type="danger" link size="small" class="pia-guide-link" @click="handleOpenInfectionGuide">防护规程 ></el-button>
                 </div>
                 <div class="pia-body">
                   <div class="pia-disease"><span class="pia-label">确诊携带：</span><strong class="pia-disease-name">{{ alertDiseasesName }}</strong></div>
@@ -205,25 +204,25 @@
                 <el-col :span="12">
                   <el-form-item label="体温 (T)">
                     <el-input v-model="vitals.temperature" placeholder="36.5"><template #suffix><span class="unit-text">℃</span></template></el-input>
-                    <div class="vital-ref-indicator mt-1"><span class="vital-badge-tag normal">正常 (36.0~37.2℃)</span></div>
+                    <div class="vital-ref-indicator mt-1"><span :class="['vital-badge-tag', tempBadge.level]">{{ tempBadge.label }}</span></div>
                   </el-form-item>
                 </el-col>
                 <el-col :span="12">
                   <el-form-item label="血压 (BP)">
                     <el-input v-model="vitals.blood_pressure" placeholder="125/80"><template #suffix><span class="unit-text">mmHg</span></template></el-input>
-                    <div class="vital-ref-indicator mt-1"><span :class="['vital-badge-tag', bpElevated ? 'elevated' : 'normal']">{{ bpBadgeText }}</span></div>
+                    <div class="vital-ref-indicator mt-1"><span :class="['vital-badge-tag', bpBadge.level]">{{ bpBadge.label }}</span></div>
                   </el-form-item>
                 </el-col>
                 <el-col :span="12">
                   <el-form-item label="心率/脉搏 (HR)">
                     <el-input v-model="vitals.heart_rate" placeholder="78"><template #suffix><span class="unit-text">bpm</span></template></el-input>
-                    <div class="vital-ref-indicator mt-1"><span class="vital-badge-tag normal">正常 (60~100 bpm)</span></div>
+                    <div class="vital-ref-indicator mt-1"><span :class="['vital-badge-tag', hrBadge.level]">{{ hrBadge.label }}</span></div>
                   </el-form-item>
                 </el-col>
                 <el-col :span="12">
                   <el-form-item label="血氧 (SpO2)">
                     <el-input v-model="vitals.spo2" placeholder="98"><template #suffix><span class="unit-text">%</span></template></el-input>
-                    <div class="vital-ref-indicator mt-1"><span class="vital-badge-tag normal">正常 (≥95%)</span></div>
+                    <div class="vital-ref-indicator mt-1"><span :class="['vital-badge-tag', spo2Badge.level]">{{ spo2Badge.label }}</span></div>
                   </el-form-item>
                 </el-col>
               </el-row>
@@ -244,7 +243,6 @@
             </div>
             <div class="symptom-input-with-action mb-3">
               <el-input v-model="initForm.chief_complaint" placeholder="简明记录患者就诊主要症状和持续时间，例如：胸闷心悸伴气促2天，劳累后加剧" class="symptom-flex-input" />
-              <el-button class="btn-trigger-ai-inline" @click="$emit('openAiDiagnosticAssist')"><el-icon><DocumentChecked /></el-icon><span>SOAP汇总与线索</span></el-button>
             </div>
             <el-form-item label="现病史与诱因 (Present Illness)">
               <el-input v-model="initForm.present_illness" type="textarea" :rows="2" placeholder="详细记录起病情况、主要症状特点、伴随症状、诱因及既往诊治经过" />
@@ -255,7 +253,14 @@
           <div class="ws-card">
             <div class="ws-card-title"><span class="step-badge">5</span><span>临床决策与诊疗路径选择 (Clinical Decision)</span></div>
             <div class="decision-mode-bento mb-3">
-              <div class="decision-option-card" :class="{ active: m === 'DIRECT' }" @click="m = 'DIRECT'; $emit('generateDirectSoap')">
+              <div
+                class="decision-option-card"
+                role="button"
+                tabindex="0"
+                :class="{ active: m === 'DIRECT' }"
+                @click="m = 'DIRECT'; $emit('generateDirectSoap')"
+                @keydown.enter.space.prevent="m = 'DIRECT'; $emit('generateDirectSoap')"
+              >
                 <div class="doc-radio-circle"><div v-if="m === 'DIRECT'" class="doc-radio-inner" /></div>
                 <div class="doc-content">
                   <div class="doc-title-row">
@@ -265,7 +270,14 @@
                   <div class="doc-desc">适用于门诊常规、轻症或体征典型患者。直接下达确诊与处方方案，同步完成 AES-256 加密与 Fabric 联盟链存证，无需开立辅助检查。</div>
                 </div>
               </div>
-              <div class="decision-option-card" :class="{ active: m === 'EXAM' }" @click="m = 'EXAM'">
+              <div
+                class="decision-option-card"
+                role="button"
+                tabindex="0"
+                :class="{ active: m === 'EXAM' }"
+                @click="m = 'EXAM'"
+                @keydown.enter.space.prevent="m = 'EXAM'"
+              >
                 <div class="doc-radio-circle"><div v-if="m === 'EXAM'" class="doc-radio-inner" /></div>
                 <div class="doc-content">
                   <div class="doc-title-row">
@@ -483,6 +495,12 @@ import HashCapsule from '@/components/common/HashCapsule.vue'
 import { hasRealAllergy } from '@/utils/emergencyPatientUtils'
 import { filterPatientOptions } from '@/utils/patientSearchUtils'
 import {
+  evaluateTemperature,
+  evaluateBloodPressure,
+  evaluateHeartRate,
+  evaluateSpo2,
+} from '@/utils/vitalSignsEvaluator'
+import {
   buildHistoryClueSnippet,
   cleanClinicalText,
   formatEncounterType,
@@ -490,14 +508,13 @@ import {
   isRecordAccessible,
   resolveChainVerifyStatus
 } from '@/utils/timelineFormatters'
-import type { PatientOption, PrescriptionPreset, EncounterInitForm, VitalSigns, DiagnosisFormState, EncounterMode, MedicalRecordRow } from '@/types/clinical'
-import type { InfectionRiskAlert } from '@/utils/infectionGuard'
+import type { PatientOption, PrescriptionPreset, EncounterInitForm, VitalSigns, DiagnosisFormState, EncounterMode, MedicalRecordRow, InfectionAlert } from '@/types/clinical'
 
 interface Props {
   patientList: PatientOption[]
   selPid?: number
   si: PatientOption | null
-  ia: InfectionRiskAlert | null
+  ia: InfectionAlert | null
   initForm: EncounterInitForm
   vitals: VitalSigns
   directForm: DiagnosisFormState
@@ -596,18 +613,19 @@ const alertDiseasesName = computed(() => {
   return Array.isArray(diseases) ? diseases.map((d) => d.name).join('、') : (a.summary || '')
 })
 
-const bpElevated = computed(() => {
-  const bp = props.vitals.blood_pressure
-  return bp && (bp.startsWith('14') || bp.startsWith('15') || bp.startsWith('16'))
-})
-
-const bpBadgeText = computed(() => {
-  const bp = props.vitals.blood_pressure
-  if (bp && (bp.startsWith('14') || bp.startsWith('15') || bp.startsWith('16'))) {
-    return '↑ 偏高 (参考 <130/80)'
+const localInfectionAlertRef = ref<{ openGuideModal?: () => void } | null>(null)
+function handleOpenInfectionGuide() {
+  if (localInfectionAlertRef.value?.openGuideModal) {
+    localInfectionAlertRef.value.openGuideModal()
+  } else {
+    emit('openInfectionGuide')
   }
-  return '正常 (<130/80)'
-})
+}
+
+const tempBadge = computed(() => evaluateTemperature(props.vitals.temperature))
+const bpBadge = computed(() => evaluateBloodPressure(props.vitals.blood_pressure))
+const hrBadge = computed(() => evaluateHeartRate(props.vitals.heart_rate))
+const spo2Badge = computed(() => evaluateSpo2(props.vitals.spo2))
 
 function idCard(v?: string): boolean { return !!v && v.length >= 8 }
 function maskID(idCard?: string): string {

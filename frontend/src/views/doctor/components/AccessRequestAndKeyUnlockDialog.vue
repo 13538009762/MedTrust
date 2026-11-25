@@ -160,7 +160,7 @@
               type="password"
               show-password
               size="large"
-              placeholder="请输入患者专属病历调阅密钥（初始默认: 123456）"
+              placeholder="请由患者本人输入专属病历调阅密钥"
               :prefix-icon="Key"
               class="pk-key-input"
               @keyup.enter="$emit('unlock-by-key')"
@@ -195,7 +195,7 @@
             </div>
           </div>
           <div class="pk-tip">
-            <span>提示：患者登录个人账号可在【数据授权管理】随时修改此密钥；初始默认密钥为 <code>123456</code>。</span>
+            <span>提示：患者登录个人端可在【授权策略管理】或【个人中心】自主设置或修改专属调阅密钥。</span>
           </div>
         </div>
 
@@ -308,7 +308,7 @@
       <template v-else>
         <el-button
           type="danger"
-          :disabled="!bgForm.doctor_confirmed || !bgForm.description || restricted"
+          :disabled="!bgForm.doctor_confirmed || bgForm.description.trim().length < 10 || restricted"
           :loading="submittingBG"
           @click="$emit('submit-break-glass')"
         >

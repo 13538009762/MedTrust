@@ -10,15 +10,18 @@
     <el-dialog
       v-model="visible"
       title="MedTrust 受控 AI 智能辅助查询"
-      width="580px"
+      width="min(580px, 92vw)"
       append-to-body
       class="ai-dialog"
       :show-close="true"
     >
       <div class="ai-chat-container">
-        <div class="ai-safety-notice">
-          <el-icon><CircleCheck /></el-icon>
-          <span>受控边界：AI 严禁直连数据库，全量查询携带当前 Token 经 Go 网关鉴权</span>
+        <div class="ai-safety-notice flex justify-between items-center gap-2">
+          <div class="flex items-center gap-2">
+            <el-icon><CircleCheck /></el-icon>
+            <span>受控边界：仅在当前账号获权范围内检索，不构成临床诊断</span>
+          </div>
+          <el-button link type="info" size="small" @click="resetConversation">清空对话</el-button>
         </div>
 
         <div class="chat-messages" ref="msgContainer">
@@ -36,16 +39,16 @@
             <div class="bubble-content">
               <div class="bubble-text" style="white-space: pre-wrap;">{{ msg.text }}</div>
 
-              <!-- 受控工具调用链可视化看板 (论文 3.4 节核心支撑) -->
-              <div v-if="msg.tool_trace && msg.tool_trace.length" class="tool-trace-block mt-3">
-                <div class="trace-header">
+              <!-- 受控工具调用链可视化看板（默认折叠减少认知负担，点击展开核验） -->
+              <details v-if="msg.tool_trace && msg.tool_trace.length" class="tool-trace-block mt-3">
+                <summary class="trace-header cursor-pointer">
                   <div class="trace-header-left">
                     <el-icon class="text-indigo-600 mr-1"><Connection /></el-icon>
-                    <span class="trace-header-title">受控工具链执行轨迹 (Single Gatekeeper Trace)</span>
+                    <span class="trace-header-title">安全网关鉴权轨迹（共 {{ msg.tool_trace.length }} 步 · 点击展开详情）</span>
                   </div>
-                  <el-tag size="small" type="success" effect="plain">已透传当前 JWT</el-tag>
-                </div>
-                <div class="trace-items-list">
+                  <el-tag size="small" type="success" effect="plain">权限校验通过</el-tag>
+                </summary>
+                <div class="trace-items-list mt-2">
                   <div
                     v-for="(trace, tIdx) in msg.tool_trace"
                     :key="tIdx"
@@ -64,33 +67,33 @@
                     </div>
                     <div class="trace-card-meta">
                       <div class="meta-row">
-                        <span class="lbl">Go 安全网关端点:</span>
+                        <span class="lbl">安全网关端点:</span>
                         <code class="val-mono">{{ trace.endpoint }}</code>
                       </div>
                       <div class="meta-row" v-if="trace.gate1_guard">
-                        <span class="lbl font-bold" style="color: #4338ca;">关卡1 (Go规则守门):</span>
+                        <span class="lbl font-bold" style="color: #4338ca;">关卡1 (规则守门):</span>
                         <span class="val-text" :class="trace.status_code === 200 ? 'text-emerald-700' : 'text-rose-700'">
                           {{ trace.gate1_guard }}
                         </span>
                       </div>
                       <div class="meta-row" v-if="trace.gate2_semantic">
-                        <span class="lbl font-bold" style="color: #7e22ce;">关卡2 (受控语义提炼):</span>
+                        <span class="lbl font-bold" style="color: #7e22ce;">关卡2 (受控提炼):</span>
                         <span class="val-text text-purple-800">{{ trace.gate2_semantic }}</span>
                       </div>
                       <div class="meta-row" v-if="trace.gate3_post_check">
-                        <span class="lbl font-bold" style="color: #0f766e;">关卡3 (Go后置核验):</span>
+                        <span class="lbl font-bold" style="color: #0f766e;">关卡3 (后置核验):</span>
                         <span class="val-text text-teal-800">{{ trace.gate3_post_check }}</span>
                       </div>
                       <div class="meta-row" v-if="!trace.gate1_guard">
                         <span class="lbl">访问控制审查:</span>
                         <span class="val-text" :class="trace.status_code === 200 ? 'text-emerald-700' : 'text-rose-700'">
-                          {{ trace.status_code === 200 ? 'RBAC角色匹配 + ABAC环境属性校验通过' : '未取得目标数据访问授权 (403 Forbidden)' }}
+                          {{ trace.status_code === 200 ? '角色与环境属性权限校验通过' : '未取得目标数据访问授权 (403)' }}
                         </span>
                       </div>
                     </div>
                   </div>
                 </div>
-              </div>
+              </details>
               <div v-else-if="msg.tool" class="tool-tag mt-2">
                 <el-tag size="small" type="info" effect="plain">
                   <el-icon class="mr-1"><Connection /></el-icon>
@@ -111,12 +114,13 @@
           </div>
         </div>
 
-        <!-- 推荐快捷提问 -->
+        <!-- 按当前登录角色动态推荐的快捷提问 -->
         <div class="quick-prompts">
           <el-tag
             v-for="(p, i) in quickPrompts"
             :key="i"
             class="prompt-chip"
+            :class="{ 'is-disabled-chip': loading }"
             @click="sendQuick(p)"
             effect="plain"
           >
@@ -127,12 +131,13 @@
         <div class="chat-input-row">
           <el-input
             v-model="inputMsg"
-            placeholder="输入自然语言指令，如：查询张三最近的检查记录"
+            :placeholder="inputPlaceholder"
             @keyup.enter="handleSend"
             :disabled="loading"
           >
             <template #append>
-              <el-button type="primary" :loading="loading" @click="handleSend">发送</el-button>
+              <el-button v-if="loading" type="danger" plain @click="cancelRequest">停止</el-button>
+              <el-button v-else type="primary" @click="handleSend">发送</el-button>
             </template>
           </el-input>
         </div>
@@ -142,7 +147,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onUnmounted } from 'vue'
 import axios from 'axios'
 import { Search, CircleCheck, Loading, Connection } from '@element-plus/icons-vue'
 import { useAuthStore } from '../stores/auth'
@@ -152,6 +157,7 @@ const inputMsg = ref('')
 const loading = ref(false)
 const msgContainer = ref<HTMLDivElement | null>(null)
 const auth = useAuthStore()
+let activeAbort: AbortController | null = null
 
 interface ToolTraceItem {
   tool: string
@@ -171,26 +177,79 @@ interface Message {
   tool_trace?: ToolTraceItem[]
 }
 
-const messages = ref<Message[]>([
-  {
-    sender: 'ai',
-    text: '您好！我是 MedTrust 医疗数据受控检索助手。您可以查询病历检索、跨院既往史 SOAP 汇总、患者授权策略或发起防篡改核验。\n\n合规声明：本工具仅用于辅助安全查询与合规审计，不涉及任何疾病诊断与处方建议。\n\n示例提问：\n• "查询张三最近的检查记录"\n• "我现在授权了哪些医生？"\n• "核验病历1的区块链防篡改哈希"',
+const quickPrompts = computed<string[]>(() => {
+  const role = auth.user?.role
+  if (role === 'patient') {
+    return [
+      '我现在授权了哪些医生？',
+      '查询我的最近就诊病历',
+      '查看近期有没有紧急破窗调阅通知',
+    ]
   }
-])
+  if (role === 'supervisor') {
+    return [
+      '今天有哪些高风险调阅事件？',
+      '查看待审核的紧急访问事件',
+      '核验病历1的防篡改状态',
+    ]
+  }
+  if (role === 'admin') {
+    return [
+      '查看全网存证与风险概况',
+      '今天有哪些高风险调阅事件？',
+    ]
+  }
+  return [
+    '查询张三最近的检查记录',
+    '核验病历1的防篡改状态',
+    '查询本院近期接诊记录',
+  ]
+})
 
-const quickPrompts = [
-  '查询张三最近的检查记录',
-  '我现在授权了哪些医生？',
-  '核验病历1的防篡改状态',
-  '今天有哪些高风险调阅事件？',
-]
+const inputPlaceholder = computed(() => {
+  const first = quickPrompts.value[0]
+  return first ? `输入自然语言指令，如：${first}` : '输入您要检索的医疗数据问题...'
+})
+
+function buildWelcomeMessage(): Message {
+  const examples = quickPrompts.value.map((q) => `• "${q}"`).join('\n')
+  return {
+    sender: 'ai',
+    text: `您好！我是 MedTrust 医疗数据受控检索助手。所有查询均严格受限于您的当前身份权限，不涉及疾病诊断与处方建议。\n\n您可以这样问我：\n${examples}`,
+  }
+}
+
+const messages = ref<Message[]>([buildWelcomeMessage()])
+
+watch(() => auth.user?.id, () => {
+  messages.value = [buildWelcomeMessage()]
+})
+
+function resetConversation() {
+  cancelRequest()
+  messages.value = [buildWelcomeMessage()]
+}
+
+function cancelRequest() {
+  if (activeAbort) {
+    activeAbort.abort()
+    activeAbort = null
+  }
+  loading.value = false
+}
+
+onUnmounted(() => {
+  cancelRequest()
+})
 
 function sendQuick(text: string) {
+  if (loading.value) return
   inputMsg.value = text
   handleSend()
 }
 
 async function handleSend() {
+  if (loading.value) return
   const query = inputMsg.value.trim()
   if (!query) return
 
@@ -198,6 +257,9 @@ async function handleSend() {
   inputMsg.value = ''
   loading.value = true
   scrollToBottom()
+
+  const controller = new AbortController()
+  activeAbort = controller
 
   try {
     const aiChatUrl = `${(import.meta.env.VITE_AI_BASE_URL || '/api/v1/ai').replace(/\/$/, '')}/chat`
@@ -208,7 +270,8 @@ async function handleSend() {
         headers: {
           Authorization: `Bearer ${auth.token}`,
         },
-        timeout: 15000,
+        timeout: 30000,
+        signal: controller.signal,
       }
     )
 
@@ -228,13 +291,19 @@ async function handleSend() {
       })
     }
   } catch (err: unknown) {
-    let errMsg = 'AI 智能体服务暂不可达，请确认 ai_agent 服务（端口 8000）及后端网关运行正常。'
+    if (axios.isCancel(err)) {
+      messages.value.push({ sender: 'ai', text: '已停止本次检索请求。' })
+      return
+    }
+    let errMsg = '智能检索服务暂时繁忙或不可达，请稍后重试。'
     if (axios.isAxiosError(err)) {
       const detail = err.response?.data?.detail || err.response?.data?.message
       if (err.response?.status === 401) {
-        errMsg = `会话鉴权未通过 (${detail || '请重新登录'})`
+        errMsg = `会话鉴权未通过 (${detail || '请重新登录后再试'})`
+      } else if (err.response?.status === 403) {
+        errMsg = `当前账号无权执行该项数据查询（${detail || '已由安全网关合规拦截'}）`
       } else if (detail) {
-        errMsg = `AI 服务返回异常：${detail}`
+        errMsg = `服务提示：${detail}`
       }
     }
     messages.value.push({
@@ -242,7 +311,10 @@ async function handleSend() {
       text: errMsg,
     })
   } finally {
-    loading.value = false
+    if (activeAbort === controller) {
+      activeAbort = null
+      loading.value = false
+    }
     scrollToBottom()
   }
 }
@@ -295,7 +367,7 @@ function scrollToBottom() {
   margin-bottom: 12px;
 }
 .chat-messages {
-  height: 380px;
+  height: min(380px, 52vh);
   overflow-y: auto;
   padding: 12px 4px;
   display: flex;
@@ -436,6 +508,10 @@ function scrollToBottom() {
   background: var(--mt-primary-soft, #f0f9ff);
   color: var(--mt-primary, #0284c7);
   border-color: var(--mt-primary-border, #bae6fd);
+}
+.prompt-chip.is-disabled-chip {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 .chat-input-row {
   margin-top: 4px;

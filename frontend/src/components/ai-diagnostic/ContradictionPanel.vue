@@ -4,17 +4,17 @@
     <div class="pane-tip-row mb-3">
       <span>通过跨机构病历交叉比对，识别不同医院之间关于慢病、过敏或用药依从性的自述差异：</span>
     </div>
-    <div class="contradictions-grid">
+    <div v-if="(result.semantic_contradictions || []).length > 0" class="contradictions-grid">
       <div
         v-for="(ct, ctIdx) in (result.semantic_contradictions || [])"
         :key="ctIdx"
         class="ct-card"
-        :class="ct.contradiction_type.includes('正常') ? 'ct-success' : 'ct-warning'"
+        :class="String(ct.contradiction_type || '').includes('正常') ? 'ct-success' : 'ct-warning'"
       >
         <div class="ct-top-row">
-          <span class="ct-tag font-bold">{{ ct.contradiction_type }}</span>
-          <el-tag size="small" :type="ct.contradiction_type.includes('正常') ? 'success' : 'warning'">
-            {{ ct.contradiction_type.includes('正常') ? '比对一致' : '需当面核实' }}
+          <span class="ct-tag font-bold">{{ ct.contradiction_type || '语义差异提示' }}</span>
+          <el-tag size="small" :type="String(ct.contradiction_type || '').includes('正常') ? 'success' : 'warning'">
+            {{ String(ct.contradiction_type || '').includes('正常') ? '比对一致' : '需当面核实' }}
           </el-tag>
         </div>
         <div class="ct-desc mt-2">{{ ct.description }}</div>
@@ -24,6 +24,7 @@
         </div>
       </div>
     </div>
+    <el-empty v-else description="跨院历史病历比对一致，暂未发现明显语义矛盾" :image-size="60" />
   </div>
 </template>
 

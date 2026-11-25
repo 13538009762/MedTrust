@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, type CSSProperties } from 'vue'
+import { computed, ref, watch, type CSSProperties } from 'vue'
 import {
   Clock,
   Document,
@@ -72,6 +72,12 @@ const accessibleCount = computed<number>(
 const lockedCount = computed<number>(
   () => sortedRecords.value.filter((r) => !isRecordAccessible(r)).length
 )
+
+watch(lockedCount, (cnt) => {
+  if (cnt === 0 && filterMode.value === 'LOCKED') {
+    filterMode.value = 'ALL'
+  }
+})
 
 const tamperedCount = computed<number>(
   () => sortedRecords.value.filter((r) => Boolean(r.is_tampered)).length
@@ -155,6 +161,14 @@ function formatExamAndTreatment(rec: MedicalRecordRow): string {
   if (rec.treatment_plan) segments.push(`处置：${cleanClinicalText(rec.treatment_plan)}`)
   return segments.join(' ｜ ')
 }
+
+function needsExpandToggle(rec: MedicalRecordRow): boolean {
+  return (
+    formatPhenomenon(rec).length > 52 ||
+    formatEtiology(rec).length > 52 ||
+    formatExamAndTreatment(rec).length > 52
+  )
+}
 </script>
 
 <template>
@@ -212,7 +226,7 @@ function formatExamAndTreatment(rec: MedicalRecordRow): string {
         {{ sortedRecords.length > 0 ? '当前筛选条件下暂无病例节点' : emptyDescription }}
       </p>
       <p class="pct-empty-sub">
-        {{ sortedRecords.length > 0 ? '请切换上方授权筛选查看其他历史节点' : '若患者存在跨机构就诊记录，可在右侧跨机构查询发起调阅' }}
+        {{ sortedRecords.length > 0 ? '请切换上方授权筛选查看其他历史节点' : '若患者存在外院就诊记录，可前往「跨院病历查询」申请调阅' }}
       </p>
     </div>
 
@@ -371,7 +385,7 @@ function formatExamAndTreatment(rec: MedicalRecordRow): string {
                 </div>
               </div>
 
-              <div v-if="compact" class="pct-expand-row">
+              <div v-if="compact && needsExpandToggle(rec)" class="pct-expand-row">
                 <button
                   type="button"
                   class="pct-link-btn"
@@ -396,7 +410,7 @@ function formatExamAndTreatment(rec: MedicalRecordRow): string {
                   区块 #{{ rec.block_height }}
                 </span>
                 <span v-if="rec.files && rec.files.length > 0" class="pct-file-chip">
-                  {{ rec.files.length }} 份影像附件
+                  {{ rec.files.length }} 份病历/检查附件
                 </span>
               </div>
 

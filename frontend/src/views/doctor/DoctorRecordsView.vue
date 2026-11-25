@@ -40,7 +40,7 @@
         :direct-form="directForm"
         :presets="prescriptionPresets"
         :submitting="submitting"
-        :doctor-info="auth.user?.real_name || '陈建明' + ' (' + (auth.user?.title || '主任医师') + ' · ' + (auth.user?.department_name || '心血管内科') + ')'"
+        :doctor-info="`${auth.user?.real_name || '经治医师'} (${auth.user?.title || '执业医师'} · ${auth.user?.department_name || '临床科室'})`"
         :timeline-records="patientTimelineRecords"
         :timeline-loading="patientTimelineLoading"
         :current-hospital-id="auth.user?.hospital_id"
@@ -142,7 +142,7 @@
     <!-- 链上完整性防篡改核验弹窗 -->
     <RecordIntegrityDialog
       v-model="integrityDialogVisible" :result="integrityResult" :loading="verifyingIntegrity"
-      @download="downloadRecordFile(Number($event) ?? Number(previewingRecord?.id))"
+      @download="downloadRecordFile(Number($event || previewingRecord?.id))"
     />
 
     <!-- 跨院既往病史 SOAP 简明汇总与隐匿线索提取弹窗 -->
@@ -276,8 +276,8 @@ function maskID(idCard?: string) {
 
 function formatHospName(hId?: number) {
   if (hId === 1) return '第一人民医院'
-  if (hId === 2) return '第二人民医院'
-  if (hId === 3) return '第三人民医院'
+  if (hId === 2) return '省立中心医院'
+  if (hId === 3) return '协和医学中心'
   return '医疗中心'
 }
 

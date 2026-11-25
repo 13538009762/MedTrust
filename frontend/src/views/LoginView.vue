@@ -26,7 +26,7 @@
             可信存证 · 动态访问 · <span class="text-gradient">临床协同摘要</span>
           </h1>
           <p class="hero-subtitle">
-            面向跨医院医疗协同共享场景，构建链下 IPFS 密文存储与 Fabric 账本锚定协同机制，打造轻量严密的 Break-Glass 紧急访问闭环。
+            面向跨医院医疗协同共享场景，构建链下 IPFS 密文存储与 Fabric 账本锚定协同机制，打造轻量严密的急诊破窗紧急访问闭环。
           </p>
 
           <div class="feature-list">
@@ -46,7 +46,7 @@
             <div class="intro-card-left">
               <h3>医疗数据可信共享平台 2.0</h3>
               <p>
-                面向广州第一人民医院（总院）、深圳第二人民医院（跨域互认中心）、北京朝阳医院（远程协作分部）等多方参与的医联体协作网络。通过 AES-256-GCM 客户端加密与 IPFS 结合，有效规避账本膨胀；以统一安全网关收口权限校验，提供合规可溯源的急救访问闭环。
+                面向第一人民医院（总院）、省立中心医院（跨域互认中心）、协和医学中心（远程协作分部）等多方参与的医联体协作网络。通过 AES-256-GCM 客户端加密与 IPFS 结合，有效规避账本膨胀；以统一安全网关收口权限校验，提供合规可溯源的急救访问闭环。
               </p>
             </div>
             <img src="/emblem.png" class="intro-card-emblem" alt="MedTrust 3D Shield" />
@@ -161,10 +161,10 @@
                 class="mb-3"
               />
 
-              <el-form :model="regForm" class="login-form" @submit.prevent="handleRegister">
+              <el-form :model="regForm" label-position="top" class="login-form" @submit.prevent="handleRegister">
                 <el-row :gutter="10">
                   <el-col :span="12">
-                    <el-form-item class="reg-form-item">
+                    <el-form-item label="真实姓名" required class="reg-form-item">
                       <el-input
                         v-model="regForm.real_name"
                         placeholder="就诊人真实姓名"
@@ -173,7 +173,7 @@
                     </el-form-item>
                   </el-col>
                   <el-col :span="12">
-                    <el-form-item class="reg-form-item">
+                    <el-form-item label="登录账号名" required class="reg-form-item">
                       <el-input
                         v-model="regForm.username"
                         placeholder="登录账号名 (如 pat_wang)"
@@ -183,7 +183,7 @@
                   </el-col>
                 </el-row>
 
-                <el-form-item class="reg-form-item">
+                <el-form-item label="居民身份证号" required class="reg-form-item">
                   <el-input
                     v-model="regForm.id_card"
                     placeholder="18位居民身份证号（跨院精准防重名索引）"
@@ -193,30 +193,30 @@
                   <div class="field-tip">用于跨医院就诊调阅时精准唯一定位健康档案，杜绝同名混淆</div>
                 </el-form-item>
 
-                <el-form-item class="reg-form-item">
+                <el-form-item label="联系手机号" required class="reg-form-item">
                   <el-input
                     v-model="regForm.phone"
                     placeholder="11位手机号码（接收急诊调阅即时通知）"
                     :prefix-icon="Iphone"
                     maxlength="11"
                   />
-                  <div class="field-tip">当发生 Break-Glass 紧急抢救破窗调阅时，系统将向该手机推送知情预警</div>
+                  <div class="field-tip">当发生急诊抢救紧急破窗调阅时，系统将实时向您推送知情预警</div>
                 </el-form-item>
 
                 <el-row :gutter="10">
                   <el-col :span="12">
-                    <el-form-item class="reg-form-item">
+                    <el-form-item label="登录密码" required class="reg-form-item">
                       <el-input
                         v-model="regForm.password"
                         type="password"
-                        placeholder="设置登录密码 (≥6位)"
+                        placeholder="设置登录密码 (≥8位，含字母与数字)"
                         :prefix-icon="Lock"
                         show-password
                       />
                     </el-form-item>
                   </el-col>
                   <el-col :span="12">
-                    <el-form-item class="reg-form-item">
+                    <el-form-item label="确认密码" required class="reg-form-item">
                       <el-input
                         v-model="regForm.confirm_password"
                         type="password"
@@ -262,6 +262,7 @@ import {
 import { ElMessage, ElNotification, ElMessageBox } from 'element-plus'
 import { getCaptchaApi, loginApi, registerApi } from '../api'
 import { useAuthStore } from '../stores/auth'
+import { validatePasswordStrength, isErrorToastShown, extractApiErrorMessage } from '../utils/passwordPolicy'
 
 const mode = ref<'login' | 'register'>('login')
 const username = ref('')
@@ -357,14 +358,14 @@ const features = [
     bg: '#f0f9ff',
   },
   {
-    title: 'Break-Glass 破窗急救放行',
-    desc: '急危重症患者抢救时启动紧急访问通道，即时解密放行，并同步异步上链记录生成闭环审计工单。',
+    title: '急诊抢救破窗放行',
+    desc: '急危重症患者抢救时启动紧急访问通道，即时解密放行，并同步上链记录生成闭环监管审计工单。',
     icon: KeyIcon,
     bg: '#fef2f2',
   },
   {
     title: '受控医疗数据检索助理',
-    desc: '严守工程与合规边界，仅作为自然语言意图转换器，携带当前 JWT 经由 Go 统一网关鉴权交互。',
+    desc: '严守医疗数据权限与合规边界，仅在当前登录身份获权范围内辅助检索病历与汇总临床线索。',
     icon: CircleCheck,
     bg: '#f0f9ff',
   },
@@ -411,6 +412,12 @@ async function handleLogin() {
       auth.setAuth(res.data.token, res.data.user)
       ElMessage.success(`登录成功！欢迎回来，${res.data.user.real_name}`)
 
+      const redirectTarget = typeof route.query.redirect === 'string' ? route.query.redirect : ''
+      if (redirectTarget && redirectTarget.startsWith('/') && !redirectTarget.startsWith('//') && !redirectTarget.startsWith('/login')) {
+        router.push(redirectTarget)
+        return
+      }
+
       const role = res.data.user.role
       if (role === 'doctor') {
         if (res.data.user.username?.startsWith('tech_')) {
@@ -428,8 +435,10 @@ async function handleLogin() {
         router.push('/')
       }
     }
-  } catch (err: any) {
-    ElMessage.error(err?.message || '登录失败，请检查账号密码')
+  } catch (err: unknown) {
+    if (!isErrorToastShown(err)) {
+      ElMessage.error(extractApiErrorMessage(err, '登录失败，请检查账号密码'))
+    }
     fetchCaptcha()
   } finally {
     loading.value = false
@@ -453,8 +462,9 @@ async function handleRegister() {
     ElMessage.warning('请输入正确的11位手机号码')
     return
   }
-  if (!regForm.value.password || regForm.value.password.length < 6) {
-    ElMessage.warning('登录密码长度不能少于 6 位')
+  const pwdError = validatePasswordStrength(regForm.value.password)
+  if (pwdError) {
+    ElMessage.warning(pwdError)
     return
   }
   if (regForm.value.password !== regForm.value.confirm_password) {
@@ -479,13 +489,16 @@ async function handleRegister() {
         type: 'success',
         duration: 5000
       })
-      // 自动切回登录并填充
+      // 自动切回登录并填充，同时刷新验证码避免长时间填表导致旧验证码过期
       username.value = regForm.value.username
       password.value = regForm.value.password
       mode.value = 'login'
+      fetchCaptcha()
     }
-  } catch (err: any) {
-    ElMessage.error(err?.message || '注册失败')
+  } catch (err: unknown) {
+    if (!isErrorToastShown(err)) {
+      ElMessage.error(extractApiErrorMessage(err, '注册失败'))
+    }
   } finally {
     regLoading.value = false
   }
@@ -913,6 +926,66 @@ async function handleRegister() {
   font-size: 12px;
   color: #10b981;
   font-weight: 500;
+}
+
+.reg-form-item :deep(.el-form-item__label) {
+  padding-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  line-height: 1.3;
+}
+
+@media (max-width: 1080px) {
+  .top-nav {
+    padding: 16px 24px 0;
+  }
+  .logo-section {
+    margin-left: 0;
+  }
+  .main-content {
+    flex-direction: column-reverse;
+    justify-content: flex-start;
+    padding: 16px 24px 32px;
+    gap: 24px;
+  }
+  .hero-area {
+    margin-left: 0;
+    max-width: 100%;
+    width: 100%;
+  }
+  .login-panel {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+  }
+  .login-glass-card {
+    width: min(460px, 100%);
+  }
+}
+
+@media (max-width: 640px) {
+  .top-nav {
+    padding: 12px 16px 0;
+    height: auto;
+  }
+  .app-name,
+  .divider {
+    display: none;
+  }
+  .main-content {
+    padding: 12px 16px 24px;
+  }
+  .login-glass-card {
+    padding: 22px 18px 20px;
+  }
+  .hero-title {
+    font-size: 26px;
+  }
+  .system-intro-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 
 </style>

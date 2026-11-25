@@ -418,11 +418,12 @@ func (s *InfectionService) evaluateRisks(records []model.MedicalRecord, examOrde
 	return s.evaluateRisksWithScope(records, examOrders, nil)
 }
 
-// evaluateRisksWithScope 按调用者已授权病历边界汇总传染病风险；未授权来源档案保留职业暴露防护预警但脱敏来源编号与机构名
+// evaluateRisksWithScope 按调用者已授权病历边界汇总传染病风险；未授权来源档案仅返回脱敏职业暴露防护等级，严禁泄露具体病原学病名与单号
 func (s *InfectionService) evaluateRisksWithScope(records []model.MedicalRecord, examOrders []model.MedicalExamOrder, authorizedRecordIDs map[uint64]bool) (*model.InfectionRiskAlert, error) {
 	var allMatched []model.InfectionDiseaseInfo
 	var detectedSources []string
 	seenRule := make(map[string]bool)
+	hasUnauthorizedRisk := false
 
 	// 扫描病历字段（优先扫描已授权记录，确保若已授权记录与未授权记录同时记载时，优先展示已授权来源明细）
 	orderedRecords := records
@@ -454,25 +455,24 @@ func (s *InfectionService) evaluateRisksWithScope(records []model.MedicalRecord,
 
 		matches := s.matchText(fullText)
 		isAuthorizedSource := authorizedRecordIDs == nil || authorizedRecordIDs[rec.ID]
+		if !isAuthorizedSource {
+			if len(matches) > 0 {
+				hasUnauthorizedRisk = true
+			}
+			continue
+		}
 		for _, m := range matches {
 			if !seenRule[m.Name] {
 				seenRule[m.Name] = true
-				if isAuthorizedSource {
-					m.RecordNo = rec.RecordNo
-					m.HospitalName = rec.HospitalName
-					if rec.HospitalName == "" {
-						m.HospitalName = formatHospName(rec.HospitalID)
-					}
-					m.RecordDate = rec.CreatedAt.Format("2006-01-02 15:04")
-					sourceDesc := fmt.Sprintf("就诊编号 %s (%s, %s): 命中关键词【%s】",
-						rec.RecordNo, m.HospitalName, m.RecordDate, m.MatchedKeyword)
-					detectedSources = append(detectedSources, sourceDesc)
-				} else {
-					m.RecordNo = "[受控保密]"
-					m.HospitalName = "[未授权外院档案]"
-					m.RecordDate = ""
-					detectedSources = append(detectedSources, "既往关联隐私档案（未获明细授权，已隐藏机构与病历号，仅作职业暴露防护预警）")
+				m.RecordNo = rec.RecordNo
+				m.HospitalName = rec.HospitalName
+				if rec.HospitalName == "" {
+					m.HospitalName = formatHospName(rec.HospitalID)
 				}
+				m.RecordDate = rec.CreatedAt.Format("2006-01-02 15:04")
+				sourceDesc := fmt.Sprintf("就诊编号 %s (%s, %s): 命中关键词【%s】",
+					rec.RecordNo, m.HospitalName, m.RecordDate, m.MatchedKeyword)
+				detectedSources = append(detectedSources, sourceDesc)
 				allMatched = append(allMatched, m)
 			}
 		}
@@ -483,33 +483,51 @@ func (s *InfectionService) evaluateRisksWithScope(records []model.MedicalRecord,
 		examText := strings.Join([]string{ord.ExamItem, ord.ExamReason, ord.ExamResult}, "，")
 		matches := s.matchText(examText)
 		isAuthorizedOrder := authorizedRecordIDs == nil || (ord.RecordID > 0 && authorizedRecordIDs[ord.RecordID])
+		if !isAuthorizedOrder {
+			if len(matches) > 0 {
+				hasUnauthorizedRisk = true
+			}
+			continue
+		}
 		for _, m := range matches {
 			if !seenRule[m.Name] {
 				seenRule[m.Name] = true
-				if isAuthorizedOrder {
-					m.RecordNo = ord.OrderNo
-					m.HospitalName = formatHospName(ord.HospitalID)
-					m.RecordDate = ord.CreatedAt.Format("2006-01-02 15:04")
-					sourceDesc := fmt.Sprintf("检验单号 %s (%s): 命中关键词【%s】",
-						ord.OrderNo, m.HospitalName, m.MatchedKeyword)
-					detectedSources = append(detectedSources, sourceDesc)
-				} else {
-					m.RecordNo = "[受控保密]"
-					m.HospitalName = "[未授权外院检验]"
-					m.RecordDate = ""
-					detectedSources = append(detectedSources, "既往关联隐私检验单（未获明细授权，已隐藏机构与单号，仅作职业暴露防护预警）")
-				}
+				m.RecordNo = ord.OrderNo
+				m.HospitalName = formatHospName(ord.HospitalID)
+				m.RecordDate = ord.CreatedAt.Format("2006-01-02 15:04")
+				sourceDesc := fmt.Sprintf("检验单号 %s (%s): 命中关键词【%s】",
+					ord.OrderNo, m.HospitalName, m.MatchedKeyword)
+				detectedSources = append(detectedSources, sourceDesc)
 				allMatched = append(allMatched, m)
 			}
 		}
 	}
 
 	if len(allMatched) == 0 {
+		if hasUnauthorizedRisk {
+			banner := "⚠️ 职业暴露三级防护预警：接诊/穿刺操作请严格佩戴双层手套与护目镜（具体病原学诊断受隐私锁保护，需患者显式授权或紧急破窗后解锁）"
+			return &model.InfectionRiskAlert{
+				HasRisk:         true,
+				RiskLevel:       "DEIDENTIFIED",
+				Summary:         banner,
+				Diseases:        nil,
+				Precautions:     nil,
+				ProtectionGear:  nil,
+				EmergencySteps:  nil,
+				DetectedFrom:    []string{"既往关联受控隐私档案（未获该单明细授权，已隐去机构、单号与具体病原学病名）"},
+				PrecautionLevel: "LEVEL_3_BLOOD_BODY_FLUID",
+				BannerText:      banner,
+			}, nil
+		}
 		return &model.InfectionRiskAlert{
 			HasRisk:   false,
 			RiskLevel: "SAFE",
 			Summary:   "未检出高危传染病携带记录",
 		}, nil
+	}
+
+	if hasUnauthorizedRisk {
+		detectedSources = append(detectedSources, "另存在受隐私锁保护的未授权关联档案提示（已按隐私策略隐去具体病原学病名与单号）")
 	}
 
 	return s.buildAlertFromMatched(allMatched, detectedSources), nil

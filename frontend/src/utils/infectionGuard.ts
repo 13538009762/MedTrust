@@ -16,13 +16,15 @@ export interface InfectionDisease {
 
 export interface InfectionRiskAlert {
   has_risk: boolean
-  risk_level: 'CRITICAL' | 'HIGH' | 'MEDIUM_HIGH' | 'SAFE'
+  risk_level: 'CRITICAL' | 'HIGH' | 'MEDIUM_HIGH' | 'DEIDENTIFIED' | 'SAFE'
   summary: string
   diseases: InfectionDisease[]
   precautions: string[]
   protection_gear: string[]
   emergency_steps: string[]
   detected_from?: string[]
+  precaution_level?: string
+  banner_text?: string
 }
 
 // 临床高危传染病及医护安全威胁规则库

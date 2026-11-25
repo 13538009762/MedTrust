@@ -25,8 +25,9 @@
       <div class="mkb-right">
         <div class="mkb-key-display">
           <span class="mkb-key-label">当前专属密钥：</span>
-          <code class="mkb-key-code">{{ showKeyPlain ? (auth.user?.medical_key || '123456 (SHA-256加盐保护)') : '••••••' }}</code>
+          <code class="mkb-key-code">{{ showKeyPlain ? (auth.user?.medical_key || '已加密保护（未保存明文）') : '••••••' }}</code>
           <el-button
+            v-if="auth.user?.medical_key"
             link
             type="primary"
             size="small"
@@ -149,14 +150,14 @@
               </div>
               <div class="pi-badges" style="display: flex; gap: 8px; align-items: center;">
                 <el-tag size="small" type="warning" effect="dark">待患者二次确认</el-tag>
-                <el-tooltip :content="getRiskRulesTooltip(item)" placement="top">
+                <el-tooltip v-if="item.risk_score !== undefined && item.risk_score !== null" :content="getRiskRulesTooltip(item)" placement="top">
                   <el-tag
                     size="small"
-                    :type="(item.risk_score || 48) >= 60 ? 'danger' : ((item.risk_score || 48) >= 30 ? 'warning' : 'success')"
+                    :type="item.risk_score >= 60 ? 'danger' : (item.risk_score >= 30 ? 'warning' : 'success')"
                     effect="light"
                     class="cursor-pointer font-bold"
                   >
-                    风险评分: {{ item.risk_score || 48 }}分 · {{ getRiskScoreText(item.risk_score || 48) }}
+                    风险评分: {{ item.risk_score }}分 · {{ getRiskScoreText(item.risk_score) }}
                   </el-tag>
                 </el-tooltip>
               </div>
@@ -198,19 +199,19 @@
                       </el-tag>
                     </div>
 
-                    <!-- 结构化临床关键摘要 (分段展示，清洗模板乱码) -->
+                    <!-- 结构化临床关键摘要 (如实展示，杜绝虚假病历兜底) -->
                     <div class="req-clinical-structured-summary mt-2">
                       <div class="rcs-item">
                         <span class="rcs-label">临床诊断:</span>
-                        <strong class="text-emerald-700">{{ cleanClinicalText(item.record_diagnosis) || '冠状动脉粥样硬化性心脏病' }}</strong>
+                        <strong class="text-emerald-700">{{ cleanClinicalText(item.record_diagnosis) || '暂无诊断摘要' }}</strong>
                       </div>
-                      <div class="rcs-item mt-1">
+                      <div v-if="cleanClinicalText(item.chief_complaint || item.symptoms)" class="rcs-item mt-1">
                         <span class="rcs-label">主诉摘要:</span>
-                        <span class="rcs-text">{{ cleanClinicalText(item.chief_complaint || item.symptoms) || '胸骨后压榨样闷痛伴气促，活动后加剧2天' }}</span>
+                        <span class="rcs-text">{{ cleanClinicalText(item.chief_complaint || item.symptoms) }}</span>
                       </div>
-                      <div class="rcs-item mt-1">
+                      <div v-if="cleanClinicalText(item.treatment_plan)" class="rcs-item mt-1">
                         <span class="rcs-label">处置方案:</span>
-                        <span class="rcs-text">{{ cleanClinicalText(item.treatment_plan) || '拜新同 30mg 口服 每日一次，立普妥 20mg 口服 每晚一次' }}</span>
+                        <span class="rcs-text">{{ cleanClinicalText(item.treatment_plan) }}</span>
                       </div>
                     </div>
 
@@ -244,7 +245,7 @@
               <el-button
                 type="success"
                 :loading="processingId === item.id"
-                @click="approveConsent(item.id)"
+                @click="approveConsent(item)"
               >
                 同意授权 (立即释放权限并上链)
               </el-button>
@@ -252,7 +253,7 @@
                 type="danger"
                 plain
                 :loading="processingId === item.id"
-                @click="rejectConsent(item.id)"
+                @click="rejectConsent(item)"
               >
                 拒绝调阅
               </el-button>
@@ -313,8 +314,8 @@
         </el-table-column>
         <el-table-column prop="status" label="状态" width="100">
           <template #default="{ row }">
-            <el-tag size="small" :type="row.status === 'ACTIVE' ? 'success' : 'danger'">
-              {{ row.status === 'ACTIVE' ? '生效中' : '已撤销' }}
+            <el-tag size="small" :type="row.status === 'ACTIVE' ? 'success' : (row.status === 'EXPIRED' ? 'info' : 'danger')">
+              {{ row.status === 'ACTIVE' ? '生效中' : (row.status === 'EXPIRED' ? '已过期' : '已撤销') }}
             </el-tag>
           </template>
         </el-table-column>
@@ -334,14 +335,14 @@
                 <el-button link type="danger">撤销授权</el-button>
               </template>
             </el-popconfirm>
-            <span v-else class="text-muted">已作废</span>
+            <span v-else class="text-muted">{{ row.status === 'EXPIRED' ? '已到期' : '已撤销' }}</span>
           </template>
         </el-table-column>
       </el-table>
     </el-card>
 
     <!-- 新增数据访问授权策略弹窗 (增强级联筛选与单份指定病历选择) -->
-    <el-dialog v-model="dialogVisible" title="新增数据访问授权策略" width="620px" :close-on-click-modal="false" @open="initDialogData">
+    <el-dialog v-model="dialogVisible" title="新增数据访问授权策略" width="min(620px, 94vw)" :close-on-click-modal="false" @open="initDialogData">
       <el-form :model="form" label-width="110px">
         <el-form-item label="授权目标类型" required>
           <el-radio-group v-model="form.auth_target_type" size="default" @change="onTargetTypeChange">
@@ -363,6 +364,7 @@
         <el-form-item v-if="form.auth_target_type !== 'ALL_DOCTORS'" label="目标医疗机构" required>
           <el-select
             v-model="selectedHospitalId"
+            filterable
             placeholder="请选择医疗机构"
             style="width: 100%;"
             @change="onHospitalChange"
@@ -689,11 +691,11 @@
           <table class="emr-patient-table">
             <tr>
               <th width="80">患者姓名</th>
-              <td width="140"><strong>{{ previewingRecord.patient_name || '患者' }}</strong></td>
+              <td width="140"><strong>{{ previewingRecord.patient_name || auth.user?.real_name || '—' }}</strong></td>
               <th width="80">性别/年龄</th>
-              <td width="140">男 / 45岁</td>
+              <td width="140">{{ previewingRecord.patient_gender || '未登记' }} / {{ previewingRecord.patient_age ? `${previewingRecord.patient_age}岁` : '未登记' }}</td>
               <th width="80">就诊卡号</th>
-              <td><span class="mono">{{ previewingRecord.patient_user_no || 'PAT_0001' }}</span></td>
+              <td><span class="mono">{{ previewingRecord.patient_user_no || auth.user?.user_no || '—' }}</span></td>
             </tr>
             <tr>
               <th>身份证号</th>
@@ -701,7 +703,7 @@
               <th>就诊时间</th>
               <td>{{ formatTime(previewingRecord.created_at) }}</td>
               <th>联系电话</th>
-              <td><span class="mono">{{ previewingRecord.patient_phone || '138****0000' }}</span></td>
+              <td><span class="mono">{{ previewingRecord.patient_phone || auth.user?.phone || '—' }}</span></td>
             </tr>
           </table>
 
@@ -806,11 +808,11 @@
       />
 
       <el-form :model="medicalKeyForm" label-position="top">
-        <el-form-item label="原调阅密钥 (初始默认密码为 123456)">
+        <el-form-item label="原调阅密钥（首次设置可留空）">
           <el-input 
             v-model="medicalKeyForm.old_key" 
             type="password" 
-            placeholder="若首次修改可留空或输入 123456" 
+            placeholder="请输入当前正在使用的原调阅密钥" 
             show-password 
             :prefix-icon="Key"
           />
@@ -1140,7 +1142,9 @@ function onScopeTypeChange(val: string) {
 }
 
 async function initDialogData() {
-  await Promise.all([loadHospitals(), loadDoctors(), loadMyRecords()])
+  // 先加载医院确立 selectedHospitalId，再并行加载医生与病历，消除级联竞态
+  await loadHospitals()
+  await Promise.all([loadDoctors(), loadMyRecords()])
 }
 
 async function loadHospitals() {
@@ -1248,7 +1252,29 @@ async function loadAuths() {
   }
 }
 
-async function approveConsent(id: number) {
+async function approveConsent(item: any) {
+  const id = typeof item === 'number' ? item : item.id
+  const scopeDesc = item?.scope_type === 'ALL'
+    ? '【全部健康档案（含所有历史就诊与检查）】'
+    : `病历「${item?.record_no || id}」`
+  const doctorDesc = item?.doctor_name
+    ? `${item.doctor_name}（${item.doctor_hospital_name || '外院机构'}）`
+    : '申请医生'
+
+  try {
+    await ElMessageBox.confirm(
+      `确认向 ${doctorDesc} 授权查阅您的 ${scopeDesc} 吗？\n同意后权限将立即生效并锚定上链，您可随时在下方列表中撤销。`,
+      '确认同意跨院授权',
+      {
+        confirmButtonText: '确认同意授权',
+        cancelButtonText: '再想想',
+        type: item?.scope_type === 'ALL' || (item?.risk_score ?? 0) >= 60 ? 'warning' : 'success',
+      }
+    )
+  } catch {
+    return
+  }
+
   processingId.value = id
   try {
     const res: any = await approveAccessRequestApi(id)
@@ -1262,15 +1288,36 @@ async function approveConsent(id: number) {
       selectedRequestIds.value = selectedRequestIds.value.filter((i) => i !== id)
       loadPending()
       loadAuths()
+    } else {
+      ElMessage.error(res?.message || '授权审批失败，请稍后重试')
     }
   } catch (err: any) {
-    ElMessage.error(err?.message || '授权审批失败')
+    if (!err?.__toastShown) {
+      ElMessage.error(err?.message || '授权审批失败')
+    }
   } finally {
     processingId.value = null
   }
 }
 
-async function rejectConsent(id: number) {
+async function rejectConsent(item: any) {
+  const id = typeof item === 'number' ? item : item.id
+  const doctorDesc = item?.doctor_name || '该医生'
+
+  try {
+    await ElMessageBox.confirm(
+      `确认拒绝 ${doctorDesc} 的此次病历调阅申请吗？拒绝后该医生将无法查阅对应病历。`,
+      '确认拒绝调阅申请',
+      {
+        confirmButtonText: '确认拒绝',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    )
+  } catch {
+    return
+  }
+
   processingId.value = id
   try {
     const res: any = await rejectAccessRequestApi(id)
@@ -1278,9 +1325,13 @@ async function rejectConsent(id: number) {
       ElMessage.info('已驳回该跨院调阅申请')
       selectedRequestIds.value = selectedRequestIds.value.filter((i) => i !== id)
       loadPending()
+    } else {
+      ElMessage.error(res?.message || '驳回操作失败，请稍后重试')
     }
   } catch (err: any) {
-    ElMessage.error(err?.message || '驳回失败')
+    if (!err?.__toastShown) {
+      ElMessage.error(err?.message || '驳回失败')
+    }
   } finally {
     processingId.value = null
   }
@@ -1573,11 +1624,20 @@ function openPdfPreview(rec: any) {
 }
 
 function printPdfSheet() {
-  window.print()
+  document.body.classList.add('printing-emr')
+  const cleanup = () => {
+    document.body.classList.remove('printing-emr')
+    window.removeEventListener('afterprint', cleanup)
+  }
+  window.addEventListener('afterprint', cleanup)
+  try {
+    window.print()
+  } finally {
+    setTimeout(cleanup, 1000)
+  }
 }
 
 function downloadRecordFile(recordId: number) {
-  const downloadUrl = `/api/v1/medical-records/${recordId}/download`
   downloadRecordApi(recordId)
     .then((res: any) => {
       const blob = new Blob([res], { type: 'application/pdf;charset=utf-8' })
@@ -1591,8 +1651,10 @@ function downloadRecordFile(recordId: number) {
       window.URL.revokeObjectURL(link.href)
       ElMessage.success('已成功下载解密归档凭据！')
     })
-    .catch(() => {
-      window.open(downloadUrl, '_blank')
+    .catch((err: any) => {
+      if (!err?.__toastShown) {
+        ElMessage.error(err?.message || '病历归档 PDF 下载失败，请稍后重试')
+      }
     })
 }
 

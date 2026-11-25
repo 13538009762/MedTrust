@@ -248,6 +248,18 @@ func (r *MedicalRepository) FindByIdempotencyKeyWithFiles(key string) (*model.Me
 	return &rec, nil
 }
 
+// FindByDoctorAndIdempotencyKeyWithFiles 按经治医生 + 幂等键查询病历，防止跨医生幂等键碰撞导致隐私泄露
+func (r *MedicalRepository) FindByDoctorAndIdempotencyKeyWithFiles(doctorID uint64, key string) (*model.MedicalRecord, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	var rec model.MedicalRecord
+	if err := DB.Where("doctor_id = ? AND idempotency_key = ?", doctorID, key).Preload("Files").First(&rec).Error; err != nil {
+		return nil, err
+	}
+	return &rec, nil
+}
+
 // UpdateRecordAttachments WP-15: 更新记录关联的文件附件（含创建新文件 if missing）
 func (r *MedicalRepository) UpdateRecordAttachments(recordID uint64, cid, encDEK, ivNonce, fileHash string) error {
 	if DB == nil {

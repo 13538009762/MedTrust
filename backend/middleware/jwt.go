@@ -49,28 +49,81 @@ func isUserDisabled(userID uint64) bool {
 	return status == "DISABLED"
 }
 
+func isMustChangePassword(userID uint64, claimFlag bool) bool {
+	if !config.AppConfig.IsProduction() || userID == 0 {
+		return false
+	}
+	if repository.DB != nil {
+		var u model.User
+		if err := repository.DB.Select("id, must_change_pwd").First(&u, userID).Error; err == nil {
+			return u.MustChangePwd
+		}
+	}
+	return claimFlag
+}
+
+func isPasswordChangeAllowedEndpoint(method, path string) bool {
+	if method == http.MethodPut && path == "/api/v1/auth/password" {
+		return true
+	}
+	if method == http.MethodPost && path == "/api/v1/auth/logout" {
+		return true
+	}
+	if method == http.MethodGet && path == "/api/v1/auth/profile" {
+		return true
+	}
+	return false
+}
+
 type CustomClaims struct {
-	UserID       uint64 `json:"user_id"`
-	UserNo       string `json:"user_no"`
-	Username     string `json:"username"`
-	Role         string `json:"role"`
-	HospitalID   uint64 `json:"hospital_id"`
-	DepartmentID uint64 `json:"department_id"`
+	UserID        uint64 `json:"user_id"`
+	UserNo        string `json:"user_no"`
+	Username      string `json:"username"`
+	Role          string `json:"role"`
+	HospitalID    uint64 `json:"hospital_id"`
+	DepartmentID  uint64 `json:"department_id"`
+	MustChangePwd bool   `json:"must_change_pwd,omitempty"`
+	IssuedAtNano  int64  `json:"iat_ns,omitempty"`
 	jwt.RegisteredClaims
 }
 
+func isTokenRevokedByPasswordChange(userID uint64, claims *CustomClaims) bool {
+	if userID == 0 || claims == nil {
+		return false
+	}
+	pwdChangedNs, ok := repository.GetPasswordChangedAtNs(userID)
+	if !ok && repository.DB != nil {
+		var u model.User
+		if err := repository.DB.Select("id, password_changed_at_ns").First(&u, userID).Error; err == nil {
+			pwdChangedNs = u.PasswordChangedAtNs
+			repository.CachePasswordChangedAtNs(userID, pwdChangedNs, 60*time.Second)
+		}
+	}
+	if pwdChangedNs <= 0 {
+		return false
+	}
+	tokenIatNs := claims.IssuedAtNano
+	if tokenIatNs == 0 && claims.IssuedAt != nil {
+		tokenIatNs = claims.IssuedAt.Time.UnixNano()
+	}
+	return tokenIatNs < pwdChangedNs
+}
+
 func GenerateToken(u *model.User) (string, error) {
-	expire := time.Now().Add(time.Duration(config.AppConfig.Server.JWTExpireHours) * time.Hour)
+	now := time.Now()
+	expire := now.Add(time.Duration(config.AppConfig.Server.JWTExpireHours) * time.Hour)
 	claims := CustomClaims{
-		UserID:       u.ID,
-		UserNo:       u.UserNo,
-		Username:     u.Username,
-		Role:         u.Role,
-		HospitalID:   u.HospitalID,
-		DepartmentID: u.DepartmentID,
+		UserID:        u.ID,
+		UserNo:        u.UserNo,
+		Username:      u.Username,
+		Role:          u.Role,
+		HospitalID:    u.HospitalID,
+		DepartmentID:  u.DepartmentID,
+		MustChangePwd: u.MustChangePwd,
+		IssuedAtNano:  now.UnixNano(),
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expire),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			IssuedAt:  jwt.NewNumericDate(now),
 			Subject:   u.Username,
 		},
 	}
@@ -97,6 +150,13 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 						c.AbortWithStatusJSON(http.StatusForbidden, model.Response{
 							Code:    403,
 							Message: "您的账号已被监管机构停用封禁，禁止继续执行系统操作",
+						})
+						return
+					}
+					if isMustChangePassword(tp.UserID, false) {
+						c.AbortWithStatusJSON(http.StatusForbidden, model.Response{
+							Code:    403,
+							Message: "安全拦截：首次登录或使用临时密码必须先修改密码后方可访问业务资源",
 						})
 						return
 					}
@@ -182,11 +242,27 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		// 检查该用户改密/重置密码后旧令牌是否已被撤销
+		if isTokenRevokedByPasswordChange(claims.UserID, claims) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, model.Response{
+				Code:    401,
+				Message: "密码已修改或重置，原身份令牌已失效，请重新登录",
+			})
+			return
+		}
+
 		// 实时核验账号状态 (通过 Redis / MemoryCache 高频削峰，仅在缓存未命中时回源 MySQL)
 		if isUserDisabled(claims.UserID) {
 			c.AbortWithStatusJSON(http.StatusForbidden, model.Response{
 				Code:    403,
 				Message: "您的账号已被监管机构停用封禁，禁止继续执行系统操作",
+			})
+			return
+		}
+		if isMustChangePassword(claims.UserID, claims.MustChangePwd) && !isPasswordChangeAllowedEndpoint(c.Request.Method, c.Request.URL.Path) {
+			c.AbortWithStatusJSON(http.StatusForbidden, model.Response{
+				Code:    403,
+				Message: "安全拦截：首次登录或使用临时密码必须先调用修改密码接口完成改密",
 			})
 			return
 		}

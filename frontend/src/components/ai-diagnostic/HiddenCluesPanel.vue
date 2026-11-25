@@ -4,20 +4,21 @@
     <div class="pane-tip-row mb-3">
       <span>从跨院已授权自由文本主诉、病程与现病史中自动抽取的口语化隐匿风险线索：</span>
     </div>
-    <div class="clues-grid">
+    <div v-if="(result.hidden_allergy_clues || []).length > 0" class="clues-grid">
       <div
         v-for="(clue, cIdx) in (result.hidden_allergy_clues || [])"
         :key="cIdx"
         class="clue-item-card"
-        :class="clue.clue_type.includes('过敏') ? 'clue-danger' : (clue.clue_type.includes('正常') ? 'clue-success' : 'clue-warning')"
+        :class="String(clue.clue_type || '').includes('过敏') ? 'clue-danger' : (String(clue.clue_type || '').includes('正常') ? 'clue-success' : 'clue-warning')"
       >
         <div class="clue-top-row">
-          <span class="clue-badge">{{ clue.clue_type }}</span>
-          <span class="clue-source font-mono text-muted text-xs">来源: {{ clue.source_hospital }} ({{ clue.source_record_no }})</span>
+          <span class="clue-badge">{{ clue.clue_type || '临床风险线索' }}</span>
+          <span class="clue-source font-mono text-muted text-xs">来源: {{ clue.source_hospital || '合作医院' }} ({{ clue.source_record_no || '—' }})</span>
         </div>
         <div class="clue-text">{{ clue.content }}</div>
       </div>
     </div>
+    <el-empty v-else description="当前已授权的跨院病历中未检出隐匿过敏或高危线索" :image-size="60" />
   </div>
 </template>
 

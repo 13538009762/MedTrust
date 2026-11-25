@@ -1,5 +1,5 @@
 <template>
-  <div v-if="alert && alert.has_risk" class="infection-safety-alert" :class="[alert.risk_level.toLowerCase(), mode]">
+  <div v-if="alert && alert.has_risk" class="infection-safety-alert" :class="[normalizedRiskLevel, mode]">
     <!-- 右上角悬浮条幅模式 (Corner Banner) -->
     <div v-if="mode === 'corner-banner'" class="corner-banner-wrapper">
       <div class="banner-pulse-dot" />
@@ -8,7 +8,10 @@
           <el-icon class="alert-icon"><WarningFilled /></el-icon>
           医护职业安全预警
         </span>
-        <span class="banner-summary">
+        <span v-if="isDeidentified" class="banner-summary">
+          {{ alert.banner_text || alert.summary || '存在受隐私保护的高危职业暴露风险，接诊与穿刺操作请严格落实三级防护！' }}
+        </span>
+        <span v-else class="banner-summary">
           检测到患者有<strong>【{{ diseaseNames }}】</strong>既往/长期携带病史！(为保证医护人员安全)
         </span>
         <el-button type="danger" size="small" round class="guide-btn" @click.stop="openGuideModal">
@@ -19,22 +22,23 @@
 
     <!-- 右上角微标模式 (Corner Badge) -->
     <div v-else-if="mode === 'badge'" class="corner-badge-wrapper" @click="openGuideModal">
-      <div class="badge-pill" :class="alert.risk_level.toLowerCase()">
+      <div class="badge-pill" :class="normalizedRiskLevel">
         <span class="pulse-ring" />
         <el-icon class="mr-1"><WarningFilled /></el-icon>
-        <span>医护安全预警: {{ diseaseNames }} (长期携带)</span>
+        <span v-if="isDeidentified">医护安全预警: 隐私受控 · 三级职业暴露防护</span>
+        <span v-else>医护安全预警: {{ diseaseNames }} (长期携带)</span>
         <span class="badge-action-hint">点击查看防护</span>
       </div>
     </div>
 
     <!-- 行内卡片模式 (Card) -->
-    <div v-else class="card-alert-wrapper" :class="alert.risk_level.toLowerCase()">
+    <div v-else class="card-alert-wrapper" :class="normalizedRiskLevel">
       <div class="card-top">
         <div class="c-title">
           <el-icon class="text-xl mr-1 text-red-500"><WarningFilled /></el-icon>
           <span class="font-bold text-red-700">【医护职业安全专项警示 · 重点防护】</span>
           <el-tag :type="alert.risk_level === 'CRITICAL' ? 'danger' : 'warning'" size="small" effect="dark" class="ml-2">
-            {{ alert.risk_level === 'CRITICAL' ? '极高危生物暴露风险' : '高危传染病携带' }}
+            {{ isDeidentified ? '隐私受控 · 三级防护' : (alert.risk_level === 'CRITICAL' ? '极高危生物暴露风险' : '高危传染病携带') }}
           </el-tag>
         </div>
         <el-button type="danger" link size="small" @click="openGuideModal">
@@ -47,7 +51,7 @@
       <div class="gear-chips mt-2">
         <span class="gear-lbl">接诊必须穿戴：</span>
         <el-tag
-          v-for="g in (alert.protection_gear || []).slice(0, 4)"
+          v-for="g in effectiveProtectionGear.slice(0, 4)"
           :key="g"
           size="small"
           type="info"
@@ -56,6 +60,16 @@
         >
           {{ g }}
         </el-tag>
+        <el-tag
+          v-if="effectiveProtectionGear.length > 4"
+          size="small"
+          type="danger"
+          effect="plain"
+          class="cursor-pointer"
+          @click="openGuideModal"
+        >
+          +{{ effectiveProtectionGear.length - 4 }} 项更多装备
+        </el-tag>
       </div>
     </div>
 
@@ -63,17 +77,17 @@
     <el-dialog
       v-model="guideModalVisible"
       title="国家卫健委《医务人员职业暴露防护导则》· 专项安全处置指南"
-      width="780px"
+      width="min(780px, 94vw)"
       append-to-body
       class="infection-guide-dialog"
     >
       <div class="guide-modal-body">
         <!-- 警报横幅 -->
-        <div class="guide-banner" :class="alert.risk_level.toLowerCase()">
+        <div class="guide-banner" :class="normalizedRiskLevel">
           <div class="gb-head">
             <el-icon class="gb-icon"><WarningFilled /></el-icon>
             <div class="gb-title">
-              <span class="main-t">【{{ alert.risk_level === 'CRITICAL' ? '极高危职业暴露预警' : '高危传染性疾病预警' }}】</span>
+              <span class="main-t">【{{ isDeidentified ? '隐私受控 · 职业暴露三级防护预警' : (alert.risk_level === 'CRITICAL' ? '极高危职业暴露预警' : '高危传染性疾病预警') }}】</span>
               <span class="sub-t">严格落实标准预防、屏障防护与锐器伤防范（为保证医务人员人身安全）</span>
             </div>
           </div>
@@ -82,41 +96,43 @@
           </div>
         </div>
 
-        <!-- 检出疾病特征清单 -->
-        <div class="section-title mt-4">
-          <span class="st-bar" />
-          <span class="st-text">检出高危病原体与临床风险特征</span>
-        </div>
-        <div class="disease-cards-grid">
-          <div
-            v-for="(d, idx) in alert.diseases"
-            :key="idx"
-            class="d-card"
-          >
-            <div class="d-header">
-              <span class="d-name">{{ d.name }}</span>
-              <el-tag size="small" :type="d.risk_level === 'CRITICAL' ? 'danger' : 'warning'">
-                {{ d.persistence }}
-              </el-tag>
-            </div>
-            <div class="d-row">
-              <span class="lbl">传播分类：</span>
-              <span>{{ d.category }}</span>
-            </div>
-            <div class="d-row">
-              <span class="lbl">传播途径：</span>
-              <span class="text-danger font-semibold">{{ d.transmission }}</span>
-            </div>
-            <div class="d-row">
-              <span class="lbl">医护威胁：</span>
-              <span class="text-danger">{{ d.threat_to_doctor }}</span>
-            </div>
-            <div v-if="d.record_no" class="d-row trace">
-              <span class="lbl">检出溯源：</span>
-              <span class="mono">{{ d.record_no }} ({{ d.hospital_name || '医疗机构' }} · {{ d.record_date }})</span>
+        <!-- 检出疾病特征清单（脱敏模式下隐藏具体病原学明细） -->
+        <template v-if="alert.diseases && alert.diseases.length > 0">
+          <div class="section-title mt-4">
+            <span class="st-bar" />
+            <span class="st-text">检出高危病原体与临床风险特征</span>
+          </div>
+          <div class="disease-cards-grid">
+            <div
+              v-for="(d, idx) in alert.diseases"
+              :key="idx"
+              class="d-card"
+            >
+              <div class="d-header">
+                <span class="d-name">{{ d.name }}</span>
+                <el-tag size="small" :type="d.risk_level === 'CRITICAL' ? 'danger' : 'warning'">
+                  {{ d.persistence }}
+                </el-tag>
+              </div>
+              <div class="d-row">
+                <span class="lbl">传播分类：</span>
+                <span>{{ d.category }}</span>
+              </div>
+              <div class="d-row">
+                <span class="lbl">传播途径：</span>
+                <span class="text-danger font-semibold">{{ d.transmission }}</span>
+              </div>
+              <div class="d-row">
+                <span class="lbl">医护威胁：</span>
+                <span class="text-danger">{{ d.threat_to_doctor }}</span>
+              </div>
+              <div v-if="d.record_no" class="d-row trace">
+                <span class="lbl">检出溯源：</span>
+                <span class="mono">{{ d.record_no }} ({{ d.hospital_name || '医疗机构' }} · {{ d.record_date }})</span>
+              </div>
             </div>
           </div>
-        </div>
+        </template>
 
         <!-- 医护必备 PPE 装备清单 -->
         <div class="section-title mt-4">
@@ -125,7 +141,7 @@
         </div>
         <div class="gear-box">
           <div
-            v-for="(gear, idx) in alert.protection_gear"
+            v-for="(gear, idx) in effectiveProtectionGear"
             :key="idx"
             class="gear-item"
           >
@@ -140,7 +156,7 @@
           <span class="st-text">医护人员接诊与操作防护规范细则</span>
         </div>
         <ul class="precaution-list">
-          <li v-for="(p, idx) in alert.precautions" :key="idx">
+          <li v-for="(p, idx) in effectivePrecautions" :key="idx">
             <span class="num">{{ idx + 1 }}</span>
             <span class="content">{{ p }}</span>
           </li>
@@ -153,7 +169,7 @@
         </div>
         <div class="emergency-flow-grid">
           <div
-            v-for="(step, idx) in (alert.emergency_steps || defaultEmergencySteps)"
+            v-for="(step, idx) in effectiveEmergencySteps"
             :key="idx"
             class="flow-step-card"
           >
@@ -195,12 +211,12 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { WarningFilled, CircleCheckFilled } from '@element-plus/icons-vue'
-import type { InfectionRiskAlert } from '../utils/infectionGuard'
+import { WarningFilled, CircleCheckFilled, Lock } from '@element-plus/icons-vue'
+import type { InfectionAlert } from '../types/clinical'
 
 const props = withDefaults(
   defineProps<{
-    alert?: InfectionRiskAlert | null
+    alert?: InfectionAlert | null
     mode?: 'corner-banner' | 'badge' | 'card'
     showSafeStatus?: boolean
   }>(),
@@ -212,12 +228,52 @@ const props = withDefaults(
 
 const guideModalVisible = ref(false)
 
+const normalizedRiskLevel = computed(() => {
+  const lvl = (props.alert?.risk_level || 'HIGH').toLowerCase()
+  if (lvl === 'critical' || lvl === 'high' || lvl === 'medium_high' || lvl === 'deidentified') {
+    return lvl
+  }
+  return 'high'
+})
+
+const isDeidentified = computed(() => props.alert?.risk_level === 'DEIDENTIFIED')
+
 const diseaseNames = computed(() => {
   if (!props.alert?.diseases || props.alert.diseases.length === 0) return '高危传染病'
   return props.alert.diseases.map(d => {
     const mainName = d.name.split(' (')[0]
     return mainName.replace('获得性免疫缺陷综合征 / ', '')
   }).join('、')
+})
+
+const defaultDeidentifiedGear = [
+  '医用防护口罩 (N95/KN95)',
+  '双层无粉灭菌乳胶手套',
+  '防喷溅护目镜 / 防护面屏',
+  '防刺锐器收集盒与安全穿刺针具'
+]
+
+const defaultDeidentifiedPrecautions = [
+  '具体病原学诊断受跨院隐私策略保护，接诊与有创操作请默认按血源性及体液三级标准防护执行',
+  '采血、输液及穿刺操作必须佩戴双层乳胶手套并配置护目镜，严禁双手回套针帽',
+  '诊疗结束后严格执行手卫生及器械物表规范消毒；如需调阅完整病史请发起知情同意授权或急救破窗'
+]
+
+const effectiveProtectionGear = computed(() => {
+  const list = props.alert?.protection_gear
+  if (list && list.length > 0) return list
+  return isDeidentified.value ? defaultDeidentifiedGear : []
+})
+
+const effectivePrecautions = computed(() => {
+  const list = props.alert?.precautions
+  if (list && list.length > 0) return list
+  return isDeidentified.value ? defaultDeidentifiedPrecautions : []
+})
+
+const effectiveEmergencySteps = computed(() => {
+  const list = props.alert?.emergency_steps
+  return list && list.length > 0 ? list : defaultEmergencySteps
 })
 
 const defaultEmergencySteps = [
@@ -329,7 +385,10 @@ defineExpose({
   border-radius: 9999px;
   font-size: 12px;
   font-weight: 600;
-  border: 1.5px solid transparent;
+  border: 1.5px solid #f97316;
+  background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
+  color: #c2410c;
+  box-shadow: 0 2px 10px rgba(249, 115, 22, 0.2);
   transition: all 0.25s ease;
   position: relative;
   white-space: nowrap !important;
@@ -350,7 +409,8 @@ defineExpose({
   box-shadow: 0 2px 10px rgba(239, 68, 68, 0.25);
 }
 
-.badge-pill.high {
+.badge-pill.high,
+.badge-pill.deidentified {
   background: linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%);
   color: #c2410c;
   border-color: #f97316;
@@ -400,7 +460,8 @@ defineExpose({
 .card-alert-wrapper {
   padding: 12px 16px;
   border-radius: 8px;
-  border: 1.5px solid;
+  border: 1.5px solid #fdba74;
+  background: #fff7ed;
   margin-bottom: 12px;
 }
 
@@ -409,7 +470,8 @@ defineExpose({
   border-color: #f87171;
 }
 
-.card-alert-wrapper.high {
+.card-alert-wrapper.high,
+.card-alert-wrapper.deidentified {
   background: #fff7ed;
   border-color: #fdba74;
 }
@@ -462,7 +524,8 @@ defineExpose({
 .guide-banner {
   padding: 14px 18px;
   border-radius: 8px;
-  border: 1.5px solid;
+  border: 1.5px solid #f97316;
+  background: linear-gradient(135deg, #fff7ed, #ffedd5);
 }
 
 .guide-banner.critical {
@@ -470,9 +533,15 @@ defineExpose({
   border-color: #ef4444;
 }
 
-.guide-banner.high {
+.guide-banner.high,
+.guide-banner.deidentified {
   background: linear-gradient(135deg, #fff7ed, #ffedd5);
   border-color: #f97316;
+}
+
+.guide-banner.medium_high {
+  background: linear-gradient(135deg, #fefce8, #fef9c3);
+  border-color: #eab308;
 }
 
 .gb-head {

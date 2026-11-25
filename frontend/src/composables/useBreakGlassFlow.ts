@@ -62,8 +62,8 @@ export function useBreakGlassFlow(target: Ref<MedicalRecordRow | null>, options:
   })
   const bgForm = ref<BreakGlassFormState>({
     emergency_reason: 'COMA',
-    description: '患者严重休克昏迷送医，急需调阅既往严重药物过敏史及基础心脑血管病史。',
-    doctor_confirmed: true,
+    description: '',
+    doctor_confirmed: false,
   })
 
   // ── 现场密钥解锁 + 防爆破验证码 ──
@@ -88,6 +88,8 @@ export function useBreakGlassFlow(target: Ref<MedicalRecordRow | null>, options:
 
   watch(breakGlassVisible, (val) => {
     if (val) {
+      bgForm.value.description = ''
+      bgForm.value.doctor_confirmed = false
       fetchUnlockCaptcha()
     }
   })
@@ -212,7 +214,7 @@ export function useBreakGlassFlow(target: Ref<MedicalRecordRow | null>, options:
     if (!target.value) return
     const key = patientKey.value.trim()
     if (!key) {
-      ElMessage.warning('请输入患者专属病历调阅密钥（初始默认: 123456）')
+      ElMessage.warning('请由患者本人输入其专属病历调阅密钥')
       return
     }
     if (!unlockCaptchaAnswer.value.trim()) {
@@ -285,6 +287,14 @@ export function useBreakGlassFlow(target: Ref<MedicalRecordRow | null>, options:
   /** 选项二：Break-Glass 危重急救破窗放行 */
   async function submitBreakGlass() {
     if (!target.value) return
+    if (bgForm.value.description.trim().length < 10) {
+      ElMessage.warning('请详细录入至少 10 个字的临床急救说明，该说明将固化上链供监管核查')
+      return
+    }
+    if (!bgForm.value.doctor_confirmed) {
+      ElMessage.warning('请先勾选并确认医疗与法律责任声明')
+      return
+    }
     submittingBG.value = true
 
     try {

@@ -31,7 +31,7 @@
           </div>
           <el-tag
             size="small"
-            :type="step.status === 'COMPLETED' ? 'success' : (step.status === 'ACTIVE' ? 'primary' : 'info')"
+            :type="step.status === 'COMPLETED' ? 'success' : (step.status === 'WARNING' ? 'danger' : (step.status === 'ACTIVE' ? 'primary' : 'info'))"
             effect="dark"
             class="step-status-tag"
           >
@@ -62,19 +62,29 @@ import { computed } from 'vue'
 const props = defineProps<{
   record?: any
   tampered?: boolean
+  verified?: boolean
 }>()
 
 const steps = computed(() => {
   const r = props.record || {}
-  const isTampered = props.tampered || r.is_tampered
+  const hasRecord = Boolean(r && r.record_no)
+  const isTampered = Boolean(props.tampered || r.is_tampered)
+  const hasExam = Boolean(r.need_exam || r.exam_items)
+  const hasExamResult = Boolean(r.exam_result)
+  const hasDiagnosis = Boolean(r.diagnosis)
+  const ipfsCid = (r.files && r.files[0]?.ipfs_cid) || r.ipfs_cid || ''
+  const fileHash = (r.files && r.files[0]?.file_hash) || r.file_hash || ''
+  const clinicalHash = r.chain_hash || r.current_hash || ''
+  const txId = r.fabric_tx_id ? String(r.fabric_tx_id).replace(/^0x/i, '') : ''
+  const hasVerifyDone = Boolean(props.verified || r.verified || isTampered)
 
   return [
     {
       index: 1,
       title: '门诊挂号建档',
       role: '患者/分诊台',
-      status: 'COMPLETED',
-      statusText: '已建档',
+      status: hasRecord ? 'COMPLETED' : 'PENDING',
+      statusText: hasRecord ? '已建档' : '待建档',
       desc: '患者实名认证建档，生成全网唯一规范临床就诊业务流水号。',
       techSpec: 'UUIDv4 + 时间戳前缀',
       details: [
@@ -86,8 +96,8 @@ const steps = computed(() => {
       index: 2,
       title: '责任医师接诊',
       role: '经治门诊医生',
-      status: 'COMPLETED',
-      statusText: '已接诊',
+      status: r.doctor_name ? 'COMPLETED' : 'PENDING',
+      statusText: r.doctor_name ? '已接诊' : '待接诊',
       desc: '专科医生调阅既往档案，核实临床主诉症状与发病病程。',
       techSpec: 'RBAC 角色认证 + JWT 会话令牌',
       details: [
@@ -99,8 +109,8 @@ const steps = computed(() => {
       index: 3,
       title: 'SOAP 病历采集与体征',
       role: '责任医生/护士',
-      status: 'COMPLETED',
-      statusText: '已核验',
+      status: (r.vital_signs || r.chief_complaint || r.symptoms) ? 'COMPLETED' : 'PENDING',
+      statusText: (r.vital_signs || r.chief_complaint || r.symptoms) ? '已采集' : '待采集',
       desc: '规范采集主观病史 (S)、客观查体 (O) 与生命体征指标。',
       techSpec: '结构化医学标准字段校验',
       details: [
@@ -112,12 +122,12 @@ const steps = computed(() => {
       index: 4,
       title: '开具医技辅助检查',
       role: '经治医生',
-      status: 'COMPLETED',
-      statusText: '已开立',
+      status: hasExam ? 'COMPLETED' : (hasDiagnosis ? 'PENDING' : 'PENDING'),
+      statusText: hasExam ? '已开立' : (hasDiagnosis ? '未开立' : '待评估'),
       desc: '根据初步拟诊下达检验化验或医学影像申请单。',
       techSpec: '检查流水号 ORD 编码生成',
       details: [
-        { label: '辅助申请', val: r.exam_items || (r.need_exam ? '已开立辅助检查申请' : '常规临床检查') },
+        { label: '辅助申请', val: r.exam_items || (r.need_exam ? '已开立辅助检查申请' : '未开具外送辅助检查') },
         { label: '初步拟诊', val: r.initial_diagnosis || '—' },
       ]
     },
@@ -125,12 +135,12 @@ const steps = computed(() => {
       index: 5,
       title: '医技科室接收与执行',
       role: '检验/影像技师',
-      status: 'COMPLETED',
-      statusText: '已执行',
+      status: hasExamResult || r.exam_doctor ? 'COMPLETED' : (hasExam ? 'ACTIVE' : 'PENDING'),
+      statusText: hasExamResult || r.exam_doctor ? '已执行' : (hasExam ? '执行中' : '无需执行'),
       desc: '标本实验室化验或 PACS 影像扫描上机检查。',
       techSpec: '分布式多院区医技系统协同',
       details: [
-        { label: '出具人员', val: r.exam_doctor || '检验/影像技师' },
+        { label: '出具人员', val: r.exam_doctor || '—' },
         { label: '执行时间', val: r.exam_time || '—' },
       ]
     },
@@ -138,8 +148,8 @@ const steps = computed(() => {
       index: 6,
       title: '医技报告出具与归档',
       role: '医技科室',
-      status: 'COMPLETED',
-      statusText: '已回传',
+      status: hasExamResult ? 'COMPLETED' : (hasExam ? 'ACTIVE' : 'PENDING'),
+      statusText: hasExamResult ? '已回传' : (hasExam ? '待回传' : '无外送报告'),
       desc: '客观检查结果与影像结论回传并绑定至主就诊记录。',
       techSpec: '医技数据跨科室自动化流转',
       details: [
@@ -150,8 +160,8 @@ const steps = computed(() => {
       index: 7,
       title: '最终确诊与处置方案',
       role: '经治医生',
-      status: 'COMPLETED',
-      statusText: '已确诊',
+      status: hasDiagnosis ? 'COMPLETED' : (hasRecord ? 'ACTIVE' : 'PENDING'),
+      statusText: hasDiagnosis ? '已确诊' : '待确诊',
       desc: '责任医师结合检查结论做出明确评估 (A) 与处置医嘱 (P)。',
       techSpec: '电子病历归档闭环',
       details: [
@@ -163,21 +173,21 @@ const steps = computed(() => {
       index: 8,
       title: '规范 PDF 1.4 文档生成',
       role: '服务端引擎',
-      status: 'COMPLETED',
-      statusText: '已生成',
+      status: hasDiagnosis ? 'COMPLETED' : 'PENDING',
+      statusText: hasDiagnosis ? '已生成' : '待生成',
       desc: '自动化编译生成符合国家标准的合法二进制 PDF 1.4 凭证。',
       techSpec: '标准 PDF 1.4 + UniGB-UTF16-H 矢量字体',
       details: [
         { label: '文档格式', val: 'PDF-1.4 (符合 ISO 32000-1 国际标准)' },
-        { label: '防伪签名', val: (r.doctor_name || '经治责任医师') + ' (CA电子签章)' },
+        { label: '防伪签名', val: r.doctor_name ? `${r.doctor_name} (CA电子签章)` : '—' },
       ]
     },
     {
       index: 9,
       title: '流式 AES-256-GCM 密文加密',
       role: '密码学中间件',
-      status: 'COMPLETED',
-      statusText: '密文就绪',
+      status: (ipfsCid || clinicalHash) ? 'COMPLETED' : 'PENDING',
+      statusText: (ipfsCid || clinicalHash) ? '密文就绪' : '待加密',
       desc: '对称密钥绑定 AAD (患者ID:单号) 加密，磁盘零明文落地。',
       techSpec: '国密/国际双密算法 (AES-GCM / SM4-GCM)',
       details: [
@@ -189,37 +199,37 @@ const steps = computed(() => {
       index: 10,
       title: 'IPFS 分布式节点托管',
       role: 'IPFS 守护节点',
-      status: 'COMPLETED',
-      statusText: '已上链寻址',
+      status: ipfsCid ? 'COMPLETED' : 'PENDING',
+      statusText: ipfsCid ? '已上链寻址' : '待同步',
       desc: '病历密文切片托管于分布式存储网络，生成唯一内容寻址 CID。',
       techSpec: 'InterPlanetary File System (Kademlia DHT)',
       details: [
-        { label: 'IPFS CID', val: (r.files && r.files[0]?.ipfs_cid) || '待同步' },
+        { label: 'IPFS CID', val: ipfsCid || '待同步' },
       ]
     },
     {
       index: 11,
       title: '计算双维密码学指纹',
       role: '哈希引擎',
-      status: 'COMPLETED',
-      statusText: '哈希锁定',
+      status: (fileHash || clinicalHash) ? 'COMPLETED' : 'PENDING',
+      statusText: (fileHash || clinicalHash) ? '哈希锁定' : '待计算',
       desc: '同时分离计算原始文件 FileHash 与结构化临床 Merkle 摘要。',
       techSpec: 'SHA-256 多维临床 Merkle Tree 构造',
       details: [
-        { label: 'FileHash', val: (r.files && r.files[0]?.file_hash) || '待同步' },
-        { label: 'ClinicalHash', val: r.chain_hash || r.current_hash || '待同步' },
+        { label: 'FileHash', val: fileHash || '待同步' },
+        { label: 'ClinicalHash', val: clinicalHash || '待同步' },
       ]
     },
     {
       index: 12,
       title: 'Fabric 智能合约存证出块',
       role: 'Fabric Gateway',
-      status: 'COMPLETED',
-      statusText: '区块固化',
-      desc: '提交交易至 medchannel 通道，Org1/Org2 节点背书并出块。',
+      status: txId ? 'COMPLETED' : 'PENDING',
+      statusText: txId ? '区块固化' : '待上链',
+      desc: '提交交易至 medicalchannel 通道，Org1/Org2 节点背书并出块。',
       techSpec: 'Hyperledger Fabric 2.5 + Raft 共识',
       details: [
-        { label: 'Fabric TxID', val: r.fabric_tx_id ? String(r.fabric_tx_id).replace(/^0x/i, '') : '待同步' },
+        { label: 'Fabric TxID', val: txId || '待同步' },
         { label: '区块高度', val: r.block_height ? `#${r.block_height} (medicalchannel 通道)` : '待同步 (medicalchannel 通道)' },
       ]
     },
@@ -227,8 +237,8 @@ const steps = computed(() => {
       index: 13,
       title: '跨院调阅零信任网关控制',
       role: 'AccessEngine',
-      status: 'COMPLETED',
-      statusText: '安全受控',
+      status: hasRecord ? 'COMPLETED' : 'PENDING',
+      statusText: hasRecord ? '安全受控' : '未启用',
       desc: '跨机构调阅执行基于规则加权评分引擎 (RULE_ENGINE_WEIGHTED)。',
       techSpec: 'RBAC 角色 + ABAC 属性 + 规则加权风控网关',
       details: [
@@ -240,14 +250,16 @@ const steps = computed(() => {
       index: 14,
       title: '动态闭环验真与防篡改审计',
       role: 'Supervisor 监管',
-      status: isTampered ? 'WARNING' : 'COMPLETED',
-      statusText: isTampered ? '篡改拦截' : '哈希吻合',
+      status: isTampered ? 'WARNING' : (hasVerifyDone ? 'COMPLETED' : 'PENDING'),
+      statusText: isTampered ? '篡改拦截' : (hasVerifyDone ? '哈希吻合' : '待核验'),
       desc: isTampered
         ? '动态核验检测到数据库被非法修改，与 Fabric 链上固化指纹不匹配，系统即刻红标报警并阻断采信。'
-        : '实时解密比对本地多维指纹与 Fabric 账本原始指纹，哈希完全一致，存证链闭环可信。',
+        : (hasVerifyDone
+            ? '实时解密比对本地多维指纹与 Fabric 账本原始指纹，哈希完全一致，存证链闭环可信。'
+            : '请点击上方「发起全链防篡改核验」执行实时三阶段比对。'),
       techSpec: '三阶段防篡改核验 (附件指纹 + 临床摘要 + 链上背书)',
       details: [
-        { label: '验真判定', val: isTampered ? 'TAMPER_ALERT (哈希突变)' : 'VERIFIED (真实完整)' },
+        { label: '验真判定', val: isTampered ? 'TAMPER_ALERT (哈希突变)' : (hasVerifyDone ? 'VERIFIED (真实完整)' : '待发起实时核验') },
         { label: '不可篡改', val: 'Fabric 账本不可逆，底层库篡改即刻检出' },
       ]
     },

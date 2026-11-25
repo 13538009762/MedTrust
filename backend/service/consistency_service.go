@@ -78,19 +78,21 @@ func (s *ConsistencyService) KeyLockCount() int {
 
 // CreateRecordWithConsistency 基于状态机流水线创建病历，支持幂等去重与跨分布式节点事务补偿
 func (s *ConsistencyService) CreateRecordWithConsistency(p UploadRecordParams, idempotencyKey string) (*model.MedicalRecord, error) {
-	lockKey := idempotencyKey
-	if lockKey == "" {
+	lockKey := ""
+	if idempotencyKey != "" {
+		lockKey = fmt.Sprintf("%d:%s", p.DoctorID, idempotencyKey)
+	} else {
 		// 无幂等键时退化为"医生+患者+纳秒"随机键：等效于不互斥，但保持 unlock 语义一致
 		lockKey = fmt.Sprintf("anon:%d:%d", p.DoctorID, time.Now().UnixNano())
 	}
 	unlock := s.lockKey(lockKey)
 	defer unlock()
 
-	// 1. 幂等性校验 (Idempotency Key Check)
+	// 1. 幂等性校验 (严格按 doctor_id + idempotency_key 隔离)
 	if idempotencyKey != "" && repository.DB != nil {
 		var existing model.MedicalRecord
-		if err := repository.DB.Where("idempotency_key = ?", idempotencyKey).First(&existing).Error; err == nil {
-			log.Printf("[ConsistencyService] ⚠️ 触发幂等重放拦截: IdempotencyKey=%s, 已存在记录 ID=%d, RecordNo=%s", idempotencyKey, existing.ID, existing.RecordNo)
+		if err := repository.DB.Where("doctor_id = ? AND idempotency_key = ?", p.DoctorID, idempotencyKey).First(&existing).Error; err == nil {
+			log.Printf("[ConsistencyService] ⚠️ 触发幂等重放拦截: DoctorID=%d, IdempotencyKey=%s, 已存在记录 ID=%d, RecordNo=%s", p.DoctorID, idempotencyKey, existing.ID, existing.RecordNo)
 			var files []model.MedicalFile
 			_ = repository.DB.Where("record_id = ?", existing.ID).Find(&files)
 			existing.Files = files
